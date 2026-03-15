@@ -10,7 +10,7 @@ export const SITE_CONFIG = {
   // ── ORGANIZATION ─────────────────────────────────────────
   orgName:      "Raising Arrows",
   orgTagline:   "Helping Christian families launch into homeschooling",
-  orgEmail:     "receipts@raisingarrowsathome.com",
+  orgEmail:     "tierzahammond@gmail.com",
   orgWebsite:   "https://raisingarrowsathome.ca",
   orgProvince:  "Manitoba",
 
