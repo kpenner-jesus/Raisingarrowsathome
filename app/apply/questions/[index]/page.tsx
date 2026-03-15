@@ -153,10 +153,3 @@ export default function QuestionPage() {
     </div>
   );
 }
-```
-
----
-
-**Important note for GitHub:** The folder name must be literally `[index]` with the square brackets — that's how Next.js dynamic routes work. So the full path is:
-```
-app/apply/questions/[index]/page.tsx
