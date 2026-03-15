@@ -82,7 +82,7 @@ export default function ReviewPage() {
     const SERVICE  = "service_px2hwqq";
     const TEMPLATE = "template_l6qz64q";
     const GUEST    = "template_rytd2xf";
-    const PUBKEY   = "Sr8ne3azvu5WL5xCk";
+    const PUBKEY = "ssSZoQF3EMLCl1OPA";
 
     emailjs.init({ publicKey: PUBKEY });
 
