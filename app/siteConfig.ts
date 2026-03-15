@@ -116,7 +116,7 @@ export const SITE_CONFIG = {
   bonusItems: [
     "Free registration to MACHS",
     "2 conference tickets for the upcoming MACHS conference",
-    "A welcome gift of the full Tuttle Twins book set (age appropriate)",
+    "A welcome gift (age appropriate for your child)",
   ],
 
   // ── FAQ ───────────────────────────────────────────────────
