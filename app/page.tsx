@@ -183,8 +183,34 @@ export default function LandingPage() {
           </button>
         </div>
 
+        {/* In association with */}
+        <div style={{ textAlign: "center", marginTop: "3rem", marginBottom: "1.5rem" }}>
+          <div style={{
+            fontSize: "0.72rem", color: "var(--text-muted)",
+            letterSpacing: "0.1em", textTransform: "uppercase",
+            fontWeight: 500, marginBottom: "0.75rem",
+          }}>
+            In association with
+          </div>
+          <a
+            href="https://www.ceoministries.ca/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-block", opacity: 0.85, transition: "opacity 0.2s" }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.85")}
+            aria-label="CEO Ministries — Christians Empowering Organizations"
+          >
+            <img
+              src="/ceo-ministries-logo.svg"
+              alt="CEO Ministries — Christians Empowering Organizations"
+              style={{ height: 56, width: "auto", display: "block" }}
+            />
+          </a>
+        </div>
+
         {/* Footer */}
-        <div style={{ textAlign: "center", marginTop: "3rem", fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.8 }}>
+        <div style={{ textAlign: "center", marginTop: "1.5rem", fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.8 }}>
           <div style={{ marginBottom: "0.25rem", fontFamily: "var(--font-display)", fontStyle: "italic", fontSize: "0.9rem" }}>
             Raising Arrows
           </div>
