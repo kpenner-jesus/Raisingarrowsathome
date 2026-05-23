@@ -5,15 +5,14 @@ import { SITE_CONFIG } from "@/app/siteConfig";
 // ============================================================
 //  PeekingChildren — playful age-tier cards on the landing page.
 //
-//  - Each card holds a stylized SVG kid that peeks above the
-//    card edge at random intervals (6–14s per kid, independent
-//    schedules) for ~2s then ducks back down.
-//  - Clicking a card opens a zoom modal with a longer description
-//    + the same cartoon, gently "breathing" (subtle scale loop).
-//  - Esc / click-outside closes the modal.
+//  Each card has a stylized SVG kid sitting BEHIND it. Heads pop up
+//  above the card edge at independent random intervals. Each kid has
+//  its own personality: tilts, blinks, peek-height, look-around.
+//
+//  Clicking a card opens a zoom modal with a longer description +
+//  the same cartoon, gently "breathing" (subtle scale loop).
 // ============================================================
 
-// Each tier maps to a kid variant + a friendly narrative.
 const TIER_DETAILS = [
   {
     label: "Ages 5–8",
@@ -53,6 +52,14 @@ const TIER_DETAILS = [
   },
 ];
 
+// Per-variant personality
+const PERSONALITIES = [
+  { tilt:  -6, peekHeight:  46, blinks: true,  blinkDelay: "1.4s" }, // pigtails — gentle left tilt
+  { tilt:   4, peekHeight:  40, blinks: false, blinkDelay: "0s"   }, // cap — straight, no blink
+  { tilt:  -2, peekHeight:  52, blinks: true,  blinkDelay: "3.2s" }, // glasses — peeks highest, blinks
+  { tilt:   7, peekHeight:  44, blinks: true,  blinkDelay: "5.7s" }, // hoodie — right tilt, late blink
+];
+
 export function PeekingChildren() {
   const tiers = SITE_CONFIG.fundingCaps;
   const [peeking, setPeeking] = useState<boolean[]>(tiers.map(() => false));
@@ -65,10 +72,10 @@ export function PeekingChildren() {
       const initialDelay = 1500 + Math.random() * 5000;
       const cycle = () => {
         setPeeking((p) => { const next = [...p]; next[i] = true; return next; });
-        const visibleFor = 1800 + Math.random() * 800;
+        const visibleFor = 2200 + Math.random() * 1200;
         timers.push(setTimeout(() => {
           setPeeking((p) => { const next = [...p]; next[i] = false; return next; });
-          const gap = 6000 + Math.random() * 8000;
+          const gap = 5000 + Math.random() * 8000;
           timers.push(setTimeout(cycle, gap));
         }, visibleFor));
       };
@@ -78,7 +85,6 @@ export function PeekingChildren() {
     return () => timers.forEach(clearTimeout);
   }, [tiers.length]);
 
-  // Esc closes modal
   useEffect(() => {
     if (zoom === null) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setZoom(null); };
@@ -88,68 +94,97 @@ export function PeekingChildren() {
 
   return (
     <>
+      <style>{`
+        @keyframes raBlink {
+          0%, 92%, 100% { transform: scaleY(1); }
+          94%, 96%      { transform: scaleY(0.05); }
+        }
+        @keyframes raLookAround {
+          0%, 100% { transform: translateX(0); }
+          50%      { transform: translateX(2px); }
+        }
+        .ra-eye-blink {
+          transform-origin: center;
+          transform-box: fill-box;
+          animation: raBlink 4.2s infinite;
+        }
+        .ra-look-around {
+          animation: raLookAround 5s ease-in-out infinite;
+        }
+      `}</style>
+
       <div style={{
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
         gap: "0.75rem",
         marginBottom: "3rem",
       }}>
-        {tiers.map((tier, i) => (
-          <button
-            key={tier.label}
-            onClick={() => setZoom(i)}
-            aria-label={`Learn more about ${tier.label}`}
-            style={{
-              position: "relative",
-              background: "rgba(255,255,255,0.72)",
-              border: "1.5px solid rgba(0,0,0,0.09)",
-              borderRadius: "var(--radius-lg)",
-              padding: "1.25rem 1rem 1.4rem",
-              textAlign: "center",
-              boxShadow: "var(--shadow-card)",
-              cursor: "pointer",
-              transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1), box-shadow 0.18s",
-              fontFamily: "var(--font-body)",
-              overflow: "visible",
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLButtonElement).style.boxShadow = "var(--shadow-hover)"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLButtonElement).style.boxShadow = "var(--shadow-card)"; }}
-          >
-            {/* Peeking child — absolutely positioned above the card */}
-            <div
-              aria-hidden
-              style={{
-                position: "absolute",
-                top: 0,
-                left: "50%",
-                width: 56,
-                height: 70,
-                transform: `translate(-50%, ${peeking[i] ? "-72%" : "10%"})`,
-                transition: "transform 0.7s cubic-bezier(0.34, 1.4, 0.64, 1)",
-                pointerEvents: "none",
-                zIndex: 1,
-              }}
-            >
-              <Kid variant={i} />
-            </div>
+        {tiers.map((tier, i) => {
+          const p = PERSONALITIES[i] || PERSONALITIES[0];
+          const isPeeking = peeking[i];
+          // When idle: head sits behind the card top, mostly hidden
+          // When peeking: head pops above with a tilt
+          const idleTransform   = `translate(-50%, 60%) rotate(0deg)`;
+          const peekTransform   = `translate(-50%, -${p.peekHeight}%) rotate(${p.tilt}deg)`;
+          return (
+            <div key={tier.label} style={{ position: "relative" }}>
+              {/* Peeking child — sits BEHIND the card */}
+              <div
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: "50%",
+                  width: 56,
+                  height: 78,
+                  transform: isPeeking ? peekTransform : idleTransform,
+                  transition: "transform 0.85s cubic-bezier(0.34, 1.5, 0.64, 1)",
+                  pointerEvents: "none",
+                  zIndex: 1,
+                }}
+              >
+                <Kid variant={i} blinks={p.blinks} blinkDelay={p.blinkDelay} lookAround={i === 2} />
+              </div>
 
-            <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
-              {tier.label}
+              <button
+                onClick={() => setZoom(i)}
+                aria-label={`Learn more about ${tier.label}`}
+                style={{
+                  position: "relative",
+                  zIndex: 2,
+                  width: "100%",
+                  background: "#fefaf3",
+                  border: "1.5px solid rgba(0,0,0,0.09)",
+                  borderRadius: "var(--radius-lg)",
+                  padding: "1.25rem 1rem 1.4rem",
+                  textAlign: "center",
+                  boxShadow: "var(--shadow-card)",
+                  cursor: "pointer",
+                  transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1), box-shadow 0.18s",
+                  fontFamily: "var(--font-body)",
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "translateY(-2px)"; (e.currentTarget as HTMLButtonElement).style.boxShadow = "var(--shadow-hover)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLButtonElement).style.boxShadow = "var(--shadow-card)"; }}
+              >
+                <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
+                  {tier.label}
+                </div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", fontWeight: 500, color: "var(--accent)", lineHeight: 1 }}>
+                  ${tier.cap}
+                </div>
+                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+                  reimbursed
+                </div>
+                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
+                  (you spend ${tier.spend})
+                </div>
+                <div style={{ fontSize: "0.7rem", color: "var(--accent)", marginTop: "0.55rem", fontWeight: 500 }}>
+                  Tap to learn more →
+                </div>
+              </button>
             </div>
-            <div style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", fontWeight: 500, color: "var(--accent)", lineHeight: 1 }}>
-              ${tier.cap}
-            </div>
-            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-              reimbursed
-            </div>
-            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
-              (you spend ${tier.spend})
-            </div>
-            <div style={{ fontSize: "0.7rem", color: "var(--accent)", marginTop: "0.55rem", fontWeight: 500 }}>
-              Tap to learn more →
-            </div>
-          </button>
-        ))}
+          );
+        })}
       </div>
 
       {zoom !== null && (
@@ -172,6 +207,7 @@ function ZoomCard({
   variant: number;
   onClose: () => void;
 }) {
+  const p = PERSONALITIES[variant] || PERSONALITIES[0];
   return (
     <div
       onClick={onClose}
@@ -215,8 +251,9 @@ function ZoomCard({
           margin: "0 auto 0.75rem",
           width: 120, height: 140,
           animation: "raBreathe 3s ease-in-out infinite",
+          transformOrigin: "bottom center",
         }} aria-hidden>
-          <Kid variant={variant} />
+          <Kid variant={variant} blinks blinkDelay={p.blinkDelay} lookAround={false} />
         </div>
 
         <div style={{ textAlign: "center", marginBottom: "1rem" }}>
@@ -258,9 +295,9 @@ function ZoomCard({
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "0.7rem", marginBottom: "1.25rem" }}>
-          {detail.body.map((p, i) => (
+          {detail.body.map((paragraph, i) => (
             <p key={i} style={{ fontSize: "0.92rem", color: "var(--text-secondary)", lineHeight: 1.65, margin: 0, fontWeight: 300 }}>
-              {p}
+              {paragraph}
             </p>
           ))}
         </div>
@@ -299,35 +336,52 @@ function ZoomCard({
 }
 
 // ──────────────────────────────────────────────────────────────
-//  Kid SVG variants — stylized, friendly, age-appropriate
+//  Kid SVG — 4 variants with optional blinking + look-around
 // ──────────────────────────────────────────────────────────────
 
-function Kid({ variant }: { variant: number }) {
-  // 4 variants — different hair / accessory / palette
+interface KidProps {
+  variant: number;
+  blinks?: boolean;
+  blinkDelay?: string;
+  lookAround?: boolean;
+}
+
+function Kid({ variant, blinks, blinkDelay, lookAround }: KidProps) {
+  const eyeProps = blinks
+    ? { className: "ra-eye-blink", style: { animationDelay: blinkDelay } as React.CSSProperties }
+    : {};
+  const lookProps = lookAround ? { className: "ra-look-around" } : {};
+
   switch (variant) {
-    case 0: return <KidPigtails />;
-    case 1: return <KidCap />;
-    case 2: return <KidGlasses />;
-    case 3: return <KidHoodie />;
-    default: return <KidPigtails />;
+    case 0: return <KidPigtails eyeProps={eyeProps} lookProps={lookProps} />;
+    case 1: return <KidCap      eyeProps={eyeProps} lookProps={lookProps} />;
+    case 2: return <KidGlasses  eyeProps={eyeProps} lookProps={lookProps} />;
+    case 3: return <KidHoodie   eyeProps={eyeProps} lookProps={lookProps} />;
+    default: return <KidPigtails eyeProps={eyeProps} lookProps={lookProps} />;
   }
 }
 
-// 5–8: pigtails, big eyes, rosy cheeks
-function KidPigtails() {
+type SubProps = { eyeProps: any; lookProps: any };
+
+function KidPigtails({ eyeProps, lookProps }: SubProps) {
   return (
-    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-      <ellipse cx="30" cy="70" rx="22" ry="14" fill="#fde8c8" opacity="0.55" />
+    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
       {/* pigtails */}
       <ellipse cx="10" cy="32" rx="8" ry="11" fill="#a86b3a" />
       <ellipse cx="50" cy="32" rx="8" ry="11" fill="#a86b3a" />
+      {/* pigtail bows */}
+      <circle cx="10" cy="22" r="2.5" fill="#e8793a" />
+      <circle cx="50" cy="22" r="2.5" fill="#e8793a" />
       {/* head */}
       <ellipse cx="30" cy="35" rx="18" ry="20" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
       {/* hair fringe */}
       <path d="M 14 24 Q 30 12 46 24 Q 42 28 30 27 Q 18 28 14 24 Z" fill="#a86b3a" />
-      {/* eyes */}
-      <circle cx="22" cy="35" r="2.2" fill="#1a1a1a" />
-      <circle cx="38" cy="35" r="2.2" fill="#1a1a1a" />
+      {/* eyes (blink-able) */}
+      <g {...lookProps}>
+        <circle cx="22" cy="35" r="2.2" fill="#1a1a1a" {...eyeProps} />
+        <circle cx="38" cy="35" r="2.2" fill="#1a1a1a" {...eyeProps} />
+      </g>
+      {/* eye highlights */}
       <circle cx="22.7" cy="34.3" r="0.7" fill="#fff" />
       <circle cx="38.7" cy="34.3" r="0.7" fill="#fff" />
       {/* cheeks */}
@@ -339,22 +393,21 @@ function KidPigtails() {
   );
 }
 
-// 8–12: baseball cap, freckles
-function KidCap() {
+function KidCap({ eyeProps, lookProps }: SubProps) {
   return (
-    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-      <ellipse cx="30" cy="70" rx="22" ry="14" fill="#fde8c8" opacity="0.55" />
-      {/* head */}
+    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
       <ellipse cx="30" cy="38" rx="17" ry="19" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
-      {/* hair under cap */}
       <path d="M 14 32 Q 30 28 46 32 L 46 38 Q 30 36 14 38 Z" fill="#3a2618" />
-      {/* cap (orange brand) */}
+      {/* cap */}
       <path d="M 11 28 Q 30 12 49 28 L 49 30 L 11 30 Z" fill="#e8793a" stroke="#1a1a1a" strokeWidth="1.2" />
-      {/* cap brim */}
       <ellipse cx="30" cy="30" rx="22" ry="3" fill="#c45f20" stroke="#1a1a1a" strokeWidth="1.2" />
+      {/* tiny cap logo */}
+      <circle cx="30" cy="22" r="2.2" fill="#fff" opacity="0.7" />
       {/* eyes */}
-      <circle cx="23" cy="40" r="2" fill="#1a1a1a" />
-      <circle cx="37" cy="40" r="2" fill="#1a1a1a" />
+      <g {...lookProps}>
+        <circle cx="23" cy="40" r="2" fill="#1a1a1a" {...eyeProps} />
+        <circle cx="37" cy="40" r="2" fill="#1a1a1a" {...eyeProps} />
+      </g>
       <circle cx="23.6" cy="39.5" r="0.6" fill="#fff" />
       <circle cx="37.6" cy="39.5" r="0.6" fill="#fff" />
       {/* freckles */}
@@ -362,56 +415,63 @@ function KidCap() {
       <circle cx="24" cy="46" r="0.6" fill="#a86b3a" />
       <circle cx="36" cy="46" r="0.6" fill="#a86b3a" />
       <circle cx="40" cy="44" r="0.6" fill="#a86b3a" />
-      {/* mouth */}
-      <path d="M 26 50 Q 30 53 34 50" stroke="#1a1a1a" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+      {/* mouth — big toothy grin */}
+      <path d="M 26 50 Q 30 54 34 50" stroke="#1a1a1a" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+      <path d="M 28 50.5 L 28 52.5 L 32 52.5 L 32 50.5 Z" fill="#fff" stroke="#1a1a1a" strokeWidth="0.6" />
     </svg>
   );
 }
 
-// 12–15: glasses, slightly longer hair
-function KidGlasses() {
+function KidGlasses({ eyeProps, lookProps }: SubProps) {
   return (
-    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-      <ellipse cx="30" cy="70" rx="22" ry="14" fill="#fde8c8" opacity="0.55" />
-      {/* head */}
+    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
       <ellipse cx="30" cy="38" rx="17" ry="20" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
       {/* hair */}
       <path d="M 12 28 Q 18 18 30 18 Q 42 18 48 28 Q 48 34 44 32 Q 30 26 16 32 Q 12 34 12 28 Z" fill="#1a1a1a" />
-      {/* side bangs */}
       <path d="M 13 32 Q 18 36 22 32 L 22 38 Q 16 38 13 35 Z" fill="#1a1a1a" />
       {/* glasses */}
-      <circle cx="22" cy="40" r="4.5" fill="none" stroke="#1a1a1a" strokeWidth="1.4" />
-      <circle cx="38" cy="40" r="4.5" fill="none" stroke="#1a1a1a" strokeWidth="1.4" />
+      <circle cx="22" cy="40" r="4.5" fill="rgba(255,255,255,0.3)" stroke="#1a1a1a" strokeWidth="1.4" />
+      <circle cx="38" cy="40" r="4.5" fill="rgba(255,255,255,0.3)" stroke="#1a1a1a" strokeWidth="1.4" />
       <line x1="26.5" y1="40" x2="33.5" y2="40" stroke="#1a1a1a" strokeWidth="1.4" />
       {/* eyes behind glasses */}
-      <circle cx="22" cy="40" r="1.6" fill="#1a1a1a" />
-      <circle cx="38" cy="40" r="1.6" fill="#1a1a1a" />
-      {/* mouth */}
+      <g {...lookProps}>
+        <circle cx="22" cy="40" r="1.6" fill="#1a1a1a" {...eyeProps} />
+        <circle cx="38" cy="40" r="1.6" fill="#1a1a1a" {...eyeProps} />
+      </g>
+      {/* glasses glint */}
+      <circle cx="20.5" cy="38.5" r="0.8" fill="#fff" opacity="0.9" />
+      <circle cx="36.5" cy="38.5" r="0.8" fill="#fff" opacity="0.9" />
+      {/* slight smirk */}
       <path d="M 26 50 Q 30 52 34 50" stroke="#1a1a1a" strokeWidth="1.4" strokeLinecap="round" fill="none" />
     </svg>
   );
 }
 
-// 15–18: hoodie, more mature face
-function KidHoodie() {
+function KidHoodie({ eyeProps, lookProps }: SubProps) {
   return (
-    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-      <ellipse cx="30" cy="70" rx="22" ry="14" fill="#fde8c8" opacity="0.55" />
+    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
       {/* hoodie */}
       <path d="M 6 80 L 6 62 Q 6 46 30 38 Q 54 46 54 62 L 54 80 Z" fill="#4a7ec7" stroke="#1a1a1a" strokeWidth="1.2" />
+      {/* drawstrings */}
+      <path d="M 26 50 L 24 58" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M 34 50 L 36 58" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" />
+      <circle cx="24" cy="59" r="1" fill="#fff" />
+      <circle cx="36" cy="59" r="1" fill="#fff" />
       {/* head */}
       <ellipse cx="30" cy="38" rx="16" ry="18" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
-      {/* hair (short, swept) */}
+      {/* hair */}
       <path d="M 14 30 Q 22 18 38 22 Q 46 26 46 32 Q 38 28 28 30 Q 18 31 14 30 Z" fill="#7a4a26" />
-      {/* hood opening shape behind head */}
+      {/* hood opening shadow */}
       <path d="M 11 42 Q 11 36 14 32 L 14 42 Z" fill="#3a6fb8" />
       <path d="M 49 42 Q 49 36 46 32 L 46 42 Z" fill="#3a6fb8" />
       {/* eyes */}
-      <circle cx="23" cy="40" r="2" fill="#1a1a1a" />
-      <circle cx="37" cy="40" r="2" fill="#1a1a1a" />
+      <g {...lookProps}>
+        <circle cx="23" cy="40" r="2" fill="#1a1a1a" {...eyeProps} />
+        <circle cx="37" cy="40" r="2" fill="#1a1a1a" {...eyeProps} />
+      </g>
       <circle cx="23.6" cy="39.5" r="0.6" fill="#fff" />
       <circle cx="37.6" cy="39.5" r="0.6" fill="#fff" />
-      {/* mouth */}
+      {/* subtle smile */}
       <path d="M 27 49 Q 30 51 33 49" stroke="#1a1a1a" strokeWidth="1.3" strokeLinecap="round" fill="none" />
     </svg>
   );
