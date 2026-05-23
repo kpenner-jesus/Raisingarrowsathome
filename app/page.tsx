@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SITE_CONFIG } from "./siteConfig";
 import { PeekingChildren } from "./_components/PeekingChildren";
@@ -9,22 +9,35 @@ import { supabaseBrowser } from "./lib/supabase/browser";
 export default function LandingPage() {
   const router = useRouter();
 
-  // If user is already signed in (e.g. magic-link landed on `/` because Supabase
-  // didn't honor emailRedirectTo), route them to the right place by role.
+  // Resolve current session + role for the top-right pill. We do NOT
+  // auto-redirect signed-in users any more — they may genuinely want to
+  // view the public site. The pill shows where they can jump back to.
+  const [authState, setAuthState] = useState<{ role: string | null; loaded: boolean }>({ role: null, loaded: false });
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const supabase = supabaseBrowser();
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
+      if (cancelled) return;
+      if (!user) {
+        setAuthState({ role: null, loaded: true });
+        return;
+      }
       const { data: profile } = await supabase
         .from("profiles").select("role").eq("id", user.id).single();
       if (cancelled) return;
-      const role = profile?.role;
-      router.replace(role === "admin" || role === "super_admin" ? "/admin" : "/portal");
+      setAuthState({ role: profile?.role ?? "recipient", loaded: true });
     })();
     return () => { cancelled = true; };
-  }, [router]);
+  }, []);
+
+  const isAdmin = authState.role === "admin" || authState.role === "super_admin";
+  const pillHref  = !authState.loaded ? "/auth/login"
+                  : authState.role    ? (isAdmin ? "/admin" : "/portal")
+                  : "/auth/login";
+  const pillLabel = !authState.loaded ? "Sign in →"
+                  : authState.role    ? (isAdmin ? "Back to admin →" : "Back to portal →")
+                  : "Sign in →";
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-gradient)" }}>
@@ -38,7 +51,7 @@ export default function LandingPage() {
         alignItems: "center",
       }}>
         <a
-          href="/auth/login"
+          href={pillHref}
           style={{
             fontSize: "0.85rem",
             fontWeight: 500,
@@ -46,12 +59,16 @@ export default function LandingPage() {
             textDecoration: "none",
             padding: "0.4rem 0.9rem",
             borderRadius: 100,
-            border: "1px solid rgba(0,0,0,0.12)",
-            background: "rgba(255,255,255,0.55)",
+            border: authState.role
+              ? "1px solid rgba(232,121,58,0.45)"
+              : "1px solid rgba(0,0,0,0.12)",
+            background: authState.role
+              ? "rgba(232,121,58,0.12)"
+              : "rgba(255,255,255,0.55)",
             transition: "background 0.15s, border-color 0.15s",
           }}
         >
-          Sign in →
+          {pillLabel}
         </a>
       </div>
 

@@ -19,7 +19,7 @@ export default async function PortalLayout({ children }: { children: React.React
         flexWrap: "wrap",
         gap: "0.75rem",
       }}>
-        <Link href="/portal" style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontSize: "1.2rem", color: "var(--text-primary)", textDecoration: "none" }}>
+        <Link href="/" style={{ fontFamily: "var(--font-display)", fontStyle: "italic", fontSize: "1.2rem", color: "var(--text-primary)", textDecoration: "none" }}>
           Raising Arrows
         </Link>
         <nav style={{ display: "flex", gap: "1.25rem", alignItems: "center", fontSize: "0.9rem", flexWrap: "wrap" }}>

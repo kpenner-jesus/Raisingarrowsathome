@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { NavLink } from "./_components/NavLink";
@@ -37,11 +38,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             borderRight: "1px solid rgba(255,255,255,0.05)",
           }}
         >
-          <div style={{
+          <Link href="/" style={{
+            display: "block",
             padding: "0 0.5rem 1.5rem",
             borderBottom: "1px solid rgba(255,255,255,0.08)",
             marginBottom: "1.25rem",
-          }}>
+            textDecoration: "none",
+            color: "inherit",
+          }} title="Open public website">
             <div style={{
               fontFamily: "var(--font-display)", fontStyle: "italic",
               fontSize: "1.35rem", letterSpacing: "-0.01em", lineHeight: 1.1,
@@ -52,9 +56,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               fontSize: "0.7rem", letterSpacing: "0.15em", textTransform: "uppercase",
               color: "rgba(255,255,255,0.45)", marginTop: "0.35rem", fontWeight: 500,
             }}>
-              {isSuper ? "Super-admin" : "Admin"}
+              {isSuper ? "Super-admin" : "Admin"} · view site →
             </div>
-          </div>
+          </Link>
 
           <nav style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
             <NavLink href="/admin"              label="Dashboard"    icon="◇" />
