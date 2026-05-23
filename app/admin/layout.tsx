@@ -1,4 +1,5 @@
-import { supabaseServer } from "@/app/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { NavLink } from "./_components/NavLink";
 import { AdminProviders } from "./_components/AdminProviders";
 import "./admin.css";
@@ -8,10 +9,16 @@ export const dynamic = "force-dynamic";
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    redirect("/auth/login?next=%2Fadmin");
+  }
 
-  const { data: profile } = user
-    ? await supabase.from("profiles").select("role").eq("id", user.id).single()
-    : { data: null };
+  // Role lookup via service role — avoids RLS edge cases.
+  const svc = supabaseService();
+  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
+  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
+    redirect("/portal");
+  }
   const isSuper = profile?.role === "super_admin";
 
   return (
