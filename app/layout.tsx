@@ -52,8 +52,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,500;1,400&display=swap"
           rel="stylesheet"
         />
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="manifest" href="/manifest.webmanifest" />
+        {/* Icons + manifest are auto-emitted by app/icon.tsx,
+            app/icon2.tsx, app/apple-icon.tsx, and app/manifest.ts.
+            Below are PWA-only meta tags that Next doesn't add itself. */}
         <meta name="theme-color" content="#e8793a" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
