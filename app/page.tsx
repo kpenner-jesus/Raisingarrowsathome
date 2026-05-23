@@ -8,10 +8,36 @@ export default function LandingPage() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-gradient)" }}>
 
+      {/* ── TOP BAR (sign-in link) ──────────────────────────── */}
+      <div style={{
+        background: "linear-gradient(135deg, #fde8c8 0%, #fdf3e3 50%, #f0eafa 100%)",
+        padding: "0.85rem 1.5rem",
+        display: "flex",
+        justifyContent: "flex-end",
+        alignItems: "center",
+      }}>
+        <a
+          href="/auth/login"
+          style={{
+            fontSize: "0.85rem",
+            fontWeight: 500,
+            color: "var(--text-primary)",
+            textDecoration: "none",
+            padding: "0.4rem 0.9rem",
+            borderRadius: 100,
+            border: "1px solid rgba(0,0,0,0.12)",
+            background: "rgba(255,255,255,0.55)",
+            transition: "background 0.15s, border-color 0.15s",
+          }}
+        >
+          Recipient sign-in →
+        </a>
+      </div>
+
       {/* ── HERO ─────────────────────────────────────────────── */}
       <div style={{
         background: "linear-gradient(135deg, #fde8c8 0%, #fdf3e3 50%, #f0eafa 100%)",
-        padding: "4rem 1.5rem 3rem",
+        padding: "3rem 1.5rem 3rem",
         textAlign: "center",
         borderBottom: "1px solid rgba(0,0,0,0.06)",
       }}>
@@ -220,6 +246,11 @@ export default function LandingPage() {
             onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}>
             {SITE_CONFIG.orgEmail}
           </a>
+          <div style={{ marginTop: "0.75rem" }}>
+            <a href="/auth/login" style={{ color: "var(--text-muted)", textDecoration: "underline" }}>
+              Recipient sign-in
+            </a>
+          </div>
         </div>
       </div>
     </div>
