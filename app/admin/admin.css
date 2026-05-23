@@ -525,19 +525,31 @@
   border: 1px solid var(--ra-line);
 }
 @media (max-width: 639px) {
+  /* Phone: switch off grid (which would overlap children 3-5 in the
+     same cell) and use flex-wrap so thumb sits on the left, info fills
+     row 1, and amount/status/actions flow horizontally beneath the
+     info column with wrap if needed. */
   .ra-receipt-row {
-    grid-template-columns: 60px 1fr;
-    grid-template-areas:
-      "thumb info"
-      "thumb meta";
-    row-gap: 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 0.5rem 0.6rem;
   }
-  .ra-receipt-row > :nth-child(1) { grid-area: thumb; }
-  .ra-receipt-row > :nth-child(2) { grid-area: info; }
-  .ra-receipt-row > :nth-child(n+3) {
-    grid-column: 2;
-    grid-row: 2;
-    justify-self: start;
-    margin-right: 0.5rem;
+  .ra-receipt-row > :nth-child(1) {            /* thumbnail */
+    flex: 0 0 60px;
+  }
+  .ra-receipt-row > :nth-child(2) {            /* title + date block */
+    flex: 1 1 calc(100% - 70px);
+    min-width: 0;
+  }
+  .ra-receipt-row > :nth-child(n+3) {          /* amount, status, actions */
+    flex: 0 0 auto;
+    margin-left: 70px;                         /* indent past thumbnail */
+  }
+  .ra-receipt-row > :nth-child(3) {
+    margin-left: 70px;                         /* first meta sits below info */
+  }
+  .ra-receipt-row > :nth-child(n+4) {
+    margin-left: 0;                            /* subsequent meta items stay flush */
   }
 }

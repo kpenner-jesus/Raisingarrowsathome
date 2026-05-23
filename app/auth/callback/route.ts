@@ -57,9 +57,11 @@ export async function GET(req: Request) {
 
   // Honor an explicit deep link if it's a safe relative path.
   //  - /portal and /admin pass through normal role routing below.
-  //  - For admin-only paths under /admin, only allow if user is admin.
+  //  - For admin-only paths under /admin/..., only allow if user is admin.
+  //    The trailing slash matters: `/administrator` should NOT be treated
+  //    as an admin path.
   if (rawNext && isSafeRelativePath(rawNext) && rawNext !== "/portal" && rawNext !== "/admin") {
-    const isAdminPath = rawNext.startsWith("/admin");
+    const isAdminPath = rawNext === "/admin" || rawNext.startsWith("/admin/");
     if (!isAdminPath || isAdmin) {
       return NextResponse.redirect(new URL(rawNext, url.origin));
     }
