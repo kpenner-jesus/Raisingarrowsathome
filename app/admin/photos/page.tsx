@@ -59,14 +59,13 @@ export default async function PhotosPage({ searchParams }: {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "0.85rem" }}>
           {(photos ?? []).map((p: any) => {
             const fam = p.recipients?.applications?.parent_names ?? "(unknown)";
+            // No nested anchors. Image opens full-size in new tab; the
+            // family name below it links to the recipient page.
             return (
-              <a
+              <div
                 key={p.id}
-                href={`/api/admin/photo-image?id=${p.id}`}
-                target="_blank"
-                rel="noreferrer"
                 style={{
-                  display: "block", textDecoration: "none", color: "inherit",
+                  display: "block",
                   background: "var(--ra-bg-soft)", borderRadius: 12,
                   overflow: "hidden", border: "1px solid var(--ra-line)",
                   boxShadow: "var(--ra-shadow-sm)",
@@ -74,16 +73,24 @@ export default async function PhotosPage({ searchParams }: {
                 }}
                 className="ra-photo-card"
               >
-                <div style={{ width: "100%", aspectRatio: "1 / 1", background: "#f3f0eb", overflow: "hidden" }}>
-                  <img src={`/api/admin/photo-image?id=${p.id}`} alt={p.caption || fam}
-                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                    loading="lazy" />
-                </div>
+                <a
+                  href={`/api/admin/photo-image?id=${p.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ display: "block", textDecoration: "none" }}
+                  title="Open full-size in a new tab"
+                >
+                  <div style={{ width: "100%", aspectRatio: "1 / 1", background: "#f3f0eb", overflow: "hidden" }}>
+                    <img src={`/api/admin/photo-image?id=${p.id}`} alt={p.caption || fam}
+                      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                      loading="lazy" />
+                  </div>
+                </a>
                 <div style={{ padding: "0.55rem 0.75rem" }}>
                   <div style={{ fontWeight: 500, fontSize: "0.85rem" }}>
-                    <Link href={`/admin/recipients/${p.recipient_id}`} style={{ color: "var(--ra-ink)", textDecoration: "none" }}
-                      onClick={(e) => e.stopPropagation()}>
-                      {fam}
+                    <Link href={`/admin/recipients/${p.recipient_id}`}
+                      style={{ color: "var(--ra-ink)", textDecoration: "none" }}>
+                      {fam} →
                     </Link>
                   </div>
                   {p.caption && <div className="ra-tiny" style={{ marginTop: "0.2rem", lineHeight: 1.35 }}>{p.caption}</div>}
@@ -91,7 +98,7 @@ export default async function PhotosPage({ searchParams }: {
                     {new Date(p.created_at).toLocaleDateString()}
                   </div>
                 </div>
-              </a>
+              </div>
             );
           })}
         </div>

@@ -30,14 +30,18 @@ export default async function AuditLogPage({ searchParams }: {
 }) {
   const svc = supabaseService();
 
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const safeFrom = searchParams?.from && DATE_RE.test(searchParams.from) ? searchParams.from : null;
+  const safeTo   = searchParams?.to   && DATE_RE.test(searchParams.to)   ? searchParams.to   : null;
+
   let q = svc.from("audit_log").select(`
     id, action, target_table, target_id, details, created_at,
     profiles:actor_id(email)
   `).order("created_at", { ascending: false }).limit(500);
 
   if (searchParams?.action) q = q.eq("action", searchParams.action);
-  if (searchParams?.from)   q = q.gte("created_at", `${searchParams.from}T00:00:00Z`);
-  if (searchParams?.to)     q = q.lte("created_at", `${searchParams.to}T23:59:59Z`);
+  if (safeFrom) q = q.gte("created_at", `${safeFrom}T00:00:00Z`);
+  if (safeTo)   q = q.lte("created_at", `${safeTo}T23:59:59Z`);
 
   const { data: rows, error } = await q;
   let filtered = rows ?? [];
