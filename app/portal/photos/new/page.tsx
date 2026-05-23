@@ -70,7 +70,7 @@ export default function NewPhotoPage() {
     <div>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", marginBottom: "0.75rem" }}>Upload a photo</h1>
       <p style={{ color: "var(--text-secondary)", marginBottom: "2rem", lineHeight: 1.6 }}>
-        Share a snapshot from your homeschool journey — books in action, a field trip, a milestone. Photos help us tell your family&apos;s story.
+        Share a snapshot from your homeschool journey — books in action, a reading nook, a milestone moment. Photos help us tell your family&apos;s story.
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>

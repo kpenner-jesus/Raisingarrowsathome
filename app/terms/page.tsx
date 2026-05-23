@@ -34,8 +34,9 @@ export default function TermsPage() {
         </Section>
 
         <Section title="Qualifying expenses">
-          <p>Reimbursable: curriculum, workbooks, readers, math + science manipulatives, basic lab supplies, art supplies tied to a curriculum unit, and conference registrations like MACHS.</p>
-          <p>Not reimbursable: technology (tablets, laptops), furniture, field-trip fees, food, second-copy curriculum, and anything not directly tied to your child's curriculum.</p>
+          <p>Reimbursable: <strong>curriculum, workbooks, and educational books</strong>. That&apos;s it — we keep the scope tight so receipts are easy to verify.</p>
+          <p>Not reimbursable: field trips, school supplies (paper, pens, notebooks), technology (tablets, laptops), furniture, extracurricular fees, tutoring, co-op fees, food, second-copy curriculum, and anything else not a curriculum, workbook, or educational book.</p>
+          <p className="ra-quiet" style={{ fontSize: "0.9rem" }}>If you&apos;re unsure whether something qualifies, email <a href="mailto:register@raisingarrowsathome.com" style={{ color: "var(--accent)" }}>register@raisingarrowsathome.com</a> <em>before</em> you purchase.</p>
         </Section>
 
         <Section title="How reimbursement works">

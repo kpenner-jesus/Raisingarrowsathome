@@ -77,7 +77,7 @@ export default function PortalHelp() {
       title: "What about photos?",
       body: (
         <>
-          <p>Tap <strong>Photos</strong> in the top nav to share moments from your homeschool journey — books in action, a field trip, a milestone. Photos are optional and aren&apos;t tied to reimbursement, but they help us tell your family&apos;s story.</p>
+          <p>Tap <strong>Photos</strong> in the top nav to share moments from your homeschool journey — books in action, a reading nook, a milestone moment. Photos are optional and aren&apos;t tied to reimbursement, but they help us tell your family&apos;s story.</p>
         </>
       ),
     },
