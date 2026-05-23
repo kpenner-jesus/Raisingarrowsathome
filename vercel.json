@@ -1,8 +1,8 @@
 {
   "crons": [
-    { "path": "/api/cron/summary-email?bucket=mid",      "schedule": "0 12 1 * *" },
-    { "path": "/api/cron/generate-payouts?bucket=mid",   "schedule": "0 12 15 * *" },
-    { "path": "/api/cron/summary-email?bucket=end",      "schedule": "0 12 17 * *" },
-    { "path": "/api/cron/generate-payouts?bucket=end",   "schedule": "0 12 28-31 * *" }
+    {
+      "path": "/api/cron/dispatch",
+      "schedule": "0 12 1,15,17,28-31 * *"
+    }
   ]
 }
