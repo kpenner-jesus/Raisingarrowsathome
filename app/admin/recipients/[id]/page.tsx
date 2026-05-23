@@ -1,12 +1,14 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { supabaseServer } from "@/app/lib/supabase/server";
+import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { calcBalance } from "@/app/lib/grant-calc";
 import { AvatarRow } from "../../_components/Avatar";
 import { StatusBadge } from "../../_components/StatusBadge";
 import { ProgressBar } from "../../_components/ProgressBar";
 import ReceiptDecide from "./ReceiptDecide";
 import ModifyForm from "./ModifyForm";
+import { RecipientNotes } from "./RecipientNotes";
+import { ArchiveControl } from "./ArchiveControl";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,13 @@ export default async function RecipientDetail({ params }: { params: { id: string
     .eq("id", params.id)
     .single();
   if (!recipient) return notFound();
+
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+  const svc = supabaseService();
+  const { data: notesData } = await svc.from("recipient_notes")
+    .select("id, author_id, body, created_at, profiles:author_id(email)")
+    .eq("recipient_id", recipient.id)
+    .order("created_at", { ascending: false });
 
   const [{ data: receipts }, { data: payouts }, { data: testimonials }, { data: photos }] = await Promise.all([
     supabase.from("receipts").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
@@ -226,6 +235,26 @@ export default async function RecipientDetail({ params }: { params: { id: string
           </div>
         ) : <div className="ra-quiet">No testimonials yet.</div>}
       </section>
+
+      {/* Internal admin notes (cross-year context) */}
+      <RecipientNotes
+        recipientId={recipient.id}
+        currentUserId={currentUser?.id ?? null}
+        notes={(notesData ?? []).map((n: any) => ({
+          id: n.id,
+          author_id: n.author_id,
+          author_email: n.profiles?.email ?? "(unknown)",
+          body: n.body,
+          created_at: n.created_at,
+        }))}
+      />
+
+      {/* Archive / restore (data retention control) */}
+      <ArchiveControl
+        recipientId={recipient.id}
+        archivedAt={recipient.archived_at ?? null}
+        archiveReason={recipient.archive_reason ?? null}
+      />
     </div>
   );
 }

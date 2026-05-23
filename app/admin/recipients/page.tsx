@@ -6,12 +6,18 @@ import { ProgressBar } from "../_components/ProgressBar";
 
 export const dynamic = "force-dynamic";
 
-export default async function RecipientsList({ searchParams }: { searchParams?: { cohort?: string; status?: string } }) {
+export default async function RecipientsList({ searchParams }: { searchParams?: { cohort?: string; status?: string; show?: string } }) {
   const supabase = supabaseServer();
+  const showArchived = searchParams?.show === "archived";
+
   let q = supabase
     .from("recipients")
-    .select("id, approved_amount, reimbursement_rate, status, created_at, cohort_year, applications!inner(app_ref, parent_names, city, contact_email)")
+    .select("id, approved_amount, reimbursement_rate, status, created_at, cohort_year, archived_at, applications!inner(app_ref, parent_names, city, contact_email)")
     .order("created_at", { ascending: false });
+
+  // By default hide archived rows; show only when ?show=archived.
+  if (showArchived) q = q.not("archived_at", "is", null);
+  else              q = q.is("archived_at", null);
 
   if (searchParams?.cohort && /^\d{4}$/.test(searchParams.cohort)) {
     q = q.eq("cohort_year", Number(searchParams.cohort));

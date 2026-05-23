@@ -1,4 +1,8 @@
-// /admin/emails — recent sends fetched live from Resend.
+// /admin/emails — recent sends fetched live from Resend +
+// webhook-captured events (bounces, complaints, opens, clicks) from
+// the email_events table.
+import { supabaseService } from "@/app/lib/supabase/server";
+
 export const dynamic = "force-dynamic";
 
 interface ResendEmail {
@@ -6,7 +10,7 @@ interface ResendEmail {
   to: string[];
   from: string;
   subject: string;
-  last_event: string;     // 'sent' | 'delivered' | 'bounced' | 'opened' | 'clicked'
+  last_event: string;
   created_at: string;
 }
 
@@ -29,6 +33,14 @@ async function fetchEmails(): Promise<{ data: ResendEmail[]; error?: string }> {
   }
 }
 
+async function fetchWebhookEvents() {
+  const svc = supabaseService();
+  const { data } = await svc.from("email_events")
+    .select("id, resend_id, event_type, recipient_email, subject, created_at")
+    .order("created_at", { ascending: false }).limit(50);
+  return data ?? [];
+}
+
 function eventTint(ev: string): string {
   if (ev === "delivered") return "var(--ra-success)";
   if (ev === "bounced")   return "var(--ra-danger)";
@@ -37,7 +49,7 @@ function eventTint(ev: string): string {
 }
 
 export default async function EmailsPage() {
-  const { data, error } = await fetchEmails();
+  const [{ data, error }, events] = await Promise.all([fetchEmails(), fetchWebhookEvents()]);
   return (
     <div>
       <header className="ra-page-header">
@@ -51,6 +63,30 @@ export default async function EmailsPage() {
       </header>
 
       {error && <div className="ra-alert-error">{error}</div>}
+
+      {/* Webhook events (bounces / complaints / opens / clicks) */}
+      {events.length > 0 && (
+        <section className="ra-card" style={{ marginBottom: "1.25rem" }}>
+          <h2 className="ra-section-title">Webhook events (last 50)</h2>
+          <p className="ra-quiet" style={{ marginTop: 0, fontSize: "0.85rem" }}>
+            Captured live via the Resend webhook configured at <code>/api/webhooks/resend</code>.
+            Bounces here mean the email failed to deliver — update the recipient's address.
+          </p>
+          <table className="ra-table" style={{ marginTop: "0.5rem" }}>
+            <thead><tr><th>When</th><th>Event</th><th>To</th><th>Subject</th></tr></thead>
+            <tbody>
+              {events.map((e: any) => (
+                <tr key={e.id}>
+                  <td style={{ whiteSpace: "nowrap" }}>{new Date(e.created_at).toLocaleString()}</td>
+                  <td><span style={{ color: eventTint(e.event_type), fontWeight: 500 }}>{e.event_type}</span></td>
+                  <td>{e.recipient_email}</td>
+                  <td>{e.subject || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       <div className="ra-table-card">
         <table className="ra-table">

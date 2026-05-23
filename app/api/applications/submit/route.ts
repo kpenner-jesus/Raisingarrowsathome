@@ -14,6 +14,7 @@
 
 import { NextResponse } from "next/server";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { sendAdminAlert } from "@/app/lib/alerts";
 import { randomBytes } from "crypto";
 
 const MAX_TEXT = 4000;
@@ -82,6 +83,21 @@ export async function POST(req: Request) {
       .select("id, app_ref")
       .single();
     if (error) return new NextResponse(error.message, { status: 500 });
+
+    // Fire-and-forget admin alert (Slack + email). Never blocks/fails the user.
+    const origin = new URL(req.url).origin;
+    sendAdminAlert({
+      title: "New grant application",
+      summary: `${clip(parent_names, 60)} just submitted an application.`,
+      url: `${origin}/admin/applications/${data.id}`,
+      fields: [
+        { label: "Family",   value: clip(parent_names, 100) },
+        { label: "City",     value: clip(city, 100) || "—" },
+        { label: "Email",    value: clip(contact_email, 200) },
+        { label: "Children", value: String(cleanChildren.length) },
+        { label: "App ref",  value: data.app_ref },
+      ],
+    }).catch(() => { /* logged inside */ });
 
     return NextResponse.json({ id: data.id, app_ref: data.app_ref });
   } catch (e: any) {

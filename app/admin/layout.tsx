@@ -37,6 +37,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
           <nav className="ra-admin-nav">
             <NavLink href="/admin"                 label="Dashboard"    icon="◇" />
+            <NavLink href="/admin/search"          label="Search"       icon="⌕" />
             <NavLink href="/admin/applications"    label="Applications" icon="✎" />
             <NavLink href="/admin/recipients"      label="Recipients"   icon="❀" />
             <NavLink href="/admin/payouts"         label="Payouts"      icon="$" />
