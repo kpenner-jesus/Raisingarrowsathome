@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { SITE_CONFIG } from "./siteConfig";
 import { PeekingChildren } from "./_components/PeekingChildren";
 import { KidsBehind } from "./_components/Kids";
+import { PublicTestimonials } from "./_components/PublicTestimonials";
 import { supabaseBrowser } from "./lib/supabase/browser";
 
 export default function LandingPage() {
@@ -201,6 +202,9 @@ export default function LandingPage() {
           </div>
         </div>
 
+        {/* Public testimonial carousel (only renders if there are approved ones) */}
+        <PublicTestimonials />
+
         {/* Bottom CTA */}
         {/* Variant omitted → KidsBehind picks random distinct kid per mount */}
         <KidsBehind
@@ -260,6 +264,28 @@ export default function LandingPage() {
               style={{ height: 56, width: "auto", display: "block" }}
             />
           </a>
+
+          <div style={{ marginTop: "1.25rem" }}>
+            <a
+              href="https://www.ceoministries.ca/donate"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: "0.4rem",
+                background: "var(--accent)", color: "#fff",
+                padding: "0.6rem 1.4rem", borderRadius: 100,
+                fontSize: "0.88rem", fontWeight: 500, textDecoration: "none",
+                transition: "transform 0.12s, box-shadow 0.18s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(232,121,58,0.3)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}
+            >
+              ♡ Donate to Raising Arrows
+            </a>
+            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "0.45rem" }}>
+              Tax-receiptable through CEO Ministries (registered charity)
+            </div>
+          </div>
         </div>
 
         {/* Footer */}
@@ -273,10 +299,14 @@ export default function LandingPage() {
             onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}>
             {SITE_CONFIG.orgEmail}
           </a>
-          <div style={{ marginTop: "0.75rem" }}>
+          <div style={{ marginTop: "0.75rem", display: "flex", gap: "1rem", justifyContent: "center", flexWrap: "wrap" }}>
             <a href="/auth/login" style={{ color: "var(--text-muted)", textDecoration: "underline" }}>
               Sign in
             </a>
+            <span style={{ color: "var(--text-muted)" }}>·</span>
+            <a href="/privacy" style={{ color: "var(--text-muted)", textDecoration: "underline" }}>Privacy</a>
+            <span style={{ color: "var(--text-muted)" }}>·</span>
+            <a href="/terms" style={{ color: "var(--text-muted)", textDecoration: "underline" }}>Terms</a>
           </div>
         </div>
       </div>

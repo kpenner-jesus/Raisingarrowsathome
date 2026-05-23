@@ -1,15 +1,45 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
+const SITE = "https://raisingarrowsathome.com";
+const DESC =
+  "We help Christian families in Manitoba launch into homeschooling " +
+  "for the very first time by providing financial assistance for " +
+  "curriculum and educational resources during their first year.";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE),
   title: {
     template: "%s | Raising Arrows",
     default: "Raising Arrows — First Year Homeschool Grant",
   },
-  description:
-    "We help Christian families in Manitoba launch into homeschooling " +
-    "for the very first time by providing financial assistance for " +
-    "curriculum and educational resources during their first year.",
+  description: DESC,
+  applicationName: "Raising Arrows",
+  authors: [{ name: "Raising Arrows" }],
+  keywords: [
+    "homeschool grant", "Manitoba", "Christian homeschool",
+    "first year homeschool", "curriculum reimbursement", "MACHS",
+    "homeschool funding", "homeschool support",
+  ],
+  openGraph: {
+    type: "website",
+    url: SITE,
+    siteName: "Raising Arrows",
+    title: "Raising Arrows — First Year Homeschool Grant",
+    description: DESC,
+    locale: "en_CA",
+  },
+  twitter: {
+    card: "summary",
+    title: "Raising Arrows — First Year Homeschool Grant",
+    description: DESC,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true },
+  },
+  alternates: { canonical: SITE },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
