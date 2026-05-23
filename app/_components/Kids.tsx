@@ -84,10 +84,17 @@ export function KidsBehind({
         {kids.map((k, i) => {
           const p = PERSONALITIES[k.variant] || PERSONALITIES[0];
           const state = states[i] || IDLE_STATE;
-          // Idle: fully pushed below container top → covered by card body.
-          // Peek: head + shoulders pop above.
-          const idleTransform = `translate(-50%, 100%) rotate(0deg)`;
-          const peekTransform = `translate(-50%, -${state.height.toFixed(1)}%) rotate(${state.tilt.toFixed(1)}deg)`;
+          // Wrapper has paddingTop:100 above the opaque content box. Kid is
+          // absolute top:0 (kid height 88). Card top is at y=100 in wrapper
+          // coords. So:
+          //   Idle: translateY 118% → kid_top=104, kid_bottom=192 → fully
+          //         hidden behind opaque card (kid zIndex 1 < content zIndex 2).
+          //   Peek: translateY 15–50% → kid_bottom stays ≥ 101px so the
+          //         body always overlaps and is clipped by the card; head +
+          //         upper torso peek above. state.height (70–120) maps:
+          //         70 → 50% (small peek), 120 → 15% (full head+shoulders).
+          const idleTransform = `translate(-50%, 118%) rotate(0deg)`;
+          const peekTransform = `translate(-50%, ${(99 - 0.7 * state.height).toFixed(1)}%) rotate(${state.tilt.toFixed(1)}deg)`;
           const w = k.size?.width  ?? 56;
           const h = k.size?.height ?? 88;
           return (
@@ -197,14 +204,18 @@ function KidPigtails({ eyeProps, lookProps }: SubProps) {
 }
 
 function KidCap({ eyeProps, lookProps }: SubProps) {
+  // Black kid: deep-brown skin, near-black hair, brand orange cap.
+  const skin = "#6e4423";
+  const skinDark = "#4a2a14";
+  const cheek = "#3a1f0e";
   return (
     <svg viewBox="0 0 60 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
       <path d="M 4 100 L 4 80 Q 6 66 30 60 Q 54 66 56 80 L 56 100 Z" fill="#4aa37e" stroke="#1a1a1a" strokeWidth="1.2" />
       <path d="M 4 84 L 56 84" stroke="#fff" strokeWidth="2" opacity="0.7" />
       <path d="M 4 92 L 56 92" stroke="#fff" strokeWidth="2" opacity="0.7" />
-      <rect x="26" y="55" width="8" height="8" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
-      <ellipse cx="30" cy="38" rx="17" ry="19" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
-      <path d="M 14 32 Q 30 28 46 32 L 46 38 Q 30 36 14 38 Z" fill="#3a2618" />
+      <rect x="26" y="55" width="8" height="8" fill={skin} stroke="#1a1a1a" strokeWidth="1.2" />
+      <ellipse cx="30" cy="38" rx="17" ry="19" fill={skin} stroke="#1a1a1a" strokeWidth="1.2" />
+      <path d="M 14 32 Q 30 28 46 32 L 46 38 Q 30 36 14 38 Z" fill="#1a0e04" />
       <path d="M 11 28 Q 30 12 49 28 L 49 30 L 11 30 Z" fill="#e8793a" stroke="#1a1a1a" strokeWidth="1.2" />
       <ellipse cx="30" cy="30" rx="22" ry="3" fill="#c45f20" stroke="#1a1a1a" strokeWidth="1.2" />
       <circle cx="30" cy="22" r="2.2" fill="#fff" opacity="0.7" />
@@ -214,26 +225,27 @@ function KidCap({ eyeProps, lookProps }: SubProps) {
       </g>
       <circle cx="23.6" cy="39.5" r="0.6" fill="#fff" />
       <circle cx="37.6" cy="39.5" r="0.6" fill="#fff" />
-      <circle cx="20" cy="44" r="0.6" fill="#a86b3a" />
-      <circle cx="24" cy="46" r="0.6" fill="#a86b3a" />
-      <circle cx="36" cy="46" r="0.6" fill="#a86b3a" />
-      <circle cx="40" cy="44" r="0.6" fill="#a86b3a" />
-      <path d="M 26 50 Q 30 54 34 50" stroke="#1a1a1a" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+      <circle cx="20" cy="44" r="2.5" fill={skinDark} opacity="0.5" />
+      <circle cx="40" cy="44" r="2.5" fill={skinDark} opacity="0.5" />
+      <path d="M 26 50 Q 30 54 34 50" stroke="#1a0e04" strokeWidth="1.4" strokeLinecap="round" fill="none" />
       <path d="M 28 50.5 L 28 52.5 L 32 52.5 L 32 50.5 Z" fill="#fff" stroke="#1a1a1a" strokeWidth="0.6" />
     </svg>
   );
 }
 
 function KidGlasses({ eyeProps, lookProps }: SubProps) {
+  // East-Asian kid: warm-yellow undertone skin, jet-black hair.
+  const skin = "#f1cf9a";
+  const cheek = "#e89870";
   return (
     <svg viewBox="0 0 60 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
       <path d="M 4 100 L 4 80 Q 6 66 30 60 Q 54 66 56 80 L 56 100 Z" fill="#c9beac" stroke="#1a1a1a" strokeWidth="1.2" />
       <path d="M 22 62 L 30 72 L 38 62" fill="#fff" stroke="#1a1a1a" strokeWidth="1.2" />
       <path d="M 30 72 L 30 80" stroke="#1a1a1a" strokeWidth="0.6" />
-      <rect x="26" y="55" width="8" height="8" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
-      <ellipse cx="30" cy="38" rx="17" ry="20" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
-      <path d="M 12 28 Q 18 18 30 18 Q 42 18 48 28 Q 48 34 44 32 Q 30 26 16 32 Q 12 34 12 28 Z" fill="#1a1a1a" />
-      <path d="M 13 32 Q 18 36 22 32 L 22 38 Q 16 38 13 35 Z" fill="#1a1a1a" />
+      <rect x="26" y="55" width="8" height="8" fill={skin} stroke="#1a1a1a" strokeWidth="1.2" />
+      <ellipse cx="30" cy="38" rx="17" ry="20" fill={skin} stroke="#1a1a1a" strokeWidth="1.2" />
+      <path d="M 12 28 Q 18 18 30 18 Q 42 18 48 28 Q 48 34 44 32 Q 30 26 16 32 Q 12 34 12 28 Z" fill="#0a0a0a" />
+      <path d="M 13 32 Q 18 36 22 32 L 22 38 Q 16 38 13 35 Z" fill="#0a0a0a" />
       <circle cx="22" cy="40" r="4.5" fill="rgba(255,255,255,0.3)" stroke="#1a1a1a" strokeWidth="1.4" />
       <circle cx="38" cy="40" r="4.5" fill="rgba(255,255,255,0.3)" stroke="#1a1a1a" strokeWidth="1.4" />
       <line x1="26.5" y1="40" x2="33.5" y2="40" stroke="#1a1a1a" strokeWidth="1.4" />
@@ -243,12 +255,18 @@ function KidGlasses({ eyeProps, lookProps }: SubProps) {
       </g>
       <circle cx="20.5" cy="38.5" r="0.8" fill="#fff" opacity="0.9" />
       <circle cx="36.5" cy="38.5" r="0.8" fill="#fff" opacity="0.9" />
+      <circle cx="17" cy="45" r="2.2" fill={cheek} opacity="0.5" />
+      <circle cx="43" cy="45" r="2.2" fill={cheek} opacity="0.5" />
       <path d="M 26 50 Q 30 52 34 50" stroke="#1a1a1a" strokeWidth="1.4" strokeLinecap="round" fill="none" />
     </svg>
   );
 }
 
 function KidHoodie({ eyeProps, lookProps }: SubProps) {
+  // First Nations / Indigenous kid: warm tan skin, jet-black straight hair.
+  const skin = "#b07a4a";
+  const skinDark = "#7a4f24";
+  const cheek = "#8a4a24";
   return (
     <svg viewBox="0 0 60 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
       <path d="M 4 100 L 4 62 Q 4 46 30 38 Q 56 46 56 62 L 56 100 Z" fill="#4a7ec7" stroke="#1a1a1a" strokeWidth="1.2" />
@@ -257,8 +275,8 @@ function KidHoodie({ eyeProps, lookProps }: SubProps) {
       <path d="M 34 50 L 36 60" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" />
       <circle cx="24" cy="61" r="1" fill="#fff" />
       <circle cx="36" cy="61" r="1" fill="#fff" />
-      <ellipse cx="30" cy="38" rx="16" ry="18" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
-      <path d="M 14 30 Q 22 18 38 22 Q 46 26 46 32 Q 38 28 28 30 Q 18 31 14 30 Z" fill="#7a4a26" />
+      <ellipse cx="30" cy="38" rx="16" ry="18" fill={skin} stroke="#1a1a1a" strokeWidth="1.2" />
+      <path d="M 14 30 Q 22 18 38 22 Q 46 26 46 32 Q 38 28 28 30 Q 18 31 14 30 Z" fill="#1a0f08" />
       <path d="M 11 42 Q 11 36 14 32 L 14 42 Z" fill="#3a6fb8" />
       <path d="M 49 42 Q 49 36 46 32 L 46 42 Z" fill="#3a6fb8" />
       <g {...lookProps}>
@@ -267,6 +285,8 @@ function KidHoodie({ eyeProps, lookProps }: SubProps) {
       </g>
       <circle cx="23.6" cy="39.5" r="0.6" fill="#fff" />
       <circle cx="37.6" cy="39.5" r="0.6" fill="#fff" />
+      <circle cx="18" cy="46" r="2.2" fill={cheek} opacity="0.45" />
+      <circle cx="42" cy="46" r="2.2" fill={cheek} opacity="0.45" />
       <path d="M 27 49 Q 30 51 33 49" stroke="#1a1a1a" strokeWidth="1.3" strokeLinecap="round" fill="none" />
     </svg>
   );

@@ -115,8 +115,10 @@ export function PeekingChildren() {
         {tiers.map((tier, i) => {
           const p = PERSONALITIES[i] || PERSONALITIES[0];
           const state = peekStates[i] || idleState;
-          // Idle: kid fully hidden behind card. Peek: head + shoulders pop above.
-          const idleTransform = `translate(-50%, 100%) rotate(0deg)`;
+          // Idle: kid sits at top of card (translateY 0) → fully hidden behind
+          // card's opaque body (button has z-index 2, kid is z-index 1).
+          // Peek: negative translateY lifts head + shoulders above card top.
+          const idleTransform = `translate(-50%, 0%) rotate(0deg)`;
           const peekTransform = `translate(-50%, -${state.height.toFixed(1)}%) rotate(${state.tilt.toFixed(1)}deg)`;
           return (
             <div key={tier.label} className="ra-tier-card-wrap">
