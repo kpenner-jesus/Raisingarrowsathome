@@ -6,12 +6,24 @@ import { ProgressBar } from "../_components/ProgressBar";
 
 export const dynamic = "force-dynamic";
 
-export default async function RecipientsList() {
+export default async function RecipientsList({ searchParams }: { searchParams?: { cohort?: string; status?: string } }) {
   const supabase = supabaseServer();
-  const { data: recipients } = await supabase
+  let q = supabase
     .from("recipients")
-    .select("id, approved_amount, reimbursement_rate, status, created_at, applications!inner(app_ref, parent_names, city, contact_email)")
+    .select("id, approved_amount, reimbursement_rate, status, created_at, cohort_year, applications!inner(app_ref, parent_names, city, contact_email)")
     .order("created_at", { ascending: false });
+
+  if (searchParams?.cohort && /^\d{4}$/.test(searchParams.cohort)) {
+    q = q.eq("cohort_year", Number(searchParams.cohort));
+  }
+  if (searchParams?.status && ["active", "completed", "suspended"].includes(searchParams.status)) {
+    q = q.eq("status", searchParams.status);
+  }
+  const { data: recipients } = await q;
+
+  // Distinct cohort years for filter
+  const { data: cohortRows } = await supabase.from("recipients").select("cohort_year").not("cohort_year", "is", null);
+  const cohortYears = Array.from(new Set((cohortRows ?? []).map((r: any) => r.cohort_year))).sort((a: number, b: number) => b - a);
 
   // Compute paid-to-date in one batched query
   let paidByRecipient: Record<string, number> = {};
@@ -34,6 +46,25 @@ export default async function RecipientsList() {
           <h1 className="ra-h1">Recipients</h1>
           <p className="ra-quiet">Approved families currently receiving reimbursements.</p>
         </div>
+        <form method="get" style={{ display: "flex", gap: "0.5rem", alignItems: "end", flexWrap: "wrap" }}>
+          <div>
+            <label className="ra-label">Cohort</label>
+            <select name="cohort" defaultValue={searchParams?.cohort ?? ""} className="ra-input">
+              <option value="">All years</option>
+              {cohortYears.map((y) => <option key={y} value={String(y)}>{y}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="ra-label">Status</label>
+            <select name="status" defaultValue={searchParams?.status ?? ""} className="ra-input">
+              <option value="">All statuses</option>
+              <option value="active">Active</option>
+              <option value="completed">Completed</option>
+              <option value="suspended">Suspended</option>
+            </select>
+          </div>
+          <button type="submit" className="ra-btn">Filter</button>
+        </form>
       </header>
 
       <div className="ra-table-card">

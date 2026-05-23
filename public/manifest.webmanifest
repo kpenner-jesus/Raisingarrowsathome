@@ -1,0 +1,23 @@
+{
+  "name": "Raising Arrows",
+  "short_name": "Raising Arrows",
+  "description": "Homeschool grant portal — apply for funding, upload receipts, track reimbursements.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fdf3e3",
+  "theme_color": "#e8793a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Portal",   "short_name": "Portal",   "url": "/portal",   "description": "Family portal" },
+    { "name": "Admin",    "short_name": "Admin",    "url": "/admin",    "description": "Admin dashboard" },
+    { "name": "Apply",    "short_name": "Apply",    "url": "/apply/family", "description": "Apply for a grant" }
+  ]
+}

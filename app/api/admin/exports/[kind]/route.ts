@@ -4,7 +4,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 
-const VALID_KINDS = new Set(["receipts", "payouts", "recipients", "transactions"]);
+const VALID_KINDS = new Set(["receipts", "payouts", "recipients", "transactions", "audit_log"]);
 
 function csvField(v: any): string {
   if (v === null || v === undefined) return "";
@@ -117,6 +117,28 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
       ])
     );
     filename = `recipients.csv`;
+
+  } else if (kind === "audit_log") {
+    let q = svc.from("audit_log").select(`
+      created_at, action, target_table, target_id, details,
+      profiles:actor_id(email)
+    `).order("created_at", { ascending: false }).limit(5000);
+    if (startISO) q = q.gte("created_at", startISO).lt("created_at", endISO);
+    const { data, error } = await q;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    csv = toCsv(
+      ["When", "Actor", "Action", "Target table", "Target id", "Details (JSON)"],
+      (data ?? []).map((r: any) => [
+        r.created_at,
+        r.profiles?.email ?? "",
+        r.action,
+        r.target_table,
+        r.target_id,
+        JSON.stringify(r.details ?? {}),
+      ])
+    );
+    filename = `audit-log${year ? `-${year}` : ""}.csv`;
 
   } else if (kind === "transactions") {
     // Combined approved receipts + paid payouts → CRA-ready ledger.

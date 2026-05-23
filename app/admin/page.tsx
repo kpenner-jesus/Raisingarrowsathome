@@ -1,21 +1,57 @@
 import Link from "next/link";
-import { supabaseServer } from "@/app/lib/supabase/server";
+import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { AvatarRow } from "./_components/Avatar";
 import { StatusBadge } from "./_components/StatusBadge";
 import { HelpHint } from "../_components/HelpHint";
 
 export const dynamic = "force-dynamic";
 
+const ACTION_LABELS: Record<string, string> = {
+  decide_application:    "App decided",
+  decide_receipt:        "Receipt decided",
+  mark_paid:             "Payout marked paid",
+  modify_recipient:      "Recipient modified",
+  approve_testimonial:   "Testimonial approved",
+  hide_testimonial:      "Testimonial hidden",
+  feature_testimonial:   "Testimonial featured",
+  update_settings:       "Settings updated",
+  send_broadcast:        "Broadcast sent",
+  add_note:              "Note added",
+  delete_note:           "Note deleted",
+  update_email_template: "Email template updated",
+};
+
 export default async function AdminDashboard() {
   const supabase = supabaseServer();
-  const [pendingApps, activeRecipients, pendingReceipts, draftBatches, latestApps, latestReceipts] = await Promise.all([
+  const svc = supabaseService();
+  const [pendingApps, activeRecipients, pendingReceipts, draftBatches, latestApps, latestReceipts, recentAudit, appsLast6Mo] = await Promise.all([
     supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("recipients").select("*", { count: "exact", head: true }).eq("status", "active"),
     supabase.from("receipts").select("*", { count: "exact", head: true }).eq("status", "pending"),
     supabase.from("payout_batches").select("*", { count: "exact", head: true }).in("status", ["draft", "exported"]),
     supabase.from("applications").select("id, app_ref, parent_names, city, status, created_at").order("created_at", { ascending: false }).limit(5),
     supabase.from("receipts").select("id, amount, status, created_at, description, recipients!inner(applications!inner(parent_names))").eq("status", "pending").order("created_at", { ascending: false }).limit(5),
+    svc.from("audit_log").select("id, action, target_table, created_at, profiles:actor_id(email)").order("created_at", { ascending: false }).limit(10),
+    supabase.from("applications").select("created_at").gte("created_at", new Date(Date.now() - 1000 * 60 * 60 * 24 * 180).toISOString()),
   ]);
+
+  // Bucket apps by month over last 6 months
+  const monthBuckets: { label: string; count: number }[] = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    monthBuckets.push({
+      label: d.toLocaleString("en-CA", { month: "short" }),
+      count: 0,
+    });
+  }
+  for (const a of appsLast6Mo.data ?? []) {
+    const d = new Date(a.created_at);
+    const monthIdx = (now.getUTCFullYear() - d.getUTCFullYear()) * 12 + (now.getUTCMonth() - d.getUTCMonth());
+    const slot = 5 - monthIdx;
+    if (slot >= 0 && slot < 6) monthBuckets[slot].count++;
+  }
+  const maxCount = Math.max(1, ...monthBuckets.map((b) => b.count));
 
   const stats: { label: string; value: number; href: string; pulse?: boolean; help: { body: string; examples?: string[] } }[] = [
     {
@@ -91,6 +127,56 @@ export default async function AdminDashboard() {
           Connect AI →
         </Link>
       </section>
+
+      {/* Activity + apps-per-month chart */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.25rem", marginBottom: "1.25rem" }}>
+        <section className="ra-card">
+          <h3 className="ra-section-title">
+            Applications (last 6 months)
+            <Link href="/admin/reports" className="ra-link" style={{ fontSize: "0.78rem", textTransform: "none", letterSpacing: 0, fontWeight: 500 }}>Full reports</Link>
+          </h3>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: "0.5rem", height: 140, padding: "0.5rem 0" }}>
+            {monthBuckets.map((b) => (
+              <div key={b.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "0.35rem", minWidth: 0 }}>
+                <div title={`${b.count} apps`} style={{
+                  width: "100%", maxWidth: 36,
+                  height: `${(b.count / maxCount) * 100}%`,
+                  minHeight: 2,
+                  background: "linear-gradient(180deg, var(--ra-accent), #f0a070)",
+                  borderRadius: "6px 6px 2px 2px",
+                  transition: "background 0.18s",
+                }} />
+                <div className="ra-tiny" style={{ fontVariantNumeric: "tabular-nums" }}>{b.count}</div>
+                <div className="ra-tiny" style={{ color: "var(--ra-ink-quiet)" }}>{b.label}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="ra-card">
+          <h3 className="ra-section-title">
+            Recent activity
+            <Link href="/admin/audit-log" className="ra-link" style={{ fontSize: "0.78rem", textTransform: "none", letterSpacing: 0, fontWeight: 500 }}>Full log</Link>
+          </h3>
+          {(recentAudit.data?.length ?? 0) === 0 ? (
+            <div className="ra-quiet">No admin activity logged yet.</div>
+          ) : (
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.45rem" }}>
+              {(recentAudit.data as any[]).map((e) => (
+                <li key={e.id} className="ra-row-between" style={{ fontSize: "0.85rem" }}>
+                  <span>
+                    <strong style={{ fontWeight: 500 }}>{ACTION_LABELS[e.action] ?? e.action}</strong>{" "}
+                    <span className="ra-quiet" style={{ fontSize: "0.78rem" }}>by {e.profiles?.email ?? "system"}</span>
+                  </span>
+                  <span className="ra-tiny" style={{ flexShrink: 0 }}>
+                    {new Date(e.created_at).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.25rem" }}>
         {/* Latest applications */}

@@ -36,17 +36,21 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </Link>
 
           <nav className="ra-admin-nav">
-            <NavLink href="/admin"               label="Dashboard"    icon="◇" />
-            <NavLink href="/admin/applications"  label="Applications" icon="✎" />
-            <NavLink href="/admin/recipients"    label="Recipients"   icon="❀" />
-            <NavLink href="/admin/payouts"       label="Payouts"      icon="$" />
-            <NavLink href="/admin/testimonials"  label="Testimonials" icon="”" />
-            <NavLink href="/admin/reports"       label="Reports"      icon="≡" />
-            <NavLink href="/admin/audit-log"     label="Audit log"    icon="⌖" />
-            <NavLink href="/admin/settings"      label="Settings"     icon="⚙" />
-            {isSuper && <NavLink href="/admin/team" label="Team"      icon="◉" />}
-            <NavLink href="/admin/mcp"           label="AI / MCP"     icon="✦" />
-            <NavLink href="/admin/help"          label="Help"         icon="?" />
+            <NavLink href="/admin"                 label="Dashboard"    icon="◇" />
+            <NavLink href="/admin/applications"    label="Applications" icon="✎" />
+            <NavLink href="/admin/recipients"      label="Recipients"   icon="❀" />
+            <NavLink href="/admin/payouts"         label="Payouts"      icon="$" />
+            <NavLink href="/admin/photos"          label="Photos"       icon="▢" />
+            <NavLink href="/admin/testimonials"    label="Testimonials" icon="”" />
+            <NavLink href="/admin/reports"         label="Reports"      icon="≡" />
+            <NavLink href="/admin/broadcasts"      label="Broadcasts"   icon="✉" />
+            <NavLink href="/admin/emails"          label="Email log"    icon="⇄" />
+            <NavLink href="/admin/email-templates" label="Templates"    icon="◫" />
+            <NavLink href="/admin/audit-log"       label="Audit log"    icon="⌖" />
+            <NavLink href="/admin/settings"        label="Settings"     icon="⚙" />
+            {isSuper && <NavLink href="/admin/team" label="Team"        icon="◉" />}
+            <NavLink href="/admin/mcp"             label="AI / MCP"     icon="✦" />
+            <NavLink href="/admin/help"            label="Help"         icon="?" />
           </nav>
 
           <form action="/auth/logout" method="post" className="ra-admin-signout">

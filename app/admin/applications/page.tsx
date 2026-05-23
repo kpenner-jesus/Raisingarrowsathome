@@ -1,8 +1,6 @@
-import Link from "next/link";
 import { supabaseServer } from "@/app/lib/supabase/server";
-import { AvatarRow } from "../_components/Avatar";
-import { StatusBadge } from "../_components/StatusBadge";
 import { ApplicationsFilter } from "./ApplicationsFilter";
+import { ApplicationsTable } from "./BulkActions";
 
 export const dynamic = "force-dynamic";
 
@@ -62,56 +60,7 @@ export default async function ApplicationsList({ searchParams }: { searchParams:
         }}
       />
 
-      <div className="ra-table-card" style={{ marginTop: "1rem" }}>
-        <table className="ra-table">
-          <thead>
-            <tr>
-              <th>Family</th>
-              <th>Ref</th>
-              <th>Kids</th>
-              <th>Status</th>
-              <th style={{ textAlign: "right" }}>Submitted</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(apps || []).map((a: any) => {
-              const kids = Array.isArray(a.children) ? a.children : [];
-              return (
-                <tr key={a.id}>
-                  <td>
-                    <Link href={`/admin/applications/${a.id}`}>
-                      <AvatarRow name={a.parent_names} secondary={a.city + " · " + a.contact_email} />
-                    </Link>
-                  </td>
-                  <td className="ra-tiny" style={{ fontFamily: "ui-monospace, monospace" }}>{a.app_ref}</td>
-                  <td>
-                    {kids.length > 0 ? (
-                      <span className="ra-quiet">
-                        {kids.length} · ages {kids.map((c: any) => c.age).join(", ")}
-                      </span>
-                    ) : <span className="ra-quiet">—</span>}
-                  </td>
-                  <td><StatusBadge status={a.status} /></td>
-                  <td style={{ textAlign: "right" }} className="ra-tiny">
-                    {new Date(a.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
-                  </td>
-                </tr>
-              );
-            })}
-            {(!apps || apps.length === 0) && (
-              <tr>
-                <td colSpan={5}>
-                  <div className="ra-empty">
-                    <div className="ra-empty-icon">✉</div>
-                    <div className="ra-empty-title">No applications match</div>
-                    <div>Try clearing filters or wait for new submissions.</div>
-                  </div>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <ApplicationsTable rows={(apps as any[]) ?? []} />
     </div>
   );
 }

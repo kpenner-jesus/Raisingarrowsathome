@@ -56,9 +56,10 @@ export default async function AuditLogPage({ searchParams }: {
           <span className="ra-eyebrow">Compliance</span>
           <h1 className="ra-h1">Audit log</h1>
           <p className="ra-quiet" style={{ marginTop: "0.15rem" }}>
-            Who did what, when. Read-only. Last 500 events. Required for CRA review.
+            Who did what, when. Read-only. Last 500 events shown. Required for CRA review.
           </p>
         </div>
+        <Link href="/api/admin/exports/audit_log" className="ra-btn ra-btn-primary">⬇ Export CSV</Link>
       </header>
 
       {/* Filters */}
