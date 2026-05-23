@@ -43,6 +43,24 @@ export async function POST(req: Request) {
   }
   if (!isAuthorized) return new NextResponse("unauthorized", { status: 401 });
 
+  // Bucket identifies which scheduled payday this batch is for.
+  // 'mid'   = 15th of month
+  // 'end'   = last day of month (28-31)
+  // 'manual' = ad-hoc admin trigger
+  const url = new URL(req.url);
+  const requestedBucket = url.searchParams.get("bucket");
+  const bucket = requestedBucket === "mid" || requestedBucket === "end" ? requestedBucket : "manual";
+
+  // For 'end' bucket, only proceed if today actually IS the last day of the month
+  // (Vercel cron fires 28-31; we only want one match per month).
+  if (bucket === "end") {
+    const today = new Date();
+    const tomorrow = new Date(today.getTime() + 86_400_000);
+    if (tomorrow.getDate() !== 1) {
+      return NextResponse.json({ skipped: true, reason: "not last day of month", today: today.toISOString().split("T")[0] });
+    }
+  }
+
   const service = supabaseService();
   const { data: recipients, error: recErr } = await service.from("recipients").select("*").eq("status", "active");
   if (recErr) return new NextResponse(recErr.message, { status: 500 });
@@ -50,7 +68,7 @@ export async function POST(req: Request) {
   const today = new Date().toISOString().split("T")[0];
   const { data: batch, error: batchErr } = await service
     .from("payout_batches")
-    .insert({ scheduled_date: today, status: "draft", total: 0 })
+    .insert({ scheduled_date: today, status: "draft", total: 0, bucket })
     .select("*")
     .single();
   if (batchErr) {

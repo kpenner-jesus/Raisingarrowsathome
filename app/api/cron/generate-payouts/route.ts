@@ -1,11 +1,11 @@
 // ============================================================
-//  GET /api/cron/generate-payouts
+//  GET /api/cron/generate-payouts?bucket=mid|end
 //
-//  Vercel Cron entry point. Set schedule in vercel.json.
+//  Vercel Cron entry point. Forwards to /api/admin/payouts/generate
+//  with the same bucket flag.
 //
 //  Auth: Authorization header must equal exactly `Bearer ${CRON_SECRET}`.
-//        Compared with timingSafeEqual to avoid timing-leak side channels
-//        and substring-acceptance bugs.
+//        timingSafeEqual comparison.
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -19,16 +19,14 @@ function constantTimeEq(a: string, b: string): boolean {
 export async function GET(req: Request) {
   const auth   = req.headers.get("authorization") || "";
   const secret = process.env.CRON_SECRET || "";
-  if (!secret) {
-    return new NextResponse("server misconfigured: CRON_SECRET unset", { status: 500 });
-  }
-  const expected = `Bearer ${secret}`;
-  if (!constantTimeEq(auth, expected)) {
+  if (!secret) return new NextResponse("server misconfigured: CRON_SECRET unset", { status: 500 });
+  if (!constantTimeEq(auth, `Bearer ${secret}`)) {
     return new NextResponse("unauthorized", { status: 401 });
   }
 
-  const url = new URL(req.url);
-  const res = await fetch(`${url.origin}/api/admin/payouts/generate`, {
+  const url    = new URL(req.url);
+  const bucket = url.searchParams.get("bucket") || "manual";
+  const res    = await fetch(`${url.origin}/api/admin/payouts/generate?bucket=${encodeURIComponent(bucket)}`, {
     method:  "POST",
     headers: { "x-cron-secret": secret },
   });

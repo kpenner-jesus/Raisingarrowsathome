@@ -7,6 +7,7 @@ export type ReceiptStatus   = "pending" | "approved" | "rejected";
 export type RecipientStatus = "active"  | "completed" | "suspended";
 export type BatchStatus     = "draft"   | "approved" | "exported" | "paid";
 export type PayoutStatus    = "scheduled" | "approved" | "paid" | "cancelled";
+export type Currency        = "CAD" | "USD";
 
 export interface Child { age: number; grade: string; }
 
@@ -35,6 +36,11 @@ export interface Recipient {
   approved_amount: number;
   reimbursement_rate: number;
   status: RecipientStatus;
+  address_street: string | null;
+  address_city: string | null;
+  address_postal: string | null;
+  submission_deadline: string | null;
+  grandfathered: boolean;
   created_at: string;
 }
 
@@ -43,6 +49,8 @@ export interface Receipt {
   recipient_id: string;
   image_path: string;
   amount: number;
+  currency: Currency;
+  reimbursable_amount: number | null;     // admin sets at approval; CAD
   purchase_date: string | null;
   description: string | null;
   status: ReceiptStatus;
@@ -56,6 +64,7 @@ export interface PayoutBatch {
   status: BatchStatus;
   total: number;
   ceo_reference: string | null;
+  bucket: string | null;       // 'mid' | 'end' | 'legacy' | 'manual'
   exported_at: string | null;
   paid_at: string | null;
   created_at: string;
@@ -69,5 +78,8 @@ export interface Payout {
   receipts_included: string[];
   status: PayoutStatus;
   paid_at: string | null;
+  payment_method: string | null;
+  payment_reference: string | null;
+  recipient_acknowledged_at: string | null;
   created_at: string;
 }

@@ -180,3 +180,65 @@ export async function notifyBatchPaid(args: {
     `),
   });
 }
+
+// ──────────────────────────────────────────────────────────────
+//  Admin-facing: bi-monthly submission-window summary to Tierza
+// ──────────────────────────────────────────────────────────────
+
+export async function notifySubmissionWindowSummary(args: {
+  to: string;
+  bucket_label: string;
+  pay_date_description: string;
+  pending_for_review:       { name: string; amount: string; desc: string }[];
+  approved_awaiting_payout: { name: string; reimbursable_cad: string; desc: string }[];
+  admin_url: string;
+}) {
+  const pendingRows = args.pending_for_review.length === 0
+    ? `<p style="color:#888;font-style:italic;">No receipts awaiting your review.</p>`
+    : `<table style="width:100%;border-collapse:collapse;font-size:0.9rem;margin:8px 0;">
+        <thead><tr style="text-align:left;border-bottom:1px solid #ddd;">
+          <th style="padding:6px 8px;">Family</th><th style="padding:6px 8px;">Amount</th><th style="padding:6px 8px;">Description</th>
+        </tr></thead>
+        <tbody>${args.pending_for_review.map((r) => `<tr style="border-bottom:1px solid #f3f3f3;">
+          <td style="padding:6px 8px;">${esc(r.name)}</td>
+          <td style="padding:6px 8px;">${esc(r.amount)}</td>
+          <td style="padding:6px 8px;color:#666;">${esc(r.desc)}</td>
+        </tr>`).join("")}</tbody>
+      </table>`;
+
+  const approvedRows = args.approved_awaiting_payout.length === 0
+    ? `<p style="color:#888;font-style:italic;">No approved receipts queued for payout.</p>`
+    : `<table style="width:100%;border-collapse:collapse;font-size:0.9rem;margin:8px 0;">
+        <thead><tr style="text-align:left;border-bottom:1px solid #ddd;">
+          <th style="padding:6px 8px;">Family</th><th style="padding:6px 8px;">Reimbursable (CAD)</th><th style="padding:6px 8px;">Description</th>
+        </tr></thead>
+        <tbody>${args.approved_awaiting_payout.map((r) => `<tr style="border-bottom:1px solid #f3f3f3;">
+          <td style="padding:6px 8px;">${esc(r.name)}</td>
+          <td style="padding:6px 8px;">${esc(r.reimbursable_cad)}</td>
+          <td style="padding:6px 8px;color:#666;">${esc(r.desc)}</td>
+        </tr>`).join("")}</tbody>
+      </table>`;
+
+  await send({
+    to: args.to,
+    subject: `Raising Arrows — ${esc(args.bucket_label)} payout window`,
+    html: wrap(`
+      <p>Hi Tierza,</p>
+      <p>The submission window for <strong>${esc(args.bucket_label)}</strong> is now closing. Payouts run on ${esc(args.pay_date_description)}.</p>
+
+      <h3 style="font-family:Georgia,serif;font-size:1.1rem;margin-top:24px;color:#1a1a1a;">
+        ${args.pending_for_review.length} receipt${args.pending_for_review.length === 1 ? "" : "s"} awaiting your review
+      </h3>
+      ${pendingRows}
+
+      <h3 style="font-family:Georgia,serif;font-size:1.1rem;margin-top:24px;color:#1a1a1a;">
+        ${args.approved_awaiting_payout.length} approved receipt${args.approved_awaiting_payout.length === 1 ? "" : "s"} queued for this payout
+      </h3>
+      ${approvedRows}
+
+      ${button("Open admin", args.admin_url)}
+
+      <p>The Raising Arrows portal</p>
+    `),
+  });
+}

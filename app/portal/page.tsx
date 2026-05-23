@@ -43,15 +43,47 @@ export default async function PortalDashboard() {
     committedToDate,
   });
 
+  // Submission deadline state
+  const deadline = recipient.submission_deadline ? new Date(recipient.submission_deadline) : null;
+  const now = new Date();
+  const daysLeft = deadline ? Math.ceil((deadline.getTime() - now.getTime()) / 86_400_000) : null;
+  const deadlinePassed = deadline ? deadline < now : false;
+
   return (
     <div>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2rem", marginBottom: "0.5rem" }}>
         Hello, {recipient.applications.parent_names}
       </h1>
-      <p style={{ color: "var(--text-secondary)", marginBottom: "2rem", lineHeight: 1.6 }}>
+      <p style={{ color: "var(--text-secondary)", marginBottom: "1.25rem", lineHeight: 1.6 }}>
         Your approved grant is <strong>${Number(recipient.approved_amount).toFixed(2)}</strong> total.
         We reimburse <strong>{(Number(recipient.reimbursement_rate) * 100).toFixed(0)}%</strong> of approved receipts.
       </p>
+
+      {deadline && (
+        <div style={{
+          background: deadlinePassed ? "rgba(224,80,80,0.08)" : daysLeft! <= 30 ? "rgba(232,121,58,0.08)" : "rgba(58,158,110,0.06)",
+          border:     `1px solid ${deadlinePassed ? "rgba(224,80,80,0.3)" : daysLeft! <= 30 ? "rgba(232,121,58,0.3)" : "rgba(58,158,110,0.25)"}`,
+          color:      deadlinePassed ? "var(--danger)" : "var(--text-primary)",
+          borderRadius: 10, padding: "0.75rem 1rem", marginBottom: "1.5rem", fontSize: "0.9rem", lineHeight: 1.55,
+        }}>
+          {deadlinePassed ? (
+            <>Your receipt submission window <strong>closed on {deadline.toLocaleDateString("en-CA", { month: "long", day: "numeric", year: "numeric" })}</strong>. Contact <a href="mailto:register@raisingarrowsathome.com" style={{ color: "inherit", textDecoration: "underline" }}>register@raisingarrowsathome.com</a> if you believe this is an error.</>
+          ) : (
+            <>
+              <strong>Submission deadline:</strong> {deadline.toLocaleDateString("en-CA", { month: "long", day: "numeric", year: "numeric" })}
+              {daysLeft != null && daysLeft >= 0 && <> · {daysLeft} day{daysLeft === 1 ? "" : "s"} remaining</>}
+            </>
+          )}
+        </div>
+      )}
+
+      <div style={{
+        background: "rgba(255,255,255,0.7)", border: "1px solid rgba(0,0,0,0.08)",
+        borderRadius: 10, padding: "0.75rem 1rem", marginBottom: "1.75rem",
+        fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.55,
+      }}>
+        <strong style={{ color: "var(--text-primary)" }}>Payment schedule:</strong> Payouts run on the 15th and the last day of each month. Submit receipts at least 2 weeks before either date to make that payout.
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "1rem", marginBottom: "2.5rem" }}>
         <Card label="Approved cap"  value={`$${Number(recipient.approved_amount).toFixed(2)}`} />

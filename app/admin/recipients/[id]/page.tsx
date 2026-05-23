@@ -131,12 +131,27 @@ export default async function RecipientDetail({ params }: { params: { id: string
                     {r.purchase_date || new Date(r.created_at).toLocaleDateString()}
                   </div>
                 </div>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: "1.05rem", color: "var(--ra-ink)" }}>
-                  ${Number(r.amount).toFixed(2)}
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontFamily: "var(--font-display)", fontSize: "1.05rem", color: "var(--ra-ink)" }}>
+                    {r.currency || "CAD"} ${Number(r.amount).toFixed(2)}
+                  </div>
+                  {r.reimbursable_amount != null && (
+                    <div className="ra-tiny" style={{ color: "var(--ra-accent)" }}>
+                      → CAD ${Number(r.reimbursable_amount).toFixed(2)} reimbursable
+                    </div>
+                  )}
                 </div>
                 <StatusBadge status={r.status} />
                 <div>
-                  {r.status === "pending" && <ReceiptDecide id={r.id} amount={Number(r.amount)} description={r.description} />}
+                  {r.status === "pending" && (
+                    <ReceiptDecide
+                      id={r.id}
+                      amount={Number(r.amount)}
+                      currency={(r.currency as any) || "CAD"}
+                      rate={Number(recipient.reimbursement_rate)}
+                      description={r.description}
+                    />
+                  )}
                 </div>
               </li>
             ))}

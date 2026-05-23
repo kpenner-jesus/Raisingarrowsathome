@@ -127,7 +127,23 @@ export const SITE_CONFIG = {
     },
     {
       q: "How does the reimbursement process work?",
-      a: "When approved, submit your receipts to receipts@raisingarrowsathome.com and an e-transfer will be sent within 7 days of us receiving them.",
+      a: "When approved, you'll get a sign-in link to your recipient portal where you can upload receipts. Approved receipts are paid out twice a month — on the 15th and the last day of the month — via e-transfer from CEO Ministries.",
+    },
+    {
+      q: "What is eligible for reimbursement?",
+      a: "Curriculum, workbooks, and educational books only. We do not cover field trips, school supplies (paper, pens), extracurricular fees, or other peripheral costs.",
+    },
+    {
+      q: "How does the payment schedule work?",
+      a: "Two payouts per month: one on the 15th and one on the last day. To make a payout, submit your receipts at least 2 weeks before the payout date. Receipts in by the 1st of the month go in the 15th payout; receipts in by the 17th go in the end-of-month payout; receipts later than that roll to the next 15th.",
+    },
+    {
+      q: "How long do I have to submit receipts?",
+      a: "Six months from your acceptance date. After that, no further receipts can be submitted against your grant.",
+    },
+    {
+      q: "Can I submit USD receipts?",
+      a: "Yes — upload them in USD and we will convert to CAD at the time of approval.",
     },
     {
       q: "Who qualifies?",

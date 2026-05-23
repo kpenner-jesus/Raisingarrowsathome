@@ -557,6 +557,122 @@ const exportBatchCsv: Tool = {
 //  Registry
 // ──────────────────────────────────────────────────────────────
 
+const bulkCreateRecipients: Tool = {
+  name:        "bulk_create_recipients",
+  description: "Bulk-import recipients (e.g. from a legacy spreadsheet). Each row creates a skeleton 'approved' application + recipient. Use for grandfathered families that predate the online funnel. The 'paid_to_date' field, if provided, creates a legacy payout row so balance math is accurate.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      grandfathered: { type: "boolean", default: true, description: "Mark recipients as grandfathered (no submission_deadline)" },
+      rows: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            parent_names:        { type: "string" },
+            contact_email:       { type: "string" },
+            contact_phone:       { type: "string" },
+            address_street:      { type: "string" },
+            address_city:        { type: "string" },
+            address_postal:      { type: "string" },
+            approved_amount:     { type: "number" },
+            reimbursement_rate:  { type: "number", default: 0.75 },
+            submission_deadline: { type: "string", description: "YYYY-MM-DD; omit for grandfathered (null deadline)" },
+            paid_to_date:        { type: "number", description: "If provided, creates a legacy paid batch + payout for this amount" },
+            notes:               { type: "string" },
+          },
+          required: ["parent_names", "contact_email", "approved_amount"],
+        },
+      },
+    },
+    required: ["rows"],
+  },
+  handler: async ({ rows, grandfathered = true }, _ctx) => {
+    if (!Array.isArray(rows) || rows.length === 0) throw new Error("rows must be a non-empty array");
+    const supabase = supabaseService();
+    const results: any[] = [];
+    const today = new Date().toISOString();
+    const todayDate = today.split("T")[0];
+
+    for (const r of rows) {
+      try {
+        if (!r.parent_names || !r.contact_email || !Number.isFinite(Number(r.approved_amount))) {
+          throw new Error("missing required fields");
+        }
+        const firstName = String(r.parent_names).split(/[\s&]/).filter(Boolean)[0] || "FAMILY";
+        const randSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+        const app_ref = `RA-BULK-${firstName.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 12)}-${randSuffix}`;
+
+        const { data: app, error: appErr } = await supabase.from("applications").insert({
+          app_ref,
+          parent_names:      r.parent_names,
+          city:              r.address_city || "—",
+          contact_email:     r.contact_email,
+          contact_phone:     r.contact_phone || "—",
+          income_range:      "—",
+          current_schooling: "—",
+          children:          [],
+          answers:           { _bulk_import: r.notes || "Imported via MCP bulk_create_recipients" },
+          status:            "approved",
+          admin_notes:       r.notes || "Bulk imported via MCP",
+          decided_at:        today,
+        }).select("id").single();
+        if (appErr) throw new Error(appErr.message);
+
+        const { data: recipient, error: recErr } = await supabase.from("recipients").insert({
+          application_id:      app.id,
+          profile_id:          null,
+          approved_amount:     Number(r.approved_amount),
+          reimbursement_rate:  Number(r.reimbursement_rate ?? 0.75),
+          status:              "active",
+          address_street:      r.address_street || null,
+          address_city:        r.address_city || null,
+          address_postal:      r.address_postal || null,
+          submission_deadline: r.submission_deadline || null,
+          grandfathered:       !!grandfathered,
+        }).select("id").single();
+        if (recErr) throw new Error(recErr.message);
+
+        let legacy_payout_id: string | null = null;
+        if (r.paid_to_date && Number(r.paid_to_date) > 0) {
+          const { data: batch } = await supabase.from("payout_batches").insert({
+            scheduled_date: todayDate,
+            status:         "paid",
+            total:          Number(r.paid_to_date),
+            ceo_reference:  "PRE-PORTAL IMPORT",
+            paid_at:        today,
+            exported_at:    today,
+            bucket:         "legacy",
+          }).select("id").single();
+          if (batch) {
+            const { data: payout } = await supabase.from("payouts").insert({
+              batch_id:          batch.id,
+              recipient_id:      recipient.id,
+              amount:            Number(r.paid_to_date),
+              receipts_included: [],
+              status:            "paid",
+              paid_at:           today,
+              payment_method:    "e-transfer (pre-portal)",
+              payment_reference: "imported via MCP",
+            }).select("id").single();
+            legacy_payout_id = payout?.id || null;
+          }
+        }
+
+        results.push({ ok: true, parent_names: r.parent_names, recipient_id: recipient.id, legacy_payout_id });
+      } catch (e: any) {
+        results.push({ ok: false, parent_names: r.parent_names, error: e?.message || String(e) });
+      }
+    }
+    const summary = {
+      total:    rows.length,
+      created:  results.filter((x) => x.ok).length,
+      failed:   results.filter((x) => !x.ok).length,
+    };
+    return { summary, results };
+  },
+};
+
 export const TOOLS: Tool[] = [
   listApplications,
   getApplication,
@@ -572,6 +688,7 @@ export const TOOLS: Tool[] = [
   decideApplication,
   decideReceipt,
   modifyRecipient,
+  bulkCreateRecipients,
   generatePayoutBatch,
   markBatchPaid,
   exportBatchCsv,

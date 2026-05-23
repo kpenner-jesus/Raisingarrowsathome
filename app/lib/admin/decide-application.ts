@@ -112,15 +112,22 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
   // 1. Invite or find existing user
   const profileId = await inviteOrFindUser(app.contact_email, `${args.origin}/portal`);
 
-  // 2. Upsert recipient (idempotent — safe to retry)
+  // 2. Upsert recipient (idempotent — safe to retry).
+  // Default submission_deadline = 6 months from approval date.
+  const deadline = new Date();
+  deadline.setMonth(deadline.getMonth() + 6);
+  const submissionDeadline = deadline.toISOString().split("T")[0];
+
   const { data: recipient, error: recErr } = await supabase
     .from("recipients")
     .upsert(
       {
-        application_id:     app.id,
-        profile_id:         profileId,
-        approved_amount:    cap,
-        reimbursement_rate: rate,
+        application_id:      app.id,
+        profile_id:          profileId,
+        approved_amount:     cap,
+        reimbursement_rate:  rate,
+        submission_deadline: submissionDeadline,
+        grandfathered:       false,
       },
       { onConflict: "application_id" }
     )
