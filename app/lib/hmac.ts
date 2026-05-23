@@ -8,20 +8,31 @@ function secret(): Buffer {
   return Buffer.from(s);
 }
 
-/** Sign payload+expiry as `${payload}.${expiry}.${sig}` (b64url). */
+/** Sign payload+expiry as `${b64payload}.${expiry}.${sig}`.
+ *
+ *  Payload is base64url-encoded so we can split safely on '.' even
+ *  when the payload itself contains '.' (e.g. `unsub:user@gmail.com`).
+ *  Signature is computed over the RAW (decoded) payload + expiry. */
 export function signToken(payload: string, ttlSeconds: number): string {
   const expiry = Math.floor(Date.now() / 1000) + ttlSeconds;
-  const sig = createHmac("sha256", secret()).update(`${payload}.${expiry}`).digest("base64url");
-  return `${payload}.${expiry}.${sig}`;
+  const b64    = Buffer.from(payload, "utf8").toString("base64url");
+  const sig    = createHmac("sha256", secret()).update(`${payload}.${expiry}`).digest("base64url");
+  return `${b64}.${expiry}.${sig}`;
 }
 
 export function verifyToken(token: string): { ok: true; payload: string } | { ok: false; reason: string } {
   const parts = token.split(".");
   if (parts.length !== 3) return { ok: false, reason: "malformed" };
-  const [payload, expiryStr, sig] = parts;
+  const [b64, expiryStr, sig] = parts;
   const expiry = Number(expiryStr);
   if (!Number.isFinite(expiry)) return { ok: false, reason: "expiry invalid" };
   if (Math.floor(Date.now() / 1000) > expiry) return { ok: false, reason: "expired" };
+
+  let payload: string;
+  try { payload = Buffer.from(b64, "base64url").toString("utf8"); }
+  catch { return { ok: false, reason: "payload decode" }; }
+  if (!payload) return { ok: false, reason: "payload empty" };
+
   const expected = createHmac("sha256", secret()).update(`${payload}.${expiry}`).digest("base64url");
   try {
     const a = Buffer.from(sig);

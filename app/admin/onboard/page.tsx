@@ -44,9 +44,17 @@ export default async function OnboardPage({ searchParams }: { searchParams?: { t
       `You're signed in as ${user.email}, but this invite was sent to ${invite.email}. Sign out and sign back in with the invited address.`);
   }
 
-  // Promote + mark used (idempotent)
-  await svc.from("profiles").upsert({ id: user.id, email: user.email, role: invite.role }, { onConflict: "id" });
+  // Promote — but never DOWNGRADE. If invitee is already super_admin and
+  // this invite is for plain admin, keep super_admin. Mark invite used
+  // BEFORE upsert so a partial failure can't leave a still-usable token.
+  const { data: existing } = await svc.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const finalRole = existing?.role === "super_admin" ? "super_admin" : invite.role;
+
   await svc.from("admin_invites").update({ used_at: new Date().toISOString() }).eq("id", invite.id);
+  await svc.from("profiles").upsert(
+    { id: user.id, email: user.email, role: finalRole },
+    { onConflict: "id" }
+  );
 
   redirect("/admin");
 }

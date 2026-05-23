@@ -29,12 +29,25 @@ export async function GET(req: Request) {
   const startISO = `${year}-01-01T00:00:00Z`;
   const endISO   = `${year + 1}-01-01T00:00:00Z`;
 
+  // Memory + Vercel-timeout cap. ~30 photos × ~1MB = ~30MB zip at most.
+  // Above this we ask admin to paginate via ?offset=.
+  const MAX_PER_ZIP = 30;
+  const offsetRaw = url.searchParams.get("offset");
+  const offset = offsetRaw && /^\d+$/.test(offsetRaw) ? Number(offsetRaw) : 0;
+
+  // First, count total to surface 'more available' guidance
+  const { count: total } = await svc.from("photos").select("id", { count: "exact", head: true })
+    .gte("created_at", startISO).lt("created_at", endISO);
+
   const { data: photos, error } = await svc.from("photos")
     .select("id, image_path, caption, created_at, recipient_id, recipients!inner(applications!inner(parent_names, app_ref))")
     .gte("created_at", startISO).lt("created_at", endISO)
     .order("created_at", { ascending: true })
-    .limit(500);
+    .range(offset, offset + MAX_PER_ZIP - 1);
   if (error) return new NextResponse(error.message, { status: 500 });
+  if (!photos || photos.length === 0) {
+    return new NextResponse(`No photos in ${year} starting at offset ${offset}.`, { status: 404 });
+  }
 
   const zip = new JSZip();
   const folder = zip.folder(`raising-arrows-photos-${year}`)!;
@@ -59,12 +72,16 @@ export async function GET(req: Request) {
   folder.file("MANIFEST.csv", manifest.join("\n"));
 
   const blob = await zip.generateAsync({ type: "nodebuffer" });
-  return new NextResponse(blob as any, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename="raising-arrows-photos-${year}.zip"`,
-      "Cache-Control": "no-store",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": "application/zip",
+    "Content-Disposition": `attachment; filename="raising-arrows-photos-${year}-from-${offset}.zip"`,
+    "Cache-Control": "no-store",
+  };
+  // Surface pagination guidance in custom header if more remain.
+  const nextOffset = offset + photos.length;
+  if ((total ?? 0) > nextOffset) {
+    headers["X-Next-Offset"] = String(nextOffset);
+    headers["X-Total-Photos"] = String(total);
+  }
+  return new NextResponse(blob as any, { status: 200, headers });
 }

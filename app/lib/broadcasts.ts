@@ -71,16 +71,27 @@ export async function sendBroadcast({ broadcastId }: SendArgs): Promise<SendResu
     return { sent: 0, failed: recipients.length, state: "failed" };
   }
 
+  // CASL / CAN-SPAM: every broadcast MUST carry an unsubscribe path.
+  // Bail rather than mass-mail without one.
+  try { signToken("probe", 60); }
+  catch (e: any) {
+    await svc.from("broadcasts").update({
+      state: "failed", sent_at: new Date().toISOString(),
+      recipient_count: 0, failed_count: recipients.length,
+    }).eq("id", broadcastId);
+    console.error("[broadcasts] aborting — HMAC secret missing, cannot sign unsubscribe links:", e?.message ?? e);
+    return { sent: 0, failed: recipients.length, state: "failed" };
+  }
+
   let sent = 0, failed = 0;
   for (const r of recipients) {
-    let unsubToken = "";
-    try { unsubToken = signToken(`unsub:${r.email.toLowerCase()}`, 60 * 60 * 24 * 365); } catch {}
+    const unsubToken = signToken(`unsub:${r.email.toLowerCase()}`, 60 * 60 * 24 * 365);
     const unsubUrl = `${SITE}/api/unsubscribe?token=${encodeURIComponent(unsubToken)}`;
     const personalizedHtml = claimed.body_html.replaceAll("{{parent_names}}", escapeHtml(r.parent_names))
       + `<hr style="border:0;border-top:1px solid #eee;margin:36px 0 12px;">
          <p style="font-size:0.75rem;color:#aaa;margin:0;">
            You're receiving this because you're part of Raising Arrows.
-           ${unsubToken ? `<a href="${unsubUrl}" style="color:#aaa;">Unsubscribe</a>` : ""}
+           <a href="${unsubUrl}" style="color:#aaa;">Unsubscribe</a>
          </p>`;
     try {
       const headers: Record<string, string> = {
@@ -90,13 +101,11 @@ export async function sendBroadcast({ broadcastId }: SendArgs): Promise<SendResu
       const payload: any = {
         from: FROM_EMAIL, to: [r.email],
         subject: claimed.subject, html: personalizedHtml,
-      };
-      if (unsubToken) {
-        payload.headers = {
+        headers: {
           "List-Unsubscribe":      `<${unsubUrl}>`,
           "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-        };
-      }
+        },
+      };
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST", headers, body: JSON.stringify(payload),
       });

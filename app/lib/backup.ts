@@ -40,6 +40,20 @@ export async function emailMonthlyBackup(): Promise<{ ok: boolean; bytes?: numbe
   // Resend attachment limit is 40MB raw; we base64 encode → ~33MB usable.
   const base64 = Buffer.from(json, "utf8").toString("base64");
   if (base64.length > 24_000_000) {
+    // Don't silent-fail. Send an ALERT email instead so super_admins
+    // know the backup didn't go through and can switch to manual.
+    try {
+      const client = new Resend(RESEND_KEY);
+      await client.emails.send({
+        from: FROM, to,
+        subject: `[ALERT] Raising Arrows monthly backup TOO LARGE (${(bytes/1024/1024).toFixed(1)} MB)`,
+        html: `<p>The monthly backup dump exceeded the email attachment cap.</p>
+          <p>Raw size: <strong>${bytes} bytes</strong> (${(bytes/1024/1024).toFixed(1)} MB).</p>
+          <p>Use the Supabase dashboard to take a manual backup this month,
+          and consider trimming <code>audit_log</code> or splitting the
+          backup by table.</p>`,
+      });
+    } catch { /* best-effort alert */ }
     return { ok: false, error: `dump too large: ${bytes} bytes` };
   }
 

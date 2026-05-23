@@ -52,6 +52,13 @@ export async function PATCH(req: Request) {
 
   if (Object.keys(update).length === 0) return NextResponse.json({ error: "nothing to update" }, { status: 400 });
 
+  // Friendly unique-label check before letting Postgres throw
+  if (update.label) {
+    const { data: collide } = await c.svc.from("receipt_categories")
+      .select("id").eq("label", update.label).neq("id", id).maybeSingle();
+    if (collide) return NextResponse.json({ error: `Another category already uses the label '${update.label}'` }, { status: 409 });
+  }
+
   const { error } = await c.svc.from("receipt_categories").update(update).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
