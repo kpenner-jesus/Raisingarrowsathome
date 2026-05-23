@@ -1,11 +1,30 @@
 "use client";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { SITE_CONFIG } from "./siteConfig";
 import { PeekingChildren } from "./_components/PeekingChildren";
 import { KidsBehind } from "./_components/Kids";
+import { supabaseBrowser } from "./lib/supabase/browser";
 
 export default function LandingPage() {
   const router = useRouter();
+
+  // If user is already signed in (e.g. magic-link landed on `/` because Supabase
+  // didn't honor emailRedirectTo), route them to the right place by role.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = supabaseBrowser();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+      const { data: profile } = await supabase
+        .from("profiles").select("role").eq("id", user.id).single();
+      if (cancelled) return;
+      const role = profile?.role;
+      router.replace(role === "admin" || role === "super_admin" ? "/admin" : "/portal");
+    })();
+    return () => { cancelled = true; };
+  }, [router]);
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-gradient)" }}>
