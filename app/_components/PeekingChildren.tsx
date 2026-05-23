@@ -85,31 +85,46 @@ export function PeekingChildren() {
 
   return (
     <>
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-        gap: "0.75rem",
-        marginBottom: "3rem",
-      }}>
+      <style>{`
+        .ra-tier-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+          column-gap: 0.75rem;
+          row-gap: 110px;          /* big gap so peeking heads have room when cards stack */
+          margin-bottom: 3rem;
+        }
+        @media (min-width: 720px) {
+          .ra-tier-grid { row-gap: 0.75rem; }
+        }
+        .ra-tier-card-wrap { position: relative; }
+        .ra-tier-kid {
+          position: absolute;
+          top: 0;
+          left: 50%;
+          width: 72px;
+          height: 100px;
+          pointer-events: none;
+          z-index: 1;
+          transition: transform 0.95s cubic-bezier(0.34, 1.5, 0.64, 1);
+          /* clip anything below card top so body never bleeds out the bottom */
+          overflow: hidden;
+        }
+      `}</style>
+
+      <div className="ra-tier-grid">
         {tiers.map((tier, i) => {
           const p = PERSONALITIES[i] || PERSONALITIES[0];
           const state = peekStates[i] || idleState;
-          const idleTransform = `translate(-50%, 75%) rotate(0deg)`;
+          // Idle: kid fully hidden behind card. Peek: head + shoulders pop above.
+          const idleTransform = `translate(-50%, 100%) rotate(0deg)`;
           const peekTransform = `translate(-50%, -${state.height.toFixed(1)}%) rotate(${state.tilt.toFixed(1)}deg)`;
           return (
-            <div key={tier.label} style={{ position: "relative" }}>
+            <div key={tier.label} className="ra-tier-card-wrap">
               <div
                 aria-hidden
+                className="ra-tier-kid"
                 style={{
-                  position: "absolute",
-                  top: 0,
-                  left: "50%",
-                  width: 72,
-                  height: 110,
                   transform: state.active ? peekTransform : idleTransform,
-                  transition: "transform 0.95s cubic-bezier(0.34, 1.5, 0.64, 1)",
-                  pointerEvents: "none",
-                  zIndex: 1,
                 }}
               >
                 <Kid variant={i} blinks={p.blinks} blinkDelay={p.blinkDelay} lookAround={i === 2} />

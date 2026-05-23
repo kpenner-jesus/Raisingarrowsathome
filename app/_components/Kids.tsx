@@ -84,7 +84,9 @@ export function KidsBehind({
         {kids.map((k, i) => {
           const p = PERSONALITIES[k.variant] || PERSONALITIES[0];
           const state = states[i] || IDLE_STATE;
-          const idleTransform = `translate(-50%, 75%) rotate(0deg)`;
+          // Idle: fully pushed below container top → covered by card body.
+          // Peek: head + shoulders pop above.
+          const idleTransform = `translate(-50%, 100%) rotate(0deg)`;
           const peekTransform = `translate(-50%, -${state.height.toFixed(1)}%) rotate(${state.tilt.toFixed(1)}deg)`;
           const w = k.size?.width  ?? 56;
           const h = k.size?.height ?? 88;
@@ -102,13 +104,14 @@ export function KidsBehind({
                 transition: "transform 0.95s cubic-bezier(0.34, 1.5, 0.64, 1)",
                 pointerEvents: "none",
                 zIndex: 1,
+                overflow: "hidden",   /* clamp body so it can't bleed out the bottom */
               }}
             >
               <Kid variant={k.variant} blinks={p.blinks} blinkDelay={p.blinkDelay} lookAround={k.variant === 2} />
             </div>
           );
         })}
-        <div style={{ position: "relative", zIndex: contentZIndex }}>
+        <div style={{ position: "relative", zIndex: contentZIndex, paddingTop: 100 }}>
           {children}
         </div>
       </div>
