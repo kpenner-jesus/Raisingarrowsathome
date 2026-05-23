@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { notifyBatchPaid } from "@/app/lib/notify";
+import { writeAudit } from "@/app/lib/audit";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = supabaseServer();
@@ -14,7 +15,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
   const { data: profile } = await auth.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin") return new NextResponse("forbidden", { status: 403 });
+  if (profile?.role !== "admin" && profile?.role !== "super_admin") return new NextResponse("forbidden", { status: 403 });
 
   const { ceo_reference } = await req.json().catch(() => ({}));
   const now = new Date().toISOString();
@@ -66,6 +67,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       portal_url:   `${origin}/portal`,
     })
   ));
+
+  await writeAudit({
+    actorId:     user.id,
+    action:      "mark_paid",
+    targetTable: "payout_batches",
+    targetId:    params.id,
+    details:     { ceo_reference: ceo_reference || null, paid_at: now, recipients_notified: recipientsNotified },
+  });
 
   return NextResponse.json({ ok: true, batch_id: params.id, recipients_notified: recipientsNotified });
 }

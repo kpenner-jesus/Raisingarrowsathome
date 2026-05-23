@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { supabaseServer } from "@/app/lib/supabase/server";
+import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { defaultGrantCap } from "@/app/lib/grant-calc";
 import { SITE_CONFIG } from "@/app/siteConfig";
 import { AvatarRow } from "../../_components/Avatar";
 import { StatusBadge } from "../../_components/StatusBadge";
 import DecisionForm from "./DecisionForm";
+import { ApplicationNotes } from "./ApplicationNotes";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,12 @@ export default async function ApplicationDetail({ params }: { params: { id: stri
   if (!app) return notFound();
 
   const { data: recipient } = await supabase.from("recipients").select("*").eq("application_id", app.id).maybeSingle();
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+  const svc = supabaseService();
+  const { data: notesData } = await svc.from("application_notes")
+    .select("id, author_id, body, created_at, profiles:author_id(email)")
+    .eq("application_id", app.id)
+    .order("created_at", { ascending: false });
   const defaultCap = defaultGrantCap(app.children || []);
   const kids = Array.isArray(app.children) ? app.children : [];
 
@@ -102,6 +109,19 @@ export default async function ApplicationDetail({ params }: { params: { id: stri
               })}
             </div>
           </section>
+
+          {/* Internal admin notes */}
+          <ApplicationNotes
+            applicationId={app.id}
+            currentUserId={currentUser?.id ?? null}
+            notes={(notesData ?? []).map((n: any) => ({
+              id: n.id,
+              author_id: n.author_id,
+              author_email: n.profiles?.email ?? "(unknown)",
+              body: n.body,
+              created_at: n.created_at,
+            }))}
+          />
         </div>
 
         {/* RIGHT: Decision sidebar */}

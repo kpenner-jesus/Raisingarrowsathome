@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/app/lib/supabase/server";
 import { decideApplication } from "@/app/lib/admin/decide-application";
+import { writeAudit } from "@/app/lib/audit";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = supabaseServer();
@@ -8,7 +9,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
   const { data: profile } = await auth.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin") return new NextResponse("forbidden", { status: 403 });
+  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
+    return new NextResponse("forbidden", { status: 403 });
+  }
 
   const { decision, approved_amount, rate, notes } = await req.json();
   if (!["approved", "denied"].includes(decision)) return new NextResponse("bad decision", { status: 400 });
@@ -22,6 +25,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       notes,
       deciderProfileId: user.id,
       origin:           new URL(req.url).origin,
+    });
+    await writeAudit({
+      actorId:     user.id,
+      action:      "decide_application",
+      targetTable: "applications",
+      targetId:    params.id,
+      details:     { decision, approved_amount, rate, notes: notes ?? null, recipient_id: (result as any)?.recipientId ?? null },
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (e: any) {

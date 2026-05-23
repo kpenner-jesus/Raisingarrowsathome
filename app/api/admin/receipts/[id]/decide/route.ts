@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { notifyReceiptApproved, notifyReceiptRejected } from "@/app/lib/notify";
+import { writeAudit } from "@/app/lib/audit";
 
 const MAX_REIMBURSABLE = 50_000;
 
@@ -18,7 +19,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
   const { data: profile } = await auth.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin") return new NextResponse("forbidden", { status: 403 });
+  if (profile?.role !== "admin" && profile?.role !== "super_admin") return new NextResponse("forbidden", { status: 403 });
 
   const body = await req.json().catch(() => ({} as any));
   const { decision, notes, reimbursable_amount } = body;
@@ -77,12 +78,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!updRow) return new NextResponse("receipt was concurrently decided", { status: 409 });
 
   // Audit log
-  await service.from("audit_log").insert({
-    actor_id:     user.id,
-    action:       `receipt.${decision}`,
-    target_table: "receipts",
-    target_id:    params.id,
-    details:      { reimbursable_amount: cleanReimbursable, currency: receipt.currency, notes: notes || null },
+  await writeAudit({
+    actorId:     user.id,
+    action:      "decide_receipt",
+    targetTable: "receipts",
+    targetId:    params.id,
+    details:     { decision, reimbursable_amount: cleanReimbursable, currency: receipt.currency, notes: notes || null },
   });
 
   const origin       = new URL(req.url).origin;

@@ -5,6 +5,7 @@
 // fat-finger or compromised-token disasters.
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { writeAudit, diff } from "@/app/lib/audit";
 
 const ALLOWED_STATUS = ["active", "completed", "suspended"] as const;
 const MAX_CAP = 50_000;
@@ -15,7 +16,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
   const { data: profile } = await auth.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin") return new NextResponse("forbidden", { status: 403 });
+  if (profile?.role !== "admin" && profile?.role !== "super_admin") return new NextResponse("forbidden", { status: 403 });
 
   const body = await req.json().catch(() => ({} as any));
   const update: Record<string, any> = {};
@@ -41,8 +42,20 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   const service = supabaseService();
+  // Snapshot before for audit diff
+  const { data: before } = await service.from("recipients")
+    .select("approved_amount, reimbursement_rate, status").eq("id", params.id).single();
+
   const { error } = await service.from("recipients").update(update).eq("id", params.id);
   if (error) return new NextResponse(error.message, { status: 500 });
+
+  await writeAudit({
+    actorId:     user.id,
+    action:      "modify_recipient",
+    targetTable: "recipients",
+    targetId:    params.id,
+    details:     before ? diff(before, { ...before, ...update }) : { update },
+  });
 
   return NextResponse.json({ ok: true });
 }
