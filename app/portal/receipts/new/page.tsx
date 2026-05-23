@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/app/lib/supabase/browser";
 import { compressImage } from "@/app/portal/_lib/compressImage";
 
@@ -22,12 +22,28 @@ function randomId(): string {
 }
 
 export default function NewReceiptPage() {
+  return (
+    <Suspense fallback={<div className="ra-quiet">Loading…</div>}>
+      <NewReceiptInner />
+    </Suspense>
+  );
+}
+
+function NewReceiptInner() {
   const router = useRouter();
+  const params = useSearchParams();
+  // Pre-fill from URL when re-uploading a corrected version of a rejected receipt.
+  const preAmount = params.get("amount") ?? "";
+  const preCurr   = params.get("currency");
+  const preDate   = params.get("date") ?? new Date().toISOString().split("T")[0];
+  const preDesc   = params.get("description") ?? "";
+  const replacingId = params.get("replacing");
+
   const [file, setFile]               = useState<File | null>(null);
-  const [amount, setAmount]           = useState("");
-  const [currency, setCurrency]       = useState<"CAD" | "USD">("CAD");
-  const [date, setDate]               = useState(new Date().toISOString().split("T")[0]);
-  const [description, setDescription] = useState("");
+  const [amount, setAmount]           = useState(preAmount);
+  const [currency, setCurrency]       = useState<"CAD" | "USD">(preCurr === "USD" ? "USD" : "CAD");
+  const [date, setDate]               = useState(preDate);
+  const [description, setDescription] = useState(preDesc);
   const [busy, setBusy]               = useState(false);
   const [error, setError]             = useState("");
 
@@ -80,7 +96,20 @@ export default function NewReceiptPage() {
 
   return (
     <div>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", marginBottom: "1rem" }}>Upload a receipt</h1>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", marginBottom: "1rem" }}>
+        {replacingId ? "Re-upload corrected receipt" : "Upload a receipt"}
+      </h1>
+
+      {replacingId && (
+        <div style={{
+          background: "rgba(58,158,110,0.08)",
+          border: "1px solid rgba(58,158,110,0.3)",
+          borderRadius: 10, padding: "0.85rem 1.1rem", marginBottom: "1rem",
+          fontSize: "0.88rem", lineHeight: 1.55, color: "var(--text-primary)",
+        }}>
+          Submitting a corrected version of a previously rejected receipt. Amount, date, and description below were copied from the original — adjust as needed.
+        </div>
+      )}
 
       <div style={{
         background: "rgba(232,121,58,0.08)",

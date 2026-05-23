@@ -105,17 +105,44 @@ export default async function PortalDashboard() {
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.3rem", marginBottom: "0.75rem" }}>Your receipts</h2>
       {receipts && receipts.length > 0 ? (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "2rem" }}>
-          {receipts.map((r: any) => (
-            <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: "1rem", background: "rgba(255,255,255,0.75)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: "0.75rem 1rem", fontSize: "0.9rem", flexWrap: "wrap" }}>
-              <span>{r.purchase_date || new Date(r.created_at).toLocaleDateString()} — {r.description || "Receipt"}</span>
-              <span>
-                <strong>${Number(r.amount).toFixed(2)}</strong>{" "}
-                <em style={{ color: r.status === "approved" ? "var(--success)" : r.status === "rejected" ? "var(--danger)" : "var(--text-muted)", fontStyle: "normal", textTransform: "uppercase", fontSize: "0.72rem", marginLeft: "0.5rem", letterSpacing: "0.05em" }}>
-                  {r.status}
-                </em>
-              </span>
-            </div>
-          ))}
+          {receipts.map((r: any) => {
+            const isRejected = r.status === "rejected";
+            const reUploadHref = `/portal/receipts/new?replacing=${encodeURIComponent(r.id)}` +
+              `&amount=${encodeURIComponent(Number(r.amount).toString())}` +
+              `&currency=${encodeURIComponent(r.currency || "CAD")}` +
+              (r.purchase_date ? `&date=${encodeURIComponent(r.purchase_date)}` : "") +
+              (r.description   ? `&description=${encodeURIComponent(r.description)}` : "");
+            return (
+              <div key={r.id} style={{
+                background: isRejected ? "rgba(208,74,74,0.04)" : "rgba(255,255,255,0.75)",
+                border:     `1px solid ${isRejected ? "rgba(208,74,74,0.25)" : "rgba(0,0,0,0.08)"}`,
+                borderRadius: 10, padding: "0.75rem 1rem", fontSize: "0.9rem",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+                  <span>{r.purchase_date || new Date(r.created_at).toLocaleDateString()} — {r.description || "Receipt"}</span>
+                  <span>
+                    <strong>${Number(r.amount).toFixed(2)}</strong>{" "}
+                    <em style={{ color: r.status === "approved" ? "var(--success)" : isRejected ? "var(--danger)" : "var(--text-muted)", fontStyle: "normal", textTransform: "uppercase", fontSize: "0.72rem", marginLeft: "0.5rem", letterSpacing: "0.05em" }}>
+                      {r.status}
+                    </em>
+                  </span>
+                </div>
+                {isRejected && (
+                  <div style={{ marginTop: "0.55rem", fontSize: "0.82rem", lineHeight: 1.5, color: "var(--text-secondary)" }}>
+                    {r.admin_notes && (
+                      <div style={{ background: "rgba(255,255,255,0.7)", padding: "0.45rem 0.7rem", borderRadius: 8, marginBottom: "0.45rem", whiteSpace: "pre-wrap" }}>
+                        <strong style={{ color: "var(--danger)" }}>Reason:</strong> {r.admin_notes}
+                      </div>
+                    )}
+                    <Link href={reUploadHref}
+                      style={{ color: "var(--accent)", fontWeight: 500, textDecoration: "none", borderBottom: "1px solid currentColor" }}>
+                      ↻ Upload corrected version
+                    </Link>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       ) : <p style={{ color: "var(--text-muted)", marginBottom: "2rem" }}>No receipts uploaded yet.</p>}
 
