@@ -55,6 +55,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <NavLink href="/admin/recipients"   label="Recipients"   icon="❀" />
             <NavLink href="/admin/payouts"      label="Payouts"      icon="$" />
             {isSuper && <NavLink href="/admin/team" label="Team" icon="◉" />}
+            <NavLink href="/admin/mcp"          label="AI / MCP"     icon="✦" />
             <NavLink href="/admin/help"         label="Help"         icon="?" />
           </nav>
 

@@ -69,6 +69,29 @@ export default async function AdminDashboard() {
         ))}
       </div>
 
+      {/* AI / MCP banner */}
+      <section className="ra-card" style={{
+        marginBottom: "2rem",
+        background: "linear-gradient(135deg, #1e1715 0%, #2a201d 100%)",
+        color: "#fff", border: "none",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap",
+      }}>
+        <div>
+          <div style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.1em", color: "rgba(255,255,255,0.55)", fontWeight: 600, marginBottom: "0.25rem" }}>
+            New
+          </div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", fontWeight: 500 }}>
+            Drive this portal with Claude (or any AI)
+          </div>
+          <div style={{ fontSize: "0.9rem", color: "rgba(255,255,255,0.75)", marginTop: "0.35rem", maxWidth: 520, lineHeight: 1.55 }}>
+            This site exposes an MCP server with 17 admin tools. Connect Claude Code or Claude Desktop and run the grant program by chatting.
+          </div>
+        </div>
+        <Link href="/admin/mcp" className="ra-btn ra-btn-accent" style={{ flexShrink: 0 }}>
+          Connect AI →
+        </Link>
+      </section>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
         {/* Latest applications */}
         <section className="ra-card">
