@@ -51,7 +51,7 @@ export default function ModifyForm({ recipient }: Props) {
         {status === "completed" && <span className="ra-badge ra-badge-completed">Excluded from batches</span>}
       </h3>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: "1rem", alignItems: "end" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "1rem", alignItems: "end" }}>
         <div>
           <label className="ra-label">
             Cap (CAD)

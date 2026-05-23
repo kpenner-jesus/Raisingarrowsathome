@@ -73,7 +73,7 @@ export default async function RecipientDetail({ params }: { params: { id: string
               <ProgressBar value={cap > 0 ? paidToDate / cap : 0} variant={paidToDate >= cap ? "success" : "default"} ariaLabel="Grant payout progress" />
             </div>
           </div>
-          <div className="ra-stat-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+          <div className="ra-stat-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem" }}>
             <div className="ra-stat ra-card-tight">
               <span className="ra-stat-label">Approved receipts</span>
               <span className="ra-stat-value" style={{ fontSize: "1.4rem" }}>${balance.approvedReceiptTotal.toFixed(2)}</span>
@@ -112,12 +112,8 @@ export default async function RecipientDetail({ params }: { params: { id: string
             {receipts.map((r: any) => (
               <li
                 key={r.id}
+                className="ra-receipt-row"
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "60px 1fr auto auto auto",
-                  gap: "1rem", alignItems: "center",
-                  padding: "0.75rem", borderRadius: 10,
-                  border: "1px solid var(--ra-line)",
                   background: r.status === "pending" ? "rgba(232,121,58,0.04)" : "var(--ra-bg-soft)",
                 }}
               >

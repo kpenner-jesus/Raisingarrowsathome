@@ -508,3 +508,33 @@
 /* ── DETAIL ROW ── */
 .ra-row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .ra-row-between { display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+
+/* ── RECEIPT ROW (recipient detail page) ──
+   Desktop: thumb | info | amount | status | actions.
+   Mobile  (< 640px): thumb stays on the left; info + meta stack on the right. */
+.ra-receipt-row {
+  display: grid;
+  grid-template-columns: 60px 1fr auto auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--ra-line);
+}
+@media (max-width: 639px) {
+  .ra-receipt-row {
+    grid-template-columns: 60px 1fr;
+    grid-template-areas:
+      "thumb info"
+      "thumb meta";
+    row-gap: 0.5rem;
+  }
+  .ra-receipt-row > :nth-child(1) { grid-area: thumb; }
+  .ra-receipt-row > :nth-child(2) { grid-area: info; }
+  .ra-receipt-row > :nth-child(n+3) {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+    margin-right: 0.5rem;
+  }
+}
