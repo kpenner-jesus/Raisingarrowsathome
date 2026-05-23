@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { SITE_CONFIG } from "@/app/siteConfig";
-import { Kid, PERSONALITIES } from "./Kids";
+import { Kid, PERSONALITIES, pickRandomVariants } from "./Kids";
 
 const TIER_DETAILS = [
   {
@@ -54,10 +54,20 @@ export function PeekingChildren() {
   const [peekStates, setPeekStates] = useState<PeekState[]>(tiers.map(() => idleState));
   const [zoom, setZoom] = useState<number | null>(null);
 
+  // Initial render uses deterministic 0..n-1 to match SSR. After mount we
+  // shuffle to distinct random variants from the pool of 29 so each visit
+  // shows a fresh cast of characters.
+  const [variants, setVariants] = useState<number[]>(() => tiers.map((_, i) => i));
+
+  useEffect(() => {
+    setVariants(pickRandomVariants(tiers.length));
+  }, [tiers.length]);
+
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
     const schedulePeek = (i: number) => {
-      const p = PERSONALITIES[i] || PERSONALITIES[0];
+      const variant = variants[i] ?? i;
+      const p = PERSONALITIES[variant] || PERSONALITIES[0];
       const initialDelay = 1500 + Math.random() * 5000;
       const cycle = () => {
         const height = randIn(p.heightRange);
@@ -74,7 +84,7 @@ export function PeekingChildren() {
     };
     tiers.forEach((_, i) => schedulePeek(i));
     return () => timers.forEach(clearTimeout);
-  }, [tiers.length]);
+  }, [tiers.length, variants]);
 
   useEffect(() => {
     if (zoom === null) return;
@@ -113,7 +123,8 @@ export function PeekingChildren() {
 
       <div className="ra-tier-grid">
         {tiers.map((tier, i) => {
-          const p = PERSONALITIES[i] || PERSONALITIES[0];
+          const variant = variants[i] ?? i;
+          const p = PERSONALITIES[variant] || PERSONALITIES[0];
           const state = peekStates[i] || idleState;
           // Idle: kid sits at top of card (translateY 0) → fully hidden behind
           // card's opaque body (button has z-index 2, kid is z-index 1).
@@ -129,7 +140,7 @@ export function PeekingChildren() {
                   transform: state.active ? peekTransform : idleTransform,
                 }}
               >
-                <Kid variant={i} blinks={p.blinks} blinkDelay={p.blinkDelay} lookAround={i === 2} />
+                <Kid variant={variant} blinks={p.blinks} blinkDelay={p.blinkDelay} lookAround={variant % 7 === 2} />
               </div>
 
               <button
@@ -177,7 +188,7 @@ export function PeekingChildren() {
         <ZoomCard
           tier={tiers[zoom]}
           detail={TIER_DETAILS[zoom]}
-          variant={zoom}
+          variant={variants[zoom] ?? zoom}
           onClose={() => setZoom(null)}
         />
       )}

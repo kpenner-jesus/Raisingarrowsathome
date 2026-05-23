@@ -185,12 +185,13 @@ export default function LandingPage() {
         </div>
 
         {/* Bottom CTA */}
+        {/* Variant omitted → KidsBehind picks random distinct kid per mount */}
         <KidsBehind
           kids={[
-            { variant: 1, left: "14%" },
-            { variant: 3, left: "38%" },
-            { variant: 0, left: "62%" },
-            { variant: 2, left: "86%" },
+            { left: "14%" },
+            { left: "38%" },
+            { left: "62%" },
+            { left: "86%" },
           ]}
         >
           <div style={{

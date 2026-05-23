@@ -31,12 +31,13 @@ function LoginInner() {
   return (
     <div className="tf-step">
       <div className="tf-body" style={{ alignItems: "center", textAlign: "center", maxWidth: 440, margin: "0 auto" }}>
+        {/* Variant omitted → random distinct kid per mount */}
         <KidsBehind
           kids={[
-            { variant: 0, left: "12%" },
-            { variant: 1, left: "38%" },
-            { variant: 2, left: "62%" },
-            { variant: 3, left: "85%" },
+            { left: "12%" },
+            { left: "38%" },
+            { left: "62%" },
+            { left: "85%" },
           ]}
         >
           <div style={{
