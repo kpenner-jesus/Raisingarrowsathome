@@ -2,6 +2,7 @@
 import { useRouter } from "next/navigation";
 import { SITE_CONFIG } from "./siteConfig";
 import { PeekingChildren } from "./_components/PeekingChildren";
+import { KidsBehind } from "./_components/Kids";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -165,29 +166,38 @@ export default function LandingPage() {
         </div>
 
         {/* Bottom CTA */}
-        <div style={{
-          textAlign: "center", background: "rgba(255,255,255,0.72)",
-          border: "1.5px solid rgba(232,121,58,0.2)", borderRadius: "var(--radius-xl)",
-          padding: "2.5rem 2rem", boxShadow: "var(--shadow-hover)",
-        }}>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", fontWeight: 500, marginBottom: "0.75rem" }}>
-            Ready to take the first step?
-          </h2>
-          <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", marginBottom: "1.75rem", fontWeight: 300, lineHeight: 1.6 }}>
-            The application takes about 15 minutes to complete.
-            You will need a short video (4–10 min) of you and your spouse
-            answering three questions.
-          </p>
-          <button
-            onClick={() => router.push("/apply/family")}
-            className="tf-ok"
-            style={{ fontSize: "1rem", padding: "1rem 2.5rem", borderRadius: 100 }}>
-            Start Your Application
-            <svg viewBox="0 0 16 16" fill="none" style={{ width: 18, height: 18 }}>
-              <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        </div>
+        <KidsBehind
+          kids={[
+            { variant: 1, left: "14%" },
+            { variant: 3, left: "38%" },
+            { variant: 0, left: "62%" },
+            { variant: 2, left: "86%" },
+          ]}
+        >
+          <div style={{
+            textAlign: "center", background: "#fffaf2",
+            border: "1.5px solid rgba(232,121,58,0.2)", borderRadius: "var(--radius-xl)",
+            padding: "2.5rem 2rem", boxShadow: "var(--shadow-hover)",
+          }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", fontWeight: 500, marginBottom: "0.75rem" }}>
+              Ready to take the first step?
+            </h2>
+            <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", marginBottom: "1.75rem", fontWeight: 300, lineHeight: 1.6 }}>
+              The application takes about 15 minutes to complete.
+              You will need a short video (4–10 min) of you and your spouse
+              answering three questions.
+            </p>
+            <button
+              onClick={() => router.push("/apply/family")}
+              className="tf-ok"
+              style={{ fontSize: "1rem", padding: "1rem 2.5rem", borderRadius: 100 }}>
+              Start Your Application
+              <svg viewBox="0 0 16 16" fill="none" style={{ width: 18, height: 18 }}>
+                <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </KidsBehind>
 
         {/* In association with */}
         <div style={{ textAlign: "center", marginTop: "3rem", marginBottom: "1.5rem" }}>
