@@ -15,10 +15,14 @@ export interface FundingTier {
   spend: number;
 }
 
+export type IntakeStatus = "open" | "waitlist" | "closed";
+
 export interface AppSettings {
   fundingCaps: FundingTier[];
-  reimbursementRate: number;       // 0..1
+  reimbursementRate: number;
   submissionDeadlineMonths: number;
+  intakeStatus: IntakeStatus;
+  /** @deprecated kept for legacy callers; mirrors intakeStatus !== 'closed' */
   applicationsOpen: boolean;
 }
 
@@ -26,8 +30,16 @@ const DEFAULTS: AppSettings = {
   fundingCaps: SITE_CONFIG.fundingCaps as FundingTier[],
   reimbursementRate: 0.75,
   submissionDeadlineMonths: 6,
+  intakeStatus: "open",
   applicationsOpen: true,
 };
+
+function coerceIntake(v: any, legacyBool?: any): IntakeStatus {
+  if (v === "open" || v === "waitlist" || v === "closed") return v;
+  // Fall back to legacy boolean if intake_status not yet set
+  if (typeof legacyBool === "boolean") return legacyBool ? "open" : "closed";
+  return "open";
+}
 
 export async function getSettings(): Promise<AppSettings> {
   try {
@@ -35,11 +47,13 @@ export async function getSettings(): Promise<AppSettings> {
     const { data, error } = await svc.from("app_settings").select("key, value");
     if (error || !data) return DEFAULTS;
     const map = new Map(data.map((r: any) => [r.key, r.value]));
+    const intakeStatus = coerceIntake(map.get("intake_status"), map.get("applications_open"));
     return {
       fundingCaps:              (map.get("funding_caps") as FundingTier[]) ?? DEFAULTS.fundingCaps,
       reimbursementRate:        Number(map.get("reimbursement_rate") ?? DEFAULTS.reimbursementRate),
       submissionDeadlineMonths: Number(map.get("submission_deadline_months") ?? DEFAULTS.submissionDeadlineMonths),
-      applicationsOpen:         Boolean(map.get("applications_open") ?? DEFAULTS.applicationsOpen),
+      intakeStatus,
+      applicationsOpen:         intakeStatus !== "closed",
     };
   } catch (e) {
     console.error("[settings] read failed:", e);

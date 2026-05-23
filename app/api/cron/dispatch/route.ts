@@ -18,6 +18,7 @@
 
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
+import { sendDueBroadcasts } from "@/app/lib/broadcasts";
 
 function constantTimeEq(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -47,8 +48,12 @@ export async function GET(req: Request) {
     fires.push({ label: "generate-payouts end", path: "/api/cron/generate-payouts", query: "bucket=end", method: "GET" });
   }
 
+  // Always process scheduled broadcasts whose time has come, regardless
+  // of the date-specific jobs above.
+  const broadcastResults = await sendDueBroadcasts().catch((e) => ({ error: e?.message ?? "failed" } as any));
+
   if (fires.length === 0) {
-    return NextResponse.json({ ok: true, day, fired: [], note: "no job scheduled for this UTC date" });
+    return NextResponse.json({ ok: true, day, fired: [], broadcasts: broadcastResults, note: "no date-specific job scheduled" });
   }
 
   const results: any[] = [];
@@ -67,7 +72,7 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, day, fired: results });
+  return NextResponse.json({ ok: true, day, fired: results, broadcasts: broadcastResults });
 }
 
 function safeJson(s: string): any {

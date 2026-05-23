@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppStore } from "../../store";
 import { SITE_CONFIG } from "../../siteConfig";
@@ -17,6 +17,13 @@ export default function FamilyPage() {
     stored.children.length > 0 ? stored.children : [{ age: 0, grade: "" }]
   );
   const [error, setError] = useState("");
+  const [intake, setIntake] = useState<"open" | "waitlist" | "closed" | null>(null);
+
+  useEffect(() => {
+    fetch("/api/public/intake-status").then((r) => r.json())
+      .then((j) => setIntake(j?.status ?? "open"))
+      .catch(() => setIntake("open"));
+  }, []);
 
   const progress = Math.round((1 / 6) * 100);
 
@@ -48,6 +55,23 @@ export default function FamilyPage() {
     </label>
   );
 
+  // Closed-intake gate — render the closed message instead of the funnel.
+  if (intake === "closed") {
+    return (
+      <div className="tf-step">
+        <div className="tf-body" style={{ justifyContent: "center", paddingTop: "4rem", textAlign: "center" }}>
+          <h1 className="tf-question">Applications are closed</h1>
+          <p className="tf-subtext" style={{ marginTop: "1rem", maxWidth: 480 }}>
+            We&apos;re not accepting new applications right now. Please check back later or email{" "}
+            <a href="mailto:register@raisingarrowsathome.com" style={{ color: "var(--accent)" }}>
+              register@raisingarrowsathome.com
+            </a>{" "}for an update on when we&apos;ll reopen.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="tf-step">
       <div className="tf-progress">
@@ -55,6 +79,15 @@ export default function FamilyPage() {
       </div>
 
       <div className="tf-body" style={{ justifyContent: "flex-start", paddingTop: "3rem" }}>
+        {intake === "waitlist" && (
+          <div style={{
+            background: "rgba(232,121,58,0.1)", border: "1px solid rgba(232,121,58,0.3)",
+            borderRadius: 12, padding: "0.85rem 1.1rem", marginBottom: "1.5rem",
+            fontSize: "0.92rem", lineHeight: 1.55, color: "var(--text-primary)", maxWidth: 560,
+          }}>
+            <strong>We&apos;re currently full for this funding cycle.</strong> You can still submit your application — we&apos;ll add you to the waitlist and reach out if a spot opens up or when the next cycle begins.
+          </div>
+        )}
         <div className="tf-step-label tf-animate">Step 1 of 6</div>
         <h1 className="tf-question tf-animate tf-animate-delay-1">
           Tell us about your <em>family</em>

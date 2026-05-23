@@ -15,6 +15,7 @@
 import { NextResponse } from "next/server";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { sendAdminAlert } from "@/app/lib/alerts";
+import { getSettings } from "@/app/lib/settings";
 import { randomBytes } from "crypto";
 
 const MAX_TEXT = 4000;
@@ -34,6 +35,13 @@ function generateAppRef(firstName: string): string {
 
 export async function POST(req: Request) {
   try {
+    // Intake gate — closed = hard reject. waitlist = accept + flag.
+    const settings = await getSettings();
+    if (settings.intakeStatus === "closed") {
+      return new NextResponse("applications are currently closed", { status: 403 });
+    }
+    const waitlisted = settings.intakeStatus === "waitlist";
+
     const body = await req.json().catch(() => ({} as any));
     const {
       parent_names, city, contact_email, contact_phone,
@@ -79,6 +87,7 @@ export async function POST(req: Request) {
         children:          cleanChildren,
         answers:           cleanAnswers,
         video_link:        clip(video_link, 500) || null,
+        waitlisted,
       })
       .select("id, app_ref")
       .single();

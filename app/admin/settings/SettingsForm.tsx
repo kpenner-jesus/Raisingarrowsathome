@@ -1,14 +1,14 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { AppSettings, FundingTier } from "@/app/lib/settings";
+import type { AppSettings, FundingTier, IntakeStatus } from "@/app/lib/settings";
 
 export function SettingsForm({ initial }: { initial: AppSettings }) {
   const router = useRouter();
   const [tiers, setTiers]     = useState<FundingTier[]>(initial.fundingCaps);
   const [rate,  setRate]      = useState<number>(initial.reimbursementRate);
   const [months, setMonths]   = useState<number>(initial.submissionDeadlineMonths);
-  const [open, setOpen]       = useState<boolean>(initial.applicationsOpen);
+  const [intake, setIntake]   = useState<IntakeStatus>(initial.intakeStatus);
   const [busy, setBusy]       = useState(false);
   const [msg,  setMsg]        = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -38,7 +38,8 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
             funding_caps: tiers,
             reimbursement_rate: rate,
             submission_deadline_months: months,
-            applications_open: open,
+            intake_status: intake,
+            applications_open: intake !== "closed",
           },
         }),
       });
@@ -114,10 +115,20 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
         </div>
         <div>
           <label className="ra-label">Intake status</label>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-            <input id="open" type="checkbox" checked={open}
-              onChange={(e) => setOpen(e.target.checked)} />
-            <label htmlFor="open">Accepting new applications</label>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.25rem" }}>
+            {(["open","waitlist","closed"] as IntakeStatus[]).map((s) => (
+              <label key={s} style={{ display: "flex", alignItems: "center", gap: "0.45rem", fontSize: "0.92rem", cursor: "pointer" }}>
+                <input type="radio" name="intake" value={s}
+                  checked={intake === s}
+                  onChange={() => setIntake(s)} />
+                <span style={{ textTransform: "capitalize", fontWeight: 500 }}>{s}</span>
+                <span className="ra-tiny" style={{ marginLeft: "0.25rem" }}>
+                  {s === "open"     && "— funnel accepts applications normally"}
+                  {s === "waitlist" && "— funnel accepts, families flagged waitlisted=true"}
+                  {s === "closed"   && "— funnel shows closed message, no submissions"}
+                </span>
+              </label>
+            ))}
           </div>
         </div>
       </section>

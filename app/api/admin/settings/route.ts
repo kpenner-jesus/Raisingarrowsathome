@@ -7,7 +7,8 @@ const ALLOWED_KEYS = new Set([
   "funding_caps",
   "reimbursement_rate",
   "submission_deadline_months",
-  "applications_open",
+  "applications_open",   // legacy, kept for now
+  "intake_status",       // 'open' | 'waitlist' | 'closed'
 ]);
 
 interface UpdatePayload {
@@ -38,6 +39,11 @@ function validate(key: string, value: any): string | null {
       return null;
     case "applications_open":
       if (typeof value !== "boolean") return "applications_open must be boolean";
+      return null;
+    case "intake_status":
+      if (value !== "open" && value !== "waitlist" && value !== "closed") {
+        return "intake_status must be open|waitlist|closed";
+      }
       return null;
     default:
       return "unknown key";

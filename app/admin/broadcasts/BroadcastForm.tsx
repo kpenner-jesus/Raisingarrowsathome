@@ -8,6 +8,8 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
   const [subject, setSubject]   = useState("");
   const [body, setBody]         = useState("");
   const [confirm, setConfirm]   = useState(false);
+  const [schedule, setSchedule] = useState(false);
+  const [scheduledFor, setScheduledFor] = useState("");
   const [busy, setBusy]         = useState(false);
   const [msg, setMsg]           = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
@@ -15,17 +17,27 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
 
   async function send() {
     if (!subject.trim() || !body.trim()) { setMsg({ kind: "err", text: "Subject and body required" }); return; }
+    if (schedule && !scheduledFor) { setMsg({ kind: "err", text: "Pick a send date/time" }); return; }
     setBusy(true); setMsg(null);
     try {
+      const payload: any = { subject, body, audience };
+      if (schedule && scheduledFor) {
+        // datetime-local input lacks timezone — interpret as user's local zone
+        payload.scheduled_for = new Date(scheduledFor).toISOString();
+      }
       const r = await fetch("/api/admin/broadcasts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, body, audience }),
+        body: JSON.stringify(payload),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      setMsg({ kind: "ok", text: `Sent to ${j.sent} recipients (${j.failed} failed).` });
-      setSubject(""); setBody(""); setConfirm(false);
+      if (j.queued) {
+        setMsg({ kind: "ok", text: `Scheduled for ${new Date(j.scheduled_for).toLocaleString()}. Sends at the next daily dispatch tick after that.` });
+      } else {
+        setMsg({ kind: "ok", text: `Sent to ${j.sent} recipients (${j.failed} failed).` });
+      }
+      setSubject(""); setBody(""); setConfirm(false); setSchedule(false); setScheduledFor("");
       router.refresh();
     } catch (e: any) {
       setMsg({ kind: "err", text: e?.message || "Send failed" });
@@ -70,6 +82,27 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
 
       {msg && <div className={msg.kind === "ok" ? "ra-alert-success" : "ra-alert-error"} style={{ marginTop: "1rem" }}>{msg.text}</div>}
 
+      {/* Schedule (optional) */}
+      <div style={{ marginTop: "1rem", padding: "0.75rem 1rem", border: "1px dashed var(--ra-line)", borderRadius: 10 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", fontSize: "0.9rem" }}>
+          <input type="checkbox" checked={schedule} onChange={(e) => setSchedule(e.target.checked)} />
+          Schedule for later (otherwise send immediately)
+        </label>
+        {schedule && (
+          <div style={{ marginTop: "0.5rem" }}>
+            <label className="ra-label">Send date / time</label>
+            <input type="datetime-local" className="ra-input"
+              value={scheduledFor}
+              onChange={(e) => setScheduledFor(e.target.value)}
+              min={new Date(Date.now() + 5*60*1000).toISOString().slice(0, 16)}
+            />
+            <div className="ra-tiny" style={{ marginTop: "0.3rem" }}>
+              Broadcasts go out at the next daily cron tick (12:00 UTC) on/after this time. Set early in the morning to fire that same day.
+            </div>
+          </div>
+        )}
+      </div>
+
       <div style={{ marginTop: "1.25rem", display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
         <label style={{ display: "flex", alignItems: "center", gap: "0.45rem", fontSize: "0.9rem" }}>
           <input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />
@@ -77,7 +110,7 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
         </label>
         <div style={{ flex: 1 }} />
         <button className="ra-btn ra-btn-primary" disabled={busy || !confirm || !subject.trim() || !body.trim()} onClick={send}>
-          {busy ? "Sending…" : `Send to ${targetCount}`}
+          {busy ? "Sending…" : schedule ? "Schedule" : `Send to ${targetCount}`}
         </button>
       </div>
     </div>
