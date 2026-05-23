@@ -1,6 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { SITE_CONFIG } from "./siteConfig";
+import { PeekingChildren } from "./_components/PeekingChildren";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -95,29 +96,8 @@ export default function LandingPage() {
           </h2>
         </div>
 
-        {/* Funding caps */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.75rem", marginBottom: "3rem" }}>
-          {SITE_CONFIG.fundingCaps.map((tier) => (
-            <div key={tier.label} style={{
-              background: "rgba(255,255,255,0.72)", border: "1.5px solid rgba(0,0,0,0.09)",
-              borderRadius: "var(--radius-lg)", padding: "1.25rem 1rem", textAlign: "center",
-              boxShadow: "var(--shadow-card)",
-            }}>
-              <div style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
-                {tier.label}
-              </div>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", fontWeight: 500, color: "var(--accent)", lineHeight: 1 }}>
-                ${tier.cap}
-              </div>
-              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-                reimbursed
-              </div>
-              <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
-                (you spend ${tier.spend})
-              </div>
-            </div>
-          ))}
-        </div>
+        {/* Funding caps — playful peeking children, click to zoom */}
+        <PeekingChildren />
 
         {/* What you also receive */}
         <div style={{
