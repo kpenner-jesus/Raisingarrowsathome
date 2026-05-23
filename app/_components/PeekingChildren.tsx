@@ -52,29 +52,41 @@ const TIER_DETAILS = [
   },
 ];
 
-// Per-variant personality
+// Per-variant personality (tilt + height ranges, so each peek is a little
+// different — feels less scripted)
 const PERSONALITIES = [
-  { tilt:  -6, peekHeight:  46, blinks: true,  blinkDelay: "1.4s" }, // pigtails — gentle left tilt
-  { tilt:   4, peekHeight:  40, blinks: false, blinkDelay: "0s"   }, // cap — straight, no blink
-  { tilt:  -2, peekHeight:  52, blinks: true,  blinkDelay: "3.2s" }, // glasses — peeks highest, blinks
-  { tilt:   7, peekHeight:  44, blinks: true,  blinkDelay: "5.7s" }, // hoodie — right tilt, late blink
+  { tiltRange: [-9, -2] as [number, number],  heightRange: [80, 105] as [number, number], blinks: true,  blinkDelay: "1.4s" }, // pigtails — left lean
+  { tiltRange: [ 1,  8] as [number, number],  heightRange: [70,  95] as [number, number], blinks: false, blinkDelay: "0s"   }, // cap — peeks lower (shy)
+  { tiltRange: [-5,  3] as [number, number],  heightRange: [95, 120] as [number, number], blinks: true,  blinkDelay: "3.2s" }, // glasses — tallest peek
+  { tiltRange: [ 3, 11] as [number, number],  heightRange: [85, 110] as [number, number], blinks: true,  blinkDelay: "5.7s" }, // hoodie — right lean
 ];
+
+function randIn([min, max]: [number, number]): number {
+  return min + Math.random() * (max - min);
+}
+
+interface PeekState { active: boolean; height: number; tilt: number; }
+const idleState: PeekState = { active: false, height: 0, tilt: 0 };
 
 export function PeekingChildren() {
   const tiers = SITE_CONFIG.fundingCaps;
-  const [peeking, setPeeking] = useState<boolean[]>(tiers.map(() => false));
+  const [peekStates, setPeekStates] = useState<PeekState[]>(tiers.map(() => idleState));
   const [zoom, setZoom] = useState<number | null>(null);
 
-  // Independent peek schedules per child
+  // Independent peek schedules per child — each peek picks fresh
+  // random height + tilt within the variant's personality range.
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
     const schedulePeek = (i: number) => {
+      const p = PERSONALITIES[i] || PERSONALITIES[0];
       const initialDelay = 1500 + Math.random() * 5000;
       const cycle = () => {
-        setPeeking((p) => { const next = [...p]; next[i] = true; return next; });
-        const visibleFor = 2200 + Math.random() * 1200;
+        const height = randIn(p.heightRange);
+        const tilt   = randIn(p.tiltRange);
+        setPeekStates((curr) => { const next = [...curr]; next[i] = { active: true, height, tilt }; return next; });
+        const visibleFor = 2200 + Math.random() * 1500;
         timers.push(setTimeout(() => {
-          setPeeking((p) => { const next = [...p]; next[i] = false; return next; });
+          setPeekStates((curr) => { const next = [...curr]; next[i] = idleState; return next; });
           const gap = 5000 + Math.random() * 8000;
           timers.push(setTimeout(cycle, gap));
         }, visibleFor));
@@ -121,11 +133,11 @@ export function PeekingChildren() {
       }}>
         {tiers.map((tier, i) => {
           const p = PERSONALITIES[i] || PERSONALITIES[0];
-          const isPeeking = peeking[i];
-          // When idle: head sits behind the card top, mostly hidden
-          // When peeking: head pops above with a tilt
-          const idleTransform   = `translate(-50%, 60%) rotate(0deg)`;
-          const peekTransform   = `translate(-50%, -${p.peekHeight}%) rotate(${p.tilt}deg)`;
+          const state = peekStates[i] || idleState;
+          // Idle: kid translated DOWN further so head fully tucked behind card.
+          // Peek: random height (variant-specific range) + random tilt.
+          const idleTransform = `translate(-50%, 75%) rotate(0deg)`;
+          const peekTransform = `translate(-50%, -${state.height.toFixed(1)}%) rotate(${state.tilt.toFixed(1)}deg)`;
           return (
             <div key={tier.label} style={{ position: "relative" }}>
               {/* Peeking child — sits BEHIND the card */}
@@ -135,10 +147,10 @@ export function PeekingChildren() {
                   position: "absolute",
                   top: 0,
                   left: "50%",
-                  width: 56,
-                  height: 78,
-                  transform: isPeeking ? peekTransform : idleTransform,
-                  transition: "transform 0.85s cubic-bezier(0.34, 1.5, 0.64, 1)",
+                  width: 72,
+                  height: 110,
+                  transform: state.active ? peekTransform : idleTransform,
+                  transition: "transform 0.95s cubic-bezier(0.34, 1.5, 0.64, 1)",
                   pointerEvents: "none",
                   zIndex: 1,
                 }}
@@ -365,7 +377,15 @@ type SubProps = { eyeProps: any; lookProps: any };
 
 function KidPigtails({ eyeProps, lookProps }: SubProps) {
   return (
-    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
+    <svg viewBox="0 0 60 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
+      {/* shoulders + shirt (yellow polka-dot tee) */}
+      <path d="M 4 100 L 4 80 Q 6 66 30 60 Q 54 66 56 80 L 56 100 Z" fill="#f4d050" stroke="#1a1a1a" strokeWidth="1.2" />
+      <circle cx="20" cy="78" r="1.4" fill="#fff" />
+      <circle cx="38" cy="84" r="1.4" fill="#fff" />
+      <circle cx="46" cy="78" r="1.4" fill="#fff" />
+      <circle cx="12" cy="88" r="1.4" fill="#fff" />
+      {/* neck */}
+      <rect x="26" y="54" width="8" height="8" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
       {/* pigtails */}
       <ellipse cx="10" cy="32" rx="8" ry="11" fill="#a86b3a" />
       <ellipse cx="50" cy="32" rx="8" ry="11" fill="#a86b3a" />
@@ -381,7 +401,6 @@ function KidPigtails({ eyeProps, lookProps }: SubProps) {
         <circle cx="22" cy="35" r="2.2" fill="#1a1a1a" {...eyeProps} />
         <circle cx="38" cy="35" r="2.2" fill="#1a1a1a" {...eyeProps} />
       </g>
-      {/* eye highlights */}
       <circle cx="22.7" cy="34.3" r="0.7" fill="#fff" />
       <circle cx="38.7" cy="34.3" r="0.7" fill="#fff" />
       {/* cheeks */}
@@ -395,7 +414,13 @@ function KidPigtails({ eyeProps, lookProps }: SubProps) {
 
 function KidCap({ eyeProps, lookProps }: SubProps) {
   return (
-    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
+    <svg viewBox="0 0 60 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
+      {/* shoulders — striped tee */}
+      <path d="M 4 100 L 4 80 Q 6 66 30 60 Q 54 66 56 80 L 56 100 Z" fill="#4aa37e" stroke="#1a1a1a" strokeWidth="1.2" />
+      <path d="M 4 84 L 56 84" stroke="#fff" strokeWidth="2" opacity="0.7" />
+      <path d="M 4 92 L 56 92" stroke="#fff" strokeWidth="2" opacity="0.7" />
+      {/* neck */}
+      <rect x="26" y="55" width="8" height="8" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
       <ellipse cx="30" cy="38" rx="17" ry="19" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
       <path d="M 14 32 Q 30 28 46 32 L 46 38 Q 30 36 14 38 Z" fill="#3a2618" />
       {/* cap */}
@@ -424,7 +449,14 @@ function KidCap({ eyeProps, lookProps }: SubProps) {
 
 function KidGlasses({ eyeProps, lookProps }: SubProps) {
   return (
-    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
+    <svg viewBox="0 0 60 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
+      {/* shoulders — collared shirt (book-nerd vibe) */}
+      <path d="M 4 100 L 4 80 Q 6 66 30 60 Q 54 66 56 80 L 56 100 Z" fill="#c9beac" stroke="#1a1a1a" strokeWidth="1.2" />
+      {/* collar V */}
+      <path d="M 22 62 L 30 72 L 38 62" fill="#fff" stroke="#1a1a1a" strokeWidth="1.2" />
+      <path d="M 30 72 L 30 80" stroke="#1a1a1a" strokeWidth="0.6" />
+      {/* neck */}
+      <rect x="26" y="55" width="8" height="8" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
       <ellipse cx="30" cy="38" rx="17" ry="20" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
       {/* hair */}
       <path d="M 12 28 Q 18 18 30 18 Q 42 18 48 28 Q 48 34 44 32 Q 30 26 16 32 Q 12 34 12 28 Z" fill="#1a1a1a" />
@@ -449,14 +481,16 @@ function KidGlasses({ eyeProps, lookProps }: SubProps) {
 
 function KidHoodie({ eyeProps, lookProps }: SubProps) {
   return (
-    <svg viewBox="0 0 60 80" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
-      {/* hoodie */}
-      <path d="M 6 80 L 6 62 Q 6 46 30 38 Q 54 46 54 62 L 54 80 Z" fill="#4a7ec7" stroke="#1a1a1a" strokeWidth="1.2" />
+    <svg viewBox="0 0 60 100" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax meet">
+      {/* hoodie body — extended down */}
+      <path d="M 4 100 L 4 62 Q 4 46 30 38 Q 56 46 56 62 L 56 100 Z" fill="#4a7ec7" stroke="#1a1a1a" strokeWidth="1.2" />
+      {/* kangaroo pocket */}
+      <path d="M 18 78 Q 30 84 42 78 L 42 90 Q 30 92 18 90 Z" fill="#3a6fb8" stroke="#1a1a1a" strokeWidth="0.8" />
       {/* drawstrings */}
-      <path d="M 26 50 L 24 58" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" />
-      <path d="M 34 50 L 36 58" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" />
-      <circle cx="24" cy="59" r="1" fill="#fff" />
-      <circle cx="36" cy="59" r="1" fill="#fff" />
+      <path d="M 26 50 L 24 60" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M 34 50 L 36 60" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" />
+      <circle cx="24" cy="61" r="1" fill="#fff" />
+      <circle cx="36" cy="61" r="1" fill="#fff" />
       {/* head */}
       <ellipse cx="30" cy="38" rx="16" ry="18" fill="#fbe1c4" stroke="#1a1a1a" strokeWidth="1.2" />
       {/* hair */}
