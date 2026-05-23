@@ -11,23 +11,31 @@ export function ApplicationsFilter({ totals }: Props) {
   const pathname = usePathname();
   const params = useSearchParams();
   const activeStatus = params.get("status") || "all";
-  const [search, setSearch] = useState(params.get("q") || "");
+  const paramsQ = params.get("q") || "";
+  const [search, setSearch] = useState(paramsQ);
 
-  // Debounce search input → URL update
+  // Keep local input in sync if URL changes from elsewhere (back/forward, tab click).
+  useEffect(() => { setSearch(paramsQ); }, [paramsQ]);
+
+  // Debounce search input → URL update. Reads `params` fresh at flush time
+  // (not the closure value at schedule time) so a status tab clicked mid-typing
+  // is preserved.
   useEffect(() => {
+    if (search === paramsQ) return; // nothing to push
     const t = setTimeout(() => {
-      const next = new URLSearchParams(Array.from(params.entries()));
-      if (search) next.set("q", search); else next.delete("q");
-      router.replace(`${pathname}?${next.toString()}`);
-    }, 250);
+      // Read latest searchParams from the URL at flush time, not from the closure.
+      const fresh = new URLSearchParams(window.location.search);
+      if (search) fresh.set("q", search);
+      else        fresh.delete("q");
+      router.replace(`${pathname}?${fresh.toString()}`);
+    }, 280);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+  }, [search, paramsQ, pathname, router]);
 
   const setStatus = (s: string) => {
-    const next = new URLSearchParams(Array.from(params.entries()));
-    if (s === "all") next.delete("status"); else next.set("status", s);
-    router.replace(`${pathname}?${next.toString()}`);
+    const fresh = new URLSearchParams(window.location.search);
+    if (s === "all") fresh.delete("status"); else fresh.set("status", s);
+    router.replace(`${pathname}?${fresh.toString()}`);
   };
 
   const tabs: { key: string; label: string; count: number }[] = [

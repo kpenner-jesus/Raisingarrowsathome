@@ -95,7 +95,7 @@ const listRecipients: Tool = {
 
 const getRecipient: Tool = {
   name:        "get_recipient",
-  description: "Full recipient details including balance breakdown (approved receipts, paid, remaining, eligible for next payout).",
+  description: "Full recipient details including balance breakdown (approved receipts, paid, committed, remaining, eligible for next payout) and the full receipts array.",
   inputSchema: {
     type: "object",
     properties: { id: { type: "string" } },
@@ -110,18 +110,20 @@ const getRecipient: Tool = {
       .single();
     if (error) throw new Error(error.message);
 
-    const { data: receipts } = await supabase.from("receipts").select("id, amount, status, description").eq("recipient_id", id);
-    const { data: paid }     = await supabase.from("payouts").select("amount").eq("recipient_id", id).eq("status", "paid");
-    const paidToDate = (paid || []).reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const { data: receipts } = await supabase.from("receipts").select("id, amount, status, description, purchase_date, created_at").eq("recipient_id", id).order("created_at", { ascending: false });
+    const { data: payouts }  = await supabase.from("payouts").select("amount, status").eq("recipient_id", id);
+    const committedToDate = (payouts || []).filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const paidToDate      = (payouts || []).filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + Number(p.amount), 0);
 
     const balance = calcBalance({
-      receipts:  receipts || [],
-      rate:      Number(recipient.reimbursement_rate),
-      cap:       Number(recipient.approved_amount),
+      receipts:        receipts || [],
+      rate:            Number(recipient.reimbursement_rate),
+      cap:             Number(recipient.approved_amount),
       paidToDate,
+      committedToDate,
     });
 
-    return { ...recipient, balance, receipts_count: (receipts || []).length };
+    return { ...recipient, balance, receipts: receipts || [] };
   },
 };
 
@@ -223,21 +225,45 @@ const getPayoutBatch: Tool = {
   },
 };
 
-const getSignedUrl: Tool = {
-  name:        "get_signed_url",
-  description: "Generates a short-lived signed URL for a private storage object. bucket must be 'receipts' or 'photos'.",
+const getReceiptImageUrl: Tool = {
+  name:        "get_receipt_image_url",
+  description: "Generates a short-lived signed URL for a receipt's image, resolved by the receipt's id (not by an arbitrary storage path). Scoped to a real receipt row to prevent enumeration.",
   inputSchema: {
     type: "object",
     properties: {
-      bucket:   { type: "string", enum: ["receipts", "photos"] },
-      path:     { type: "string" },
+      receipt_id: { type: "string" },
+      ttl_secs:   { type: "number", default: 300 },
+    },
+    required: ["receipt_id"],
+  },
+  handler: async ({ receipt_id, ttl_secs = 300 }) => {
+    const supabase = supabaseService();
+    const { data: receipt, error: loadErr } = await supabase
+      .from("receipts").select("image_path").eq("id", receipt_id).single();
+    if (loadErr || !receipt) throw new Error(loadErr?.message || "receipt not found");
+    const { data, error } = await supabase.storage.from("receipts").createSignedUrl(receipt.image_path, ttl_secs);
+    if (error) throw new Error(error.message);
+    return { signed_url: data.signedUrl, expires_in_secs: ttl_secs };
+  },
+};
+
+const getPhotoImageUrl: Tool = {
+  name:        "get_photo_image_url",
+  description: "Generates a short-lived signed URL for a photo, resolved by the photo's id.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      photo_id: { type: "string" },
       ttl_secs: { type: "number", default: 300 },
     },
-    required: ["bucket", "path"],
+    required: ["photo_id"],
   },
-  handler: async ({ bucket, path, ttl_secs = 300 }) => {
+  handler: async ({ photo_id, ttl_secs = 300 }) => {
     const supabase = supabaseService();
-    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, ttl_secs);
+    const { data: photo, error: loadErr } = await supabase
+      .from("photos").select("image_path").eq("id", photo_id).single();
+    if (loadErr || !photo) throw new Error(loadErr?.message || "photo not found");
+    const { data, error } = await supabase.storage.from("photos").createSignedUrl(photo.image_path, ttl_secs);
     if (error) throw new Error(error.message);
     return { signed_url: data.signedUrl, expires_in_secs: ttl_secs };
   },
@@ -276,7 +302,7 @@ const decideApplication: Tool = {
 
 const decideReceipt: Tool = {
   name:        "decide_receipt",
-  description: "Approve or reject a receipt. Emails the recipient.",
+  description: "Approve or reject a receipt. Only acts on receipts currently in 'pending' status — already-decided receipts return a 'already decided' error to prevent silent re-emails.",
   inputSchema: {
     type: "object",
     properties: {
@@ -290,12 +316,13 @@ const decideReceipt: Tool = {
     const supabase = supabaseService();
     const { data: receipt, error: loadErr } = await supabase
       .from("receipts")
-      .select("id, amount, description, recipients!inner(applications!inner(parent_names, contact_email))")
+      .select("id, amount, description, status, recipients!inner(applications!inner(parent_names, contact_email))")
       .eq("id", id)
       .single();
     if (loadErr || !receipt) throw new Error(loadErr?.message || "receipt not found");
+    if (receipt.status !== "pending") throw new Error(`receipt already ${receipt.status}`);
 
-    const { error } = await supabase
+    const { error, data: updRow } = await supabase
       .from("receipts")
       .update({
         status:      decision,
@@ -303,8 +330,12 @@ const decideReceipt: Tool = {
         decided_at:  new Date().toISOString(),
         decided_by:  ctx.profile_id,
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
     if (error) throw new Error(error.message);
+    if (!updRow) throw new Error("receipt was concurrently decided");
 
     const application = (receipt as any).recipients.applications;
     const notifyArgs  = {
@@ -321,9 +352,11 @@ const decideReceipt: Tool = {
   },
 };
 
+const MAX_RECIPIENT_CAP = 50_000;
+
 const modifyRecipient: Tool = {
   name:        "modify_recipient",
-  description: "Update a recipient's approved_amount, reimbursement_rate, and/or status.",
+  description: "Update a recipient's approved_amount, reimbursement_rate, and/or status. approved_amount is capped at $50,000 (sanity limit).",
   inputSchema: {
     type: "object",
     properties: {
@@ -337,11 +370,18 @@ const modifyRecipient: Tool = {
   handler: async ({ id, approved_amount, reimbursement_rate, status }) => {
     const update: Record<string, any> = {};
     if (approved_amount !== undefined) {
-      if (approved_amount < 0) throw new Error("approved_amount must be >= 0");
+      if (typeof approved_amount !== "number" || !Number.isFinite(approved_amount) || approved_amount < 0) {
+        throw new Error("approved_amount must be a non-negative finite number");
+      }
+      if (approved_amount > MAX_RECIPIENT_CAP) {
+        throw new Error(`approved_amount exceeds maximum (${MAX_RECIPIENT_CAP})`);
+      }
       update.approved_amount = approved_amount;
     }
     if (reimbursement_rate !== undefined) {
-      if (reimbursement_rate < 0 || reimbursement_rate > 1) throw new Error("reimbursement_rate must be 0–1");
+      if (typeof reimbursement_rate !== "number" || !Number.isFinite(reimbursement_rate) || reimbursement_rate < 0 || reimbursement_rate > 1) {
+        throw new Error("reimbursement_rate must be a finite number between 0 and 1");
+      }
       update.reimbursement_rate = reimbursement_rate;
     }
     if (status !== undefined) update.status = status;
@@ -356,7 +396,7 @@ const modifyRecipient: Tool = {
 
 const generatePayoutBatch: Tool = {
   name:        "generate_payout_batch",
-  description: "Generate a payout batch from currently eligible recipients (same logic as the monthly cron). Returns batch id and total.",
+  description: "Generate a payout batch from currently eligible recipients (same logic as the monthly cron). Atomic: scheduled/approved payouts already in flight count as committed, so a second call before the first batch is paid won't duplicate. Returns batch id and total.",
   inputSchema: { type: "object", properties: {} },
   handler: async (_args, _ctx) => {
     const supabase = supabaseService();
@@ -367,19 +407,26 @@ const generatePayoutBatch: Tool = {
       .insert({ scheduled_date: today, status: "draft", total: 0 })
       .select("*")
       .single();
-    if (batchErr) throw new Error(batchErr.message);
+    if (batchErr) {
+      if (/duplicate key|unique/i.test(batchErr.message)) {
+        throw new Error("a draft batch for this date already exists");
+      }
+      throw new Error(batchErr.message);
+    }
 
     let batchTotal = 0;
     let lines = 0;
     for (const r of recipients || []) {
       const { data: receipts } = await supabase.from("receipts").select("id, amount, status").eq("recipient_id", r.id);
-      const { data: paid }     = await supabase.from("payouts").select("amount").eq("recipient_id", r.id).eq("status", "paid");
-      const paidToDate = (paid || []).reduce((s: number, p: any) => s + Number(p.amount), 0);
+      const { data: payouts }  = await supabase.from("payouts").select("amount, status").eq("recipient_id", r.id);
+      const committedToDate = (payouts || []).filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + Number(p.amount), 0);
+      const paidToDate      = (payouts || []).filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + Number(p.amount), 0);
       const balance = calcBalance({
-        receipts:  receipts || [],
-        rate:      Number(r.reimbursement_rate),
-        cap:       Number(r.approved_amount),
+        receipts:        receipts || [],
+        rate:            Number(r.reimbursement_rate),
+        cap:             Number(r.approved_amount),
         paidToDate,
+        committedToDate,
       });
       if (balance.eligibleForNextPayout > 0.01) {
         const includedReceiptIds = (receipts || [])
@@ -403,7 +450,7 @@ const generatePayoutBatch: Tool = {
 
 const markBatchPaid: Tool = {
   name:        "mark_batch_paid",
-  description: "Mark a payout batch as paid (after CEO Ministries has actually sent e-transfers). Emails each recipient.",
+  description: "Mark a payout batch as paid (after CEO Ministries has actually sent e-transfers). Idempotent: an already-paid batch returns `already_paid: true` without re-emailing.",
   inputSchema: {
     type: "object",
     properties: {
@@ -414,20 +461,32 @@ const markBatchPaid: Tool = {
   },
   handler: async ({ batch_id, ceo_reference }, ctx) => {
     const supabase = supabaseService();
+
+    const { data: batch, error: loadErr } = await supabase
+      .from("payout_batches").select("id, status, paid_at").eq("id", batch_id).single();
+    if (loadErr || !batch) throw new Error(loadErr?.message || "batch not found");
+    if (batch.status === "paid") {
+      return { ok: true, already_paid: true, batch_id, paid_at: batch.paid_at, recipients_notified: 0 };
+    }
+
     const { data: payouts } = await supabase
       .from("payouts")
       .select("amount, recipients!inner(applications!inner(parent_names, contact_email))")
-      .eq("batch_id", batch_id);
+      .eq("batch_id", batch_id)
+      .in("status", ["scheduled", "approved"]);
 
     const now = new Date().toISOString();
-    const updPayouts = await supabase.from("payouts").update({ status: "paid", paid_at: now }).eq("batch_id", batch_id);
+    const updPayouts = await supabase.from("payouts")
+      .update({ status: "paid", paid_at: now })
+      .eq("batch_id", batch_id)
+      .in("status", ["scheduled", "approved"]);
     if (updPayouts.error) throw new Error(updPayouts.error.message);
 
     const updBatch = await supabase.from("payout_batches").update({
       status:        "paid",
       paid_at:       now,
       ceo_reference: ceo_reference || null,
-    }).eq("id", batch_id);
+    }).eq("id", batch_id).neq("status", "paid");
     if (updBatch.error) throw new Error(updBatch.error.message);
 
     await Promise.all(((payouts as any[]) || []).map((p) =>
@@ -508,7 +567,8 @@ export const TOOLS: Tool[] = [
   listPhotos,
   listPayoutBatches,
   getPayoutBatch,
-  getSignedUrl,
+  getReceiptImageUrl,
+  getPhotoImageUrl,
   decideApplication,
   decideReceipt,
   modifyRecipient,

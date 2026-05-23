@@ -27,17 +27,20 @@ export default async function PortalDashboard() {
     );
   }
 
-  const [{ data: receipts }, { data: paid }] = await Promise.all([
+  const [{ data: receipts }, { data: allPayouts }] = await Promise.all([
     supabase.from("receipts").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
-    supabase.from("payouts").select("amount, paid_at, status").eq("recipient_id", recipient.id).eq("status", "paid").order("paid_at", { ascending: false }),
+    supabase.from("payouts").select("amount, paid_at, status").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
   ]);
 
-  const paidToDate = (paid || []).reduce((s: number, p: any) => s + Number(p.amount), 0);
+  const paid            = (allPayouts || []).filter((p: any) => p.status === "paid");
+  const paidToDate      = paid.reduce((s: number, p: any) => s + Number(p.amount), 0);
+  const committedToDate = (allPayouts || []).filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + Number(p.amount), 0);
   const balance = calcBalance({
-    receipts:  receipts || [],
-    rate:      Number(recipient.reimbursement_rate),
-    cap:       Number(recipient.approved_amount),
+    receipts:        receipts || [],
+    rate:            Number(recipient.reimbursement_rate),
+    cap:             Number(recipient.approved_amount),
     paidToDate,
+    committedToDate,
   });
 
   return (

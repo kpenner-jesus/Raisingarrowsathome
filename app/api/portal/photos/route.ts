@@ -1,6 +1,10 @@
 // POST /api/portal/photos — recipient submits a photo record after upload.
+//
+// Security: image_path MUST be inside the caller's own auth.uid() folder.
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/app/lib/supabase/server";
+
+const ALLOWED_EXTS = ["jpg", "jpeg", "png", "webp", "heic", "heif"];
 
 export async function POST(req: Request) {
   const supabase = supabaseServer();
@@ -11,13 +15,25 @@ export async function POST(req: Request) {
     .from("recipients").select("id").eq("profile_id", user.id).maybeSingle();
   if (!recipient) return new NextResponse("no recipient", { status: 400 });
 
-  const { image_path, caption } = await req.json();
-  if (!image_path) return new NextResponse("missing image_path", { status: 400 });
+  const { image_path, caption } = await req.json().catch(() => ({} as any));
+  if (typeof image_path !== "string" || !image_path) {
+    return new NextResponse("image_path required", { status: 400 });
+  }
+  if (!image_path.startsWith(`${user.id}/`)) {
+    return new NextResponse("image_path must be inside your own folder", { status: 400 });
+  }
+  if (image_path.includes("..") || image_path.includes("\\") || image_path.includes("\0")) {
+    return new NextResponse("invalid image_path", { status: 400 });
+  }
+  const ext = image_path.split(".").pop()?.toLowerCase() ?? "";
+  if (!ALLOWED_EXTS.includes(ext)) {
+    return new NextResponse(`extension not allowed (must be one of ${ALLOWED_EXTS.join(", ")})`, { status: 400 });
+  }
 
   const { error } = await supabase.from("photos").insert({
     recipient_id: recipient.id,
     image_path,
-    caption: caption?.trim() || null,
+    caption: typeof caption === "string" ? caption.slice(0, 300).trim() || null : null,
   });
   if (error) return new NextResponse(error.message, { status: 500 });
 

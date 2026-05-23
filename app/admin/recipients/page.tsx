@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { supabaseServer } from "@/app/lib/supabase/server";
-import { calcBalance } from "@/app/lib/grant-calc";
 import { AvatarRow } from "../_components/Avatar";
 import { StatusBadge } from "../_components/StatusBadge";
 import { ProgressBar } from "../_components/ProgressBar";

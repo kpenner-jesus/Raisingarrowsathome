@@ -19,7 +19,20 @@ export default async function ApplicationsList({ searchParams }: { searchParams:
     q = q.eq("status", searchParams.status);
   }
   if (searchParams.q) {
-    q = q.or(`parent_names.ilike.%${searchParams.q}%,city.ilike.%${searchParams.q}%,app_ref.ilike.%${searchParams.q}%`);
+    // Sanitize search term:
+    //  - escape PostgREST `.or()` separator (comma) so user can't inject extra predicates
+    //  - escape ILIKE wildcards (%, _) so literal text doesn't match unintended rows
+    //  - cap length to defend against absurd inputs
+    const term = searchParams.q
+      .slice(0, 100)
+      .replace(/\\/g, "\\\\")
+      .replace(/%/g, "\\%")
+      .replace(/_/g, "\\_")
+      .replace(/,/g, "")        // PostgREST .or() splits on commas
+      .replace(/[()*]/g, "");   // strip PostgREST operator chars
+    if (term) {
+      q = q.or(`parent_names.ilike.%${term}%,city.ilike.%${term}%,app_ref.ilike.%${term}%`);
+    }
   }
   const { data: apps } = await q;
 

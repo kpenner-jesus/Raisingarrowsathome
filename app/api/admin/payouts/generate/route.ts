@@ -6,17 +6,32 @@
 //
 //  Authorized either by: admin session (UI button) or
 //                       x-cron-secret header (Vercel Cron).
+//
+//  Atomicity:
+//   - paidToDate is derived from "committed" payouts (scheduled +
+//     approved + paid, i.e. anything not cancelled) so a draft batch
+//     in flight is never double-counted by a second generate call.
+//   - The DB has a unique partial index on (scheduled_date) WHERE
+//     status IN ('draft','exported','approved') so concurrent
+//     generates can't create two open batches for the same date.
 // ============================================================
 
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { calcBalance } from "@/app/lib/grant-calc";
+import { timingSafeEqual } from "crypto";
+
+function constantTimeEq(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
 
 export async function POST(req: Request) {
   let isAuthorized = false;
 
-  const cronHeader = req.headers.get("x-cron-secret");
-  if (cronHeader && cronHeader === process.env.CRON_SECRET) {
+  const cronHeader = req.headers.get("x-cron-secret") || "";
+  const cronSecret = process.env.CRON_SECRET || "";
+  if (cronSecret && cronHeader && constantTimeEq(cronHeader, cronSecret)) {
     isAuthorized = true;
   } else {
     const auth = supabaseServer();
@@ -38,21 +53,31 @@ export async function POST(req: Request) {
     .insert({ scheduled_date: today, status: "draft", total: 0 })
     .select("*")
     .single();
-  if (batchErr) return new NextResponse(batchErr.message, { status: 500 });
+  if (batchErr) {
+    // Unique-index violation = concurrent batch already open for this date.
+    if (/duplicate key|unique/i.test(batchErr.message)) {
+      return new NextResponse("a draft batch for this date already exists", { status: 409 });
+    }
+    return new NextResponse(batchErr.message, { status: 500 });
+  }
 
   let batchTotal = 0;
   let lines = 0;
 
   for (const r of recipients || []) {
     const { data: receipts } = await service.from("receipts").select("id, amount, status").eq("recipient_id", r.id);
-    const { data: paid }     = await service.from("payouts").select("amount").eq("recipient_id", r.id).eq("status", "paid");
+    // committedToDate = scheduled + approved + paid (everything not cancelled).
+    // paidToDate = only status='paid' (for display).
+    const { data: payouts } = await service.from("payouts").select("amount, status").eq("recipient_id", r.id);
+    const committedToDate = (payouts || []).filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + Number(p.amount), 0);
+    const paidToDate      = (payouts || []).filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + Number(p.amount), 0);
 
-    const paidToDate = (paid || []).reduce((s: number, p: any) => s + Number(p.amount), 0);
     const balance = calcBalance({
-      receipts:  receipts || [],
-      rate:      Number(r.reimbursement_rate),
-      cap:       Number(r.approved_amount),
+      receipts:        receipts || [],
+      rate:            Number(r.reimbursement_rate),
+      cap:             Number(r.approved_amount),
       paidToDate,
+      committedToDate,
     });
 
     if (balance.eligibleForNextPayout > 0.01) {

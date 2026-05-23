@@ -9,7 +9,13 @@ function LoginInner() {
   const [error, setError] = useState("");
   const [busy,  setBusy]  = useState(false);
   const params = useSearchParams();
-  const next   = params.get("next") || "/portal";
+  // Defense-in-depth: only honor same-origin relative paths.
+  // The server callback re-validates, but sanitizing here keeps the
+  // intermediate magic-link URL from carrying a phishing destination.
+  const rawNext = params.get("next");
+  const next = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") && !/^[a-z]+:/i.test(rawNext)
+    ? rawNext
+    : "/portal";
 
   const send = async () => {
     if (!email.trim()) { setError("Please enter your email."); return; }

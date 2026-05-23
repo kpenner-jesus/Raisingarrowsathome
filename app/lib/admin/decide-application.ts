@@ -2,10 +2,11 @@
 //  Shared logic for application approve/deny.
 //
 //  Used by both the REST API route (admin UI) and the MCP tool
-//  (decide_application). Order of operations is critical:
+//  (decide_application).
 //
+//  Atomic order:
 //    approve:
-//      1. Validate inputs
+//      1. Validate inputs (strict numeric types)
 //      2. Invite user (or find existing) → profile_id
 //      3. Upsert recipient row (idempotent on application_id)
 //      4. Update application status → 'approved'  ← atomic last step
@@ -15,9 +16,9 @@
 //      1. Update application status → 'denied'
 //      2. Notify
 //
-//  If any step before #4 fails, the application stays 'pending'
-//  so the admin can safely retry without orphan recipient rows
-//  or stuck "approved-but-no-recipient" states.
+//  If any step before #4 fails, the application stays 'pending' so
+//  admin can safely retry without orphan recipient rows or stuck
+//  "approved-but-no-recipient" states.
 // ============================================================
 
 import { supabaseService } from "@/app/lib/supabase/server";
@@ -41,6 +42,8 @@ export interface DecideResult {
   recipient?:  any;
 }
 
+const MAX_CAP = 50_000;   // $CAD sanity limit per recipient
+
 async function inviteOrFindUser(email: string, redirectTo: string): Promise<string | null> {
   const supabase = supabaseService();
   const { data: invited, error: invErr } = await supabase.auth.admin.inviteUserByEmail(email, { redirectTo });
@@ -49,7 +52,6 @@ async function inviteOrFindUser(email: string, redirectTo: string): Promise<stri
   }
   if (invited?.user?.id) return invited.user.id;
 
-  // User already existed — look up by email
   const { data: list } = await supabase.auth.admin.listUsers();
   return list?.users.find((u) => u.email?.toLowerCase() === email.toLowerCase())?.id ?? null;
 }
@@ -79,6 +81,7 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
         decided_by:  args.deciderProfileId,
       })
       .eq("id", args.applicationId)
+      .eq("status", "pending")
       .select("*")
       .single();
     if (error) throw new Error(error.message);
@@ -93,11 +96,18 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
   }
 
   // ── APPROVE PATH ─────────────────────────────────────────────
-  if (!args.approved_amount || args.approved_amount <= 0) {
-    throw new Error("approved_amount required and must be positive");
+  // Strict numeric validation: reject strings, NaN, Infinity, negatives, over-cap.
+  const cap = args.approved_amount;
+  if (typeof cap !== "number" || !Number.isFinite(cap) || cap <= 0) {
+    throw new Error("approved_amount must be a positive finite number");
+  }
+  if (cap > MAX_CAP) {
+    throw new Error(`approved_amount exceeds maximum (${MAX_CAP})`);
   }
   const rate = args.rate ?? 0.75;
-  if (rate < 0 || rate > 1) throw new Error("rate must be 0–1");
+  if (typeof rate !== "number" || !Number.isFinite(rate) || rate < 0 || rate > 1) {
+    throw new Error("rate must be a finite number between 0 and 1");
+  }
 
   // 1. Invite or find existing user
   const profileId = await inviteOrFindUser(app.contact_email, `${args.origin}/portal`);
@@ -109,7 +119,7 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
       {
         application_id:     app.id,
         profile_id:         profileId,
-        approved_amount:    args.approved_amount,
+        approved_amount:    cap,
         reimbursement_rate: rate,
       },
       { onConflict: "application_id" }
@@ -118,7 +128,7 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
     .single();
   if (recErr) throw new Error(`recipient upsert failed: ${recErr.message}`);
 
-  // 3. Update app status — atomic final commit
+  // 3. Update app status — atomic final commit (only if still pending)
   const { data: updated, error: updErr } = await supabase
     .from("applications")
     .update({
@@ -128,19 +138,18 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
       decided_by:  args.deciderProfileId,
     })
     .eq("id", args.applicationId)
+    .eq("status", "pending")
     .select("*")
     .single();
   if (updErr) {
-    // Recipient was created but app status update failed — surface error.
-    // Recipient row is benign and will be reused on retry (upsert).
     throw new Error(`status update failed: ${updErr.message}`);
   }
 
-  // 4. Notify — fire-and-forget, failures logged but never raised.
+  // 4. Notify — fire-and-forget inside notify.ts (logs failures, never raises).
   await notifyApplicationApproved({
     to:              app.contact_email,
     parent_names:    app.parent_names,
-    approved_amount: args.approved_amount,
+    approved_amount: cap,
     rate,
     portal_url:      `${args.origin}/portal`,
   });

@@ -27,12 +27,14 @@ export default async function RecipientDetail({ params }: { params: { id: string
     supabase.from("photos").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
   ]);
 
-  const paidToDate = (payouts || []).filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + Number(p.amount), 0);
+  const paidToDate      = (payouts || []).filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + Number(p.amount), 0);
+  const committedToDate = (payouts || []).filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + Number(p.amount), 0);
   const balance = calcBalance({
-    receipts:  receipts || [],
-    rate:      Number(recipient.reimbursement_rate),
-    cap:       Number(recipient.approved_amount),
+    receipts:        receipts || [],
+    rate:            Number(recipient.reimbursement_rate),
+    cap:             Number(recipient.approved_amount),
     paidToDate,
+    committedToDate,
   });
 
   const cap = Number(recipient.approved_amount);
@@ -119,9 +121,9 @@ export default async function RecipientDetail({ params }: { params: { id: string
                   background: r.status === "pending" ? "rgba(232,121,58,0.04)" : "var(--ra-bg-soft)",
                 }}
               >
-                <a href={`/api/admin/receipt-image?path=${encodeURIComponent(r.image_path)}`} target="_blank" rel="noreferrer"
+                <a href={`/api/admin/receipt-image?id=${r.id}`} target="_blank" rel="noreferrer"
                    style={{ display: "block", width: 60, height: 60, borderRadius: 8, overflow: "hidden", border: "1px solid var(--ra-line)", background: "#f3f0eb" }}>
-                  <img src={`/api/admin/receipt-image?path=${encodeURIComponent(r.image_path)}`} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  <img src={`/api/admin/receipt-image?id=${r.id}`} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                 </a>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 500, color: "var(--ra-ink)" }}>{r.description || "Receipt"}</div>
@@ -154,9 +156,9 @@ export default async function RecipientDetail({ params }: { params: { id: string
         {photos && photos.length > 0 ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.6rem" }}>
             {photos.map((p: any) => (
-              <a key={p.id} href={`/api/admin/photo-image?path=${encodeURIComponent(p.image_path)}`} target="_blank" rel="noreferrer"
+              <a key={p.id} href={`/api/admin/photo-image?id=${p.id}`} target="_blank" rel="noreferrer"
                  style={{ display: "block", borderRadius: 10, overflow: "hidden", border: "1px solid var(--ra-line)" }}>
-                <img src={`/api/admin/photo-image?path=${encodeURIComponent(p.image_path)}`} alt={p.caption || ""}
+                <img src={`/api/admin/photo-image?id=${p.id}`} alt={p.caption || ""}
                      style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", display: "block" }} />
                 {p.caption && (
                   <div style={{ padding: "0.4rem 0.6rem", fontSize: "0.78rem", color: "var(--ra-ink-muted)", lineHeight: 1.4 }}>

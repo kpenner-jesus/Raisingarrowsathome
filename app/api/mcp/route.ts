@@ -2,8 +2,9 @@
 //  POST /api/mcp   — MCP Streamable HTTP endpoint
 //
 //  Auth: Authorization: Bearer ramcp_<48 hex>
-//  Body: single JSON-RPC 2.0 request (or batch — array)
-//  Response: JSON-RPC response object (or array for batch)
+//  Body: single JSON-RPC 2.0 request OR a batch (array)
+//  Response: JSON-RPC response, an array for batches, or 204 No
+//           Content if every request was a notification.
 //
 //  Connect with: claude mcp add ... --transport http \
 //                  --header "Authorization: Bearer ramcp_xxx" \
@@ -12,7 +13,7 @@
 
 import { NextResponse } from "next/server";
 import { authBearer } from "@/app/lib/mcp/auth";
-import { handleRpc } from "@/app/lib/mcp/server";
+import { handleRpc, handleRpcBatch } from "@/app/lib/mcp/server";
 import type { ToolContext } from "@/app/lib/mcp/tools";
 
 export const dynamic = "force-dynamic";
@@ -37,11 +38,23 @@ export async function POST(req: Request) {
     jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" },
   }), { status: 400, headers: { "Content-Type": "application/json" } }); }
 
-  // Support JSON-RPC batch (array) and single (object)
   const isBatch = Array.isArray(body);
-  const requests = isBatch ? body : [body];
-  const responses = await Promise.all(requests.map((r: any) => handleRpc(r, ctx)));
-  return NextResponse.json(isBatch ? responses : responses[0]);
+
+  if (isBatch) {
+    const responses = await handleRpcBatch(body, ctx);
+    if (responses === null) {
+      // All notifications — no response body
+      return new NextResponse(null, { status: 204 });
+    }
+    return NextResponse.json(responses);
+  }
+
+  const response = await handleRpc(body, ctx);
+  if (response === null) {
+    // Single notification — no response body
+    return new NextResponse(null, { status: 204 });
+  }
+  return NextResponse.json(response);
 }
 
 // MCP clients sometimes probe with GET — answer with server-info.
