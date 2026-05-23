@@ -123,8 +123,8 @@
   min-width: 0;            /* allow children to shrink within grid track */
 }
 
-/* ── Mobile shell ── */
-@media (max-width: 767px) {
+/* ── Mobile + tablet shell (collapse sidebar below desktop) ── */
+@media (max-width: 1023px) {
   .ra-admin-shell {
     grid-template-columns: 1fr;
   }
@@ -479,8 +479,11 @@
   font-size: 0.78rem; font-weight: 500;
 }
 
-/* ── RESPONSIVE TABLES ── */
-@media (max-width: 720px) {
+/* ── RESPONSIVE TABLES ──
+   Below desktop (1023px) the admin main column shrinks. Always allow
+   tables to horizontally scroll inside their card so columns never
+   crush. The min-width keeps headings + data readable when scrolling. */
+@media (max-width: 1023px) {
   .ra-table-card { overflow-x: auto; }
   .ra-table { min-width: 560px; }
 }
