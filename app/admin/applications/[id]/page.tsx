@@ -7,6 +7,8 @@ import { AvatarRow } from "../../_components/Avatar";
 import { StatusBadge } from "../../_components/StatusBadge";
 import DecisionForm from "./DecisionForm";
 import { ApplicationNotes } from "./ApplicationNotes";
+import { PrintButton } from "../../_components/PrintButton";
+import { ApplicationActivity } from "./ApplicationActivity";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +48,7 @@ export default async function ApplicationDetail({ params }: { params: { id: stri
             <StatusBadge status={app.status} />
           </div>
         </div>
+        <PrintButton label="Print application" />
       </header>
 
       <div className="ra-detail-grid">
@@ -109,6 +112,9 @@ export default async function ApplicationDetail({ params }: { params: { id: stri
               })}
             </div>
           </section>
+
+          {/* Activity timeline */}
+          <ApplicationActivity applicationId={app.id} createdAt={app.created_at} />
 
           {/* Internal admin notes */}
           <ApplicationNotes

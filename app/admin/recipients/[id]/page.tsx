@@ -9,6 +9,8 @@ import ReceiptDecide from "./ReceiptDecide";
 import ModifyForm from "./ModifyForm";
 import { RecipientNotes } from "./RecipientNotes";
 import { ArchiveControl } from "./ArchiveControl";
+import { Timeline } from "./Timeline";
+import { PrintButton } from "../../_components/PrintButton";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +66,7 @@ export default async function RecipientDetail({ params }: { params: { id: string
             <StatusBadge status={recipient.status} />
           </div>
         </div>
+        <PrintButton label="Print recipient" />
       </header>
 
       {/* Balance card with progress bar */}
@@ -235,6 +238,9 @@ export default async function RecipientDetail({ params }: { params: { id: string
           </div>
         ) : <div className="ra-quiet">No testimonials yet.</div>}
       </section>
+
+      {/* Timeline of receipts + payouts + notes + audit */}
+      <Timeline recipientId={recipient.id} applicationId={recipient.application_id ?? null} />
 
       {/* Internal admin notes (cross-year context) */}
       <RecipientNotes

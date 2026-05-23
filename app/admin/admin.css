@@ -582,6 +582,20 @@
   border-color: var(--ra-line);
 }
 
+/* ── PRINT-FRIENDLY ── */
+@media print {
+  /* Hide chrome */
+  .ra-admin-sidebar, .ra-admin-nav, .ra-no-print,
+  .ra-page-header form, .ra-breadcrumb, button, .ra-btn,
+  form { display: none !important; }
+  .ra-admin-shell { grid-template-columns: 1fr !important; }
+  .ra-admin-main  { padding: 0 !important; }
+  body { background: white !important; }
+  .ra-card { box-shadow: none !important; border: 1px solid #ddd !important; }
+  a { color: #000 !important; text-decoration: none !important; }
+  @page { margin: 0.5in; }
+}
+
 /* ── ALERTS (compact) ── */
 .ra-alert-success {
   background: var(--ra-success-soft);

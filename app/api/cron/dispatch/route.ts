@@ -19,6 +19,7 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { sendDueBroadcasts } from "@/app/lib/broadcasts";
+import { emailMonthlyBackup } from "@/app/lib/backup";
 
 function constantTimeEq(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -42,6 +43,8 @@ export async function GET(req: Request) {
   type FireSpec = { label: string; path: string; query: string; method: "POST" | "GET" };
   const fires: FireSpec[] = [];
   if (day === 1)  fires.push({ label: "summary-email mid",   path: "/api/cron/summary-email",    query: "bucket=mid", method: "GET" });
+  // Monthly backup: also fires on day 1.
+  const backupResult = day === 1 ? await emailMonthlyBackup().catch((e) => ({ ok: false, error: e?.message })) : null;
   if (day === 15) fires.push({ label: "generate-payouts mid", path: "/api/cron/generate-payouts", query: "bucket=mid", method: "GET" });
   if (day === 17) fires.push({ label: "summary-email end",   path: "/api/cron/summary-email",    query: "bucket=end", method: "GET" });
   if (day >= 28 && day <= 31) {
@@ -53,7 +56,7 @@ export async function GET(req: Request) {
   const broadcastResults = await sendDueBroadcasts().catch((e) => ({ error: e?.message ?? "failed" } as any));
 
   if (fires.length === 0) {
-    return NextResponse.json({ ok: true, day, fired: [], broadcasts: broadcastResults, note: "no date-specific job scheduled" });
+    return NextResponse.json({ ok: true, day, fired: [], broadcasts: broadcastResults, backup: backupResult, note: "no date-specific job scheduled" });
   }
 
   const results: any[] = [];
@@ -72,7 +75,7 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, day, fired: results, broadcasts: broadcastResults });
+  return NextResponse.json({ ok: true, day, fired: results, broadcasts: broadcastResults, backup: backupResult });
 }
 
 function safeJson(s: string): any {

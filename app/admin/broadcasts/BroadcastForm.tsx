@@ -109,6 +109,22 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
           I'm sending this to <strong>{targetCount}</strong> {audience.replace("_", " ")}
         </label>
         <div style={{ flex: 1 }} />
+        <button className="ra-btn" disabled={busy || !subject.trim() || !body.trim()} onClick={async () => {
+          setBusy(true); setMsg(null);
+          try {
+            const r = await fetch("/api/admin/broadcasts/test-send", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ subject, body }),
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+            setMsg({ kind: "ok", text: `Test sent to ${j.sent_to}` });
+          } catch (e: any) {
+            setMsg({ kind: "err", text: e?.message || "Test send failed" });
+          } finally { setBusy(false); }
+        }}>
+          Test send to me
+        </button>
         <button className="ra-btn ra-btn-primary" disabled={busy || !confirm || !subject.trim() || !body.trim()} onClick={send}>
           {busy ? "Sending…" : schedule ? "Schedule" : `Send to ${targetCount}`}
         </button>
