@@ -2,6 +2,9 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { supabaseServer } from "@/app/lib/supabase/server";
 import { calcBalance } from "@/app/lib/grant-calc";
+import { AvatarRow } from "../../_components/Avatar";
+import { StatusBadge } from "../../_components/StatusBadge";
+import { ProgressBar } from "../../_components/ProgressBar";
 import ReceiptDecide from "./ReceiptDecide";
 import ModifyForm from "./ModifyForm";
 
@@ -17,14 +20,14 @@ export default async function RecipientDetail({ params }: { params: { id: string
     .single();
   if (!recipient) return notFound();
 
-  const [{ data: receipts }, { data: paidPayouts }, { data: testimonials }, { data: photos }] = await Promise.all([
+  const [{ data: receipts }, { data: payouts }, { data: testimonials }, { data: photos }] = await Promise.all([
     supabase.from("receipts").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
-    supabase.from("payouts").select("amount, paid_at, status").eq("recipient_id", recipient.id).eq("status", "paid"),
+    supabase.from("payouts").select("*, payout_batches(scheduled_date, ceo_reference, status)").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
     supabase.from("testimonials").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
     supabase.from("photos").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
   ]);
 
-  const paidToDate = (paidPayouts || []).reduce((s: number, p: any) => s + Number(p.amount), 0);
+  const paidToDate = (payouts || []).filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + Number(p.amount), 0);
   const balance = calcBalance({
     receipts:  receipts || [],
     rate:      Number(recipient.reimbursement_rate),
@@ -32,99 +35,184 @@ export default async function RecipientDetail({ params }: { params: { id: string
     paidToDate,
   });
 
+  const cap = Number(recipient.approved_amount);
+  const pendingCount = (receipts || []).filter((r: any) => r.status === "pending").length;
+
   return (
     <div>
-      <Link href="/admin/recipients" style={{ fontSize: "0.85rem", color: "#888" }}>← Recipients</Link>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", margin: "0.5rem 0 0.25rem" }}>
-        {recipient.applications.parent_names}
-      </h1>
-      <div style={{ color: "#888", fontSize: "0.9rem", marginBottom: "1.5rem" }}>
-        {recipient.applications.app_ref} · {recipient.applications.contact_email} · {recipient.applications.contact_phone}
-      </div>
+      <Link href="/admin/recipients" className="ra-breadcrumb">← All recipients</Link>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "1rem", marginBottom: "2rem" }}>
-        <StatCard label="Cap"                value={`$${Number(recipient.approved_amount).toFixed(2)}`} />
-        <StatCard label="Approved receipts" value={`$${balance.approvedReceiptTotal.toFixed(2)}`} />
-        <StatCard label="Paid to date"      value={`$${balance.paidToDate.toFixed(2)}`} />
-        <StatCard label="Remaining"         value={`$${balance.remainingCap.toFixed(2)}`} />
-        <StatCard label="Next payout"       value={`$${balance.eligibleForNextPayout.toFixed(2)}`} accent />
-      </div>
+      <header className="ra-page-header" style={{ marginTop: "0.5rem" }}>
+        <div className="ra-page-title-block">
+          <span className="ra-eyebrow">{recipient.applications.app_ref}</span>
+          <div className="ra-row" style={{ alignItems: "center" }}>
+            <AvatarRow
+              name={recipient.applications.parent_names}
+              secondary={`${recipient.applications.city} · ${recipient.applications.contact_email} · ${recipient.applications.contact_phone}`}
+            />
+            <StatusBadge status={recipient.status} />
+          </div>
+        </div>
+      </header>
 
+      {/* Balance card with progress bar */}
+      <section className="ra-card ra-card-accent" style={{ marginBottom: "1.5rem" }}>
+        <div className="ra-row-between" style={{ marginBottom: "0.85rem" }}>
+          <span className="ra-eyebrow">Grant balance</span>
+          <span className="ra-tiny">{(Number(recipient.reimbursement_rate) * 100).toFixed(0)}% reimbursement</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", alignItems: "center" }}>
+          <div>
+            <div className="ra-quiet" style={{ fontSize: "0.85rem" }}>Paid of</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: "2rem", lineHeight: 1, color: "var(--ra-ink)" }}>
+              ${paidToDate.toFixed(2)} <span className="ra-quiet" style={{ fontSize: "1rem" }}>/ ${cap.toFixed(2)}</span>
+            </div>
+            <div style={{ marginTop: "0.6rem" }}>
+              <ProgressBar value={cap > 0 ? paidToDate / cap : 0} variant={paidToDate >= cap ? "success" : "default"} ariaLabel="Grant payout progress" />
+            </div>
+          </div>
+          <div className="ra-stat-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <div className="ra-stat ra-card-tight">
+              <span className="ra-stat-label">Approved receipts</span>
+              <span className="ra-stat-value" style={{ fontSize: "1.4rem" }}>${balance.approvedReceiptTotal.toFixed(2)}</span>
+            </div>
+            <div className="ra-stat ra-card-tight">
+              <span className="ra-stat-label">Remaining cap</span>
+              <span className="ra-stat-value" style={{ fontSize: "1.4rem" }}>${balance.remainingCap.toFixed(2)}</span>
+            </div>
+            <div className="ra-stat ra-card-tight" style={{ gridColumn: "1 / -1", borderColor: "var(--ra-accent)" }}>
+              <span className="ra-stat-label">Eligible next payout</span>
+              <span className="ra-stat-value ra-stat-value" style={{ color: "var(--ra-accent)", fontSize: "1.6rem" }}>
+                ${balance.eligibleForNextPayout.toFixed(2)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Modify */}
       <ModifyForm recipient={{
         id: recipient.id,
         approved_amount: Number(recipient.approved_amount),
         reimbursement_rate: Number(recipient.reimbursement_rate),
         status: recipient.status,
+        parent_names: recipient.applications.parent_names,
       }} />
 
-      <div style={{ background: "white", border: "1px solid #e5e5e5", borderRadius: 10, padding: "1.25rem 1.5rem", marginBottom: "1.5rem" }}>
-        <div style={sectionTitle}>Receipts</div>
+      {/* Receipts */}
+      <section className="ra-card" style={{ marginBottom: "1.5rem" }}>
+        <h3 className="ra-section-title">
+          Receipts
+          {pendingCount > 0 && <span className="ra-badge ra-badge-pending">{pendingCount} pending</span>}
+        </h3>
         {receipts && receipts.length > 0 ? (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Date</th>
-                <th style={thStyle}>Amount</th>
-                <th style={thStyle}>Description</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>Image</th>
-                <th style={thStyle}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {receipts.map((r: any) => (
-                <tr key={r.id}>
-                  <td style={tdStyle}>{r.purchase_date || new Date(r.created_at).toLocaleDateString()}</td>
-                  <td style={tdStyle}>${Number(r.amount).toFixed(2)}</td>
-                  <td style={tdStyle}>{r.description || "—"}</td>
-                  <td style={tdStyle}>{r.status}</td>
-                  <td style={tdStyle}>
-                    <a href={`/api/admin/receipt-image?path=${encodeURIComponent(r.image_path)}`} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>view</a>
-                  </td>
-                  <td style={tdStyle}>{r.status === "pending" && <ReceiptDecide id={r.id} />}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : <div style={{ fontSize: "0.9rem", color: "#888" }}>No receipts yet.</div>}
-      </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {receipts.map((r: any) => (
+              <li
+                key={r.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "60px 1fr auto auto auto",
+                  gap: "1rem", alignItems: "center",
+                  padding: "0.75rem", borderRadius: 10,
+                  border: "1px solid var(--ra-line)",
+                  background: r.status === "pending" ? "rgba(232,121,58,0.04)" : "var(--ra-bg-soft)",
+                }}
+              >
+                <a href={`/api/admin/receipt-image?path=${encodeURIComponent(r.image_path)}`} target="_blank" rel="noreferrer"
+                   style={{ display: "block", width: 60, height: 60, borderRadius: 8, overflow: "hidden", border: "1px solid var(--ra-line)", background: "#f3f0eb" }}>
+                  <img src={`/api/admin/receipt-image?path=${encodeURIComponent(r.image_path)}`} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                </a>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, color: "var(--ra-ink)" }}>{r.description || "Receipt"}</div>
+                  <div className="ra-tiny">
+                    {r.purchase_date || new Date(r.created_at).toLocaleDateString()}
+                  </div>
+                </div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: "1.05rem", color: "var(--ra-ink)" }}>
+                  ${Number(r.amount).toFixed(2)}
+                </div>
+                <StatusBadge status={r.status} />
+                <div>
+                  {r.status === "pending" && <ReceiptDecide id={r.id} amount={Number(r.amount)} description={r.description} />}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="ra-empty">
+            <div className="ra-empty-icon">🧾</div>
+            <div className="ra-empty-title">No receipts uploaded</div>
+            <div>The recipient hasn't submitted any yet.</div>
+          </div>
+        )}
+      </section>
 
-      <div style={{ background: "white", border: "1px solid #e5e5e5", borderRadius: 10, padding: "1.25rem 1.5rem", marginBottom: "1.5rem" }}>
-        <div style={sectionTitle}>Photos</div>
+      {/* Photos */}
+      <section className="ra-card" style={{ marginBottom: "1.5rem" }}>
+        <h3 className="ra-section-title">Photos</h3>
         {photos && photos.length > 0 ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.5rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.6rem" }}>
             {photos.map((p: any) => (
-              <a key={p.id} href={`/api/admin/photo-image?path=${encodeURIComponent(p.image_path)}`} target="_blank" rel="noreferrer" style={{ display: "block", borderRadius: 8, overflow: "hidden", border: "1px solid #eee" }}>
-                <img src={`/api/admin/photo-image?path=${encodeURIComponent(p.image_path)}`} alt={p.caption || ""} style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", display: "block" }} />
-                {p.caption && <div style={{ padding: "0.4rem 0.6rem", fontSize: "0.75rem", color: "#666", lineHeight: 1.4 }}>{p.caption}</div>}
+              <a key={p.id} href={`/api/admin/photo-image?path=${encodeURIComponent(p.image_path)}`} target="_blank" rel="noreferrer"
+                 style={{ display: "block", borderRadius: 10, overflow: "hidden", border: "1px solid var(--ra-line)" }}>
+                <img src={`/api/admin/photo-image?path=${encodeURIComponent(p.image_path)}`} alt={p.caption || ""}
+                     style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", display: "block" }} />
+                {p.caption && (
+                  <div style={{ padding: "0.4rem 0.6rem", fontSize: "0.78rem", color: "var(--ra-ink-muted)", lineHeight: 1.4 }}>
+                    {p.caption}
+                  </div>
+                )}
               </a>
             ))}
           </div>
-        ) : <div style={{ fontSize: "0.9rem", color: "#888" }}>None yet.</div>}
-      </div>
+        ) : <div className="ra-quiet">No photos yet.</div>}
+      </section>
 
-      <div style={{ background: "white", border: "1px solid #e5e5e5", borderRadius: 10, padding: "1.25rem 1.5rem" }}>
-        <div style={sectionTitle}>Testimonials</div>
-        {testimonials && testimonials.length > 0 ? testimonials.map((t: any) => (
-          <div key={t.id} style={{ borderTop: "1px solid #f0f0f0", paddingTop: "0.75rem", marginTop: "0.75rem" }}>
-            <div style={{ fontSize: "0.72rem", color: "#888" }}>{new Date(t.created_at).toLocaleDateString()}</div>
-            <div style={{ fontSize: "0.9rem", whiteSpace: "pre-wrap", marginTop: "0.25rem" }}>{t.body}</div>
+      {/* Payout history */}
+      {payouts && payouts.length > 0 && (
+        <section className="ra-card" style={{ marginBottom: "1.5rem" }}>
+          <h3 className="ra-section-title">Payout history</h3>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {payouts.map((p: any) => (
+              <li key={p.id} className="ra-row-between" style={{ fontSize: "0.9rem", padding: "0.5rem 0", borderTop: "1px solid var(--ra-line)" }}>
+                <span>
+                  <span className="ra-quiet">{p.payout_batches?.scheduled_date || "—"}</span>{" "}
+                  {p.payout_batches?.ceo_reference && <span className="ra-tiny" style={{ marginLeft: "0.5rem" }}>{p.payout_batches.ceo_reference}</span>}
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <StatusBadge status={p.status} />
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: "1rem" }}>${Number(p.amount).toFixed(2)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* Testimonials */}
+      <section className="ra-card">
+        <h3 className="ra-section-title">Testimonials</h3>
+        {testimonials && testimonials.length > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            {testimonials.map((t: any) => (
+              <blockquote key={t.id} style={{
+                margin: 0, padding: "0.85rem 1rem",
+                borderLeft: "3px solid var(--ra-accent)",
+                background: "var(--ra-accent-soft)",
+                borderRadius: "0 var(--ra-radius) var(--ra-radius) 0",
+                fontSize: "0.92rem", lineHeight: 1.6, whiteSpace: "pre-wrap",
+                color: "var(--ra-ink)",
+              }}>
+                <div className="ra-tiny" style={{ marginBottom: "0.25rem", color: "var(--ra-accent-dark)" }}>
+                  {new Date(t.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+                </div>
+                {t.body}
+              </blockquote>
+            ))}
           </div>
-        )) : <div style={{ fontSize: "0.9rem", color: "#888" }}>None yet.</div>}
-      </div>
+        ) : <div className="ra-quiet">No testimonials yet.</div>}
+      </section>
     </div>
   );
 }
-
-function StatCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div style={{ background: "white", border: `1px solid ${accent ? "var(--accent)" : "#e5e5e5"}`, borderRadius: 10, padding: "1rem 1.25rem" }}>
-      <div style={{ fontSize: "0.7rem", textTransform: "uppercase", color: "#888", letterSpacing: "0.08em" }}>{label}</div>
-      <div style={{ fontSize: "1.4rem", fontFamily: "var(--font-display)", fontWeight: 500, color: accent ? "var(--accent)" : "inherit", marginTop: "0.25rem" }}>{value}</div>
-    </div>
-  );
-}
-
-const sectionTitle: React.CSSProperties = { fontSize: "0.72rem", textTransform: "uppercase", color: "#888", fontWeight: 700, letterSpacing: "0.1em", marginBottom: "1rem" };
-const thStyle: React.CSSProperties = { textAlign: "left", padding: "0.55rem 0.75rem", borderBottom: "1px solid #eee", fontSize: "0.72rem", textTransform: "uppercase", color: "#888" };
-const tdStyle: React.CSSProperties = { padding: "0.55rem 0.75rem", borderBottom: "1px solid #f5f5f5", fontSize: "0.875rem" };

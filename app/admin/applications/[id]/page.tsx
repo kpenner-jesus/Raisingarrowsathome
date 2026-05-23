@@ -3,6 +3,8 @@ import Link from "next/link";
 import { supabaseServer } from "@/app/lib/supabase/server";
 import { defaultGrantCap } from "@/app/lib/grant-calc";
 import { SITE_CONFIG } from "@/app/siteConfig";
+import { AvatarRow } from "../../_components/Avatar";
+import { StatusBadge } from "../../_components/StatusBadge";
 import DecisionForm from "./DecisionForm";
 
 export const dynamic = "force-dynamic";
@@ -14,91 +16,145 @@ export default async function ApplicationDetail({ params }: { params: { id: stri
 
   const { data: recipient } = await supabase.from("recipients").select("*").eq("application_id", app.id).maybeSingle();
   const defaultCap = defaultGrantCap(app.children || []);
+  const kids = Array.isArray(app.children) ? app.children : [];
+
+  const Field = ({ k, v, link }: { k: string; v: string | null; link?: boolean }) => (
+    <div className="ra-kv">
+      <span className="ra-kv-label">{k}</span>
+      {link && v
+        ? <a href={v} target="_blank" rel="noreferrer" className="ra-kv-link ra-kv-value">{v}</a>
+        : <span className="ra-kv-value">{v || "—"}</span>}
+    </div>
+  );
 
   return (
     <div>
-      <Link href="/admin/applications" style={{ fontSize: "0.85rem", color: "#888" }}>← Applications</Link>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", margin: "0.5rem 0 1.5rem" }}>
-        {app.parent_names} <span style={{ color: "#888", fontSize: "1rem" }}>· {app.app_ref}</span>
-      </h1>
+      <Link href="/admin/applications" className="ra-breadcrumb">← All applications</Link>
 
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1.5rem" }}>
-        <div>
-          <Section title="Family">
-            <Field k="City"        v={app.city} />
-            <Field k="Schooling"   v={app.current_schooling} />
-            <Field k="Income"      v={app.income_range} />
-            <Field k="Email"       v={app.contact_email} />
-            <Field k="Phone"       v={app.contact_phone} />
-            <Field k="Video"       v={app.video_link} link />
-            <Field k="Children"    v={(app.children || []).map((c: any) => `Age ${c.age} · ${c.grade}`).join(" · ")} />
-            <Field k="Default cap" v={`$${defaultCap}`} />
-          </Section>
+      <header className="ra-page-header" style={{ marginTop: "0.5rem" }}>
+        <div className="ra-page-title-block">
+          <span className="ra-eyebrow">{app.app_ref}</span>
+          <div className="ra-row" style={{ alignItems: "center" }}>
+            <AvatarRow name={app.parent_names} secondary={`${app.city} · ${app.contact_email}`} />
+            <StatusBadge status={app.status} />
+          </div>
+        </div>
+      </header>
 
-          <Section title="Written answers">
-            {SITE_CONFIG.questions.map((q) => (
-              <div key={q.key} style={{ marginBottom: "1rem" }}>
-                <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "#666" }}>{q.question}</div>
-                <div style={{ fontSize: "0.9rem", whiteSpace: "pre-wrap", marginTop: "0.25rem" }}>
-                  {(app.answers?.[q.key] as string) || "—"}
-                </div>
+      <div className="ra-detail-grid">
+        {/* LEFT: Family + answers */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          <section className="ra-card">
+            <h3 className="ra-section-title">Family</h3>
+            <div className="ra-kv-grid">
+              <Field k="City"        v={app.city} />
+              <Field k="Schooling"   v={app.current_schooling} />
+              <Field k="Income"      v={app.income_range} />
+              <Field k="Email"       v={app.contact_email} />
+              <Field k="Phone"       v={app.contact_phone} />
+              <Field k="Default cap" v={`$${defaultCap}`} />
+            </div>
+            <hr className="ra-divider" />
+            <div>
+              <div className="ra-kv-label" style={{ marginBottom: "0.5rem" }}>Children ({kids.length})</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+                {kids.length > 0 ? kids.map((c: any, i: number) => (
+                  <span key={i} className="ra-pill">
+                    Age {c.age} · {c.grade}
+                  </span>
+                )) : <span className="ra-quiet">No children listed.</span>}
               </div>
-            ))}
-          </Section>
+            </div>
+            {app.video_link && (
+              <>
+                <hr className="ra-divider" />
+                <Field k="Video interview" v={app.video_link} link />
+              </>
+            )}
+          </section>
+
+          <section className="ra-card">
+            <h3 className="ra-section-title">Written answers</h3>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {SITE_CONFIG.questions.map((q, i) => {
+                const answer = (app.answers?.[q.key] as string) || "";
+                return (
+                  <details key={q.key} open={i < 3} style={{ borderTop: i === 0 ? "0" : "1px solid var(--ra-line)", paddingTop: i === 0 ? "0" : "0.875rem" }}>
+                    <summary style={{
+                      cursor: "pointer", listStyle: "none",
+                      fontSize: "0.88rem", fontWeight: 600, color: "var(--ra-ink-soft)",
+                      display: "flex", justifyContent: "space-between", gap: "0.5rem",
+                    }}>
+                      <span>Q{i + 1}. {q.question}</span>
+                      <span className="ra-tiny" style={{ flexShrink: 0 }}>
+                        {answer ? `${answer.length} chars` : "—"}
+                      </span>
+                    </summary>
+                    <div style={{
+                      marginTop: "0.5rem", fontSize: "0.9rem",
+                      whiteSpace: "pre-wrap", color: "var(--ra-ink)",
+                      lineHeight: 1.6,
+                    }}>
+                      {answer || <span className="ra-quiet">No answer.</span>}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          </section>
         </div>
 
+        {/* RIGHT: Decision sidebar */}
         <div>
-          <Section title="Decision">
+          <section className="ra-card ra-card-accent" style={{ position: "sticky", top: "1.5rem" }}>
+            <h3 className="ra-section-title">Decision</h3>
             {recipient ? (
               <div>
-                <div style={{ background: "#3a9e6e22", color: "#3a9e6e", padding: "0.6rem 0.9rem", borderRadius: 6, fontSize: "0.85rem", marginBottom: "0.75rem", fontWeight: 600 }}>
-                  Approved · recipient created
+                <div className="ra-alert ra-alert-success" style={{ marginBottom: "1rem" }}>
+                  <span className="ra-badge-dot" />
+                  <span>Approved · recipient active</span>
                 </div>
-                <Field k="Cap"  v={`$${recipient.approved_amount}`} />
-                <Field k="Rate" v={`${(Number(recipient.reimbursement_rate) * 100).toFixed(0)}%`} />
-                <Link href={`/admin/recipients/${recipient.id}`} className="tf-ok" style={{ marginTop: "1rem", display: "inline-block", textDecoration: "none" }}>
-                  View recipient
+                <div className="ra-kv-grid">
+                  <div className="ra-kv">
+                    <span className="ra-kv-label">Cap</span>
+                    <span className="ra-kv-value" style={{ fontSize: "1.4rem", fontFamily: "var(--font-display)" }}>
+                      ${Number(recipient.approved_amount).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="ra-kv">
+                    <span className="ra-kv-label">Rate</span>
+                    <span className="ra-kv-value" style={{ fontSize: "1.4rem", fontFamily: "var(--font-display)" }}>
+                      {(Number(recipient.reimbursement_rate) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+                <Link href={`/admin/recipients/${recipient.id}`} className="ra-btn ra-btn-accent" style={{ marginTop: "1.25rem", width: "100%" }}>
+                  Open recipient →
                 </Link>
               </div>
             ) : app.status === "denied" ? (
               <div>
-                <div style={{ background: "#e0505022", color: "#e05050", padding: "0.6rem 0.9rem", borderRadius: 6, fontSize: "0.85rem", fontWeight: 600 }}>
-                  Denied
+                <div className="ra-alert ra-alert-error" style={{ marginBottom: "1rem" }}>
+                  <span className="ra-badge-dot" />
+                  <span>Denied</span>
                 </div>
-                {app.admin_notes && <div style={{ marginTop: "0.75rem", fontSize: "0.85rem", whiteSpace: "pre-wrap" }}>{app.admin_notes}</div>}
+                {app.admin_notes && (
+                  <div style={{ fontSize: "0.88rem", whiteSpace: "pre-wrap", color: "var(--ra-ink-soft)" }}>
+                    {app.admin_notes}
+                  </div>
+                )}
               </div>
             ) : (
               <DecisionForm
                 applicationId={app.id}
                 defaultCap={defaultCap}
                 adminNotes={app.admin_notes || ""}
+                parentNames={app.parent_names}
               />
             )}
-          </Section>
+          </section>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ background: "white", border: "1px solid #e5e5e5", borderRadius: 10, padding: "1.25rem 1.5rem", marginBottom: "1rem" }}>
-      <div style={{ fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.1em", color: "#888", fontWeight: 700, marginBottom: "0.875rem" }}>
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Field({ k, v, link }: { k: string; v: string | null; link?: boolean }) {
-  return (
-    <div style={{ marginBottom: "0.6rem" }}>
-      <div style={{ fontSize: "0.68rem", textTransform: "uppercase", color: "#999", letterSpacing: "0.08em" }}>{k}</div>
-      {link && v
-        ? <a href={v} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", wordBreak: "break-all", fontSize: "0.9rem" }}>{v}</a>
-        : <div style={{ fontSize: "0.9rem" }}>{v || "—"}</div>}
     </div>
   );
 }

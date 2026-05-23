@@ -2,6 +2,21 @@
 
 End-to-end setup for the application → admin review → recipient portal → CEO Ministries payout handoff system.
 
+## Ownership
+
+- **Owners:** Jordan & Tierza Hammond.
+- **Charitable sponsor:** CEO Ministries (holds the charitable number; Raising Arrows operates under it).
+- **Admin contact:** `register@raisingarrowsathome.com` (this is the email applicants are told to contact and the primary admin login).
+
+## Production
+
+- Live URL: https://raisingarrowsathome.com
+- Hosted on Vercel (project `raisingarrowsathome`, team `kpenner-jesus-projects`).
+- DB / auth / storage: Supabase project `raising-arrows-portal`.
+- Email: Resend (domain `raisingarrowsathome.com` verified, sends from `notifications@raisingarrowsathome.com`).
+
+---
+
 **Stack:** Next.js 14 (Vercel) · Supabase (Auth + Postgres + Storage) · EmailJS (existing) · Vercel Cron.
 
 **Monthly cost target:** $0 until Supabase free-tier limits (500 MB DB / 1 GB storage). Realistic for years at this volume.

@@ -1,58 +1,104 @@
 import Link from "next/link";
 import { supabaseServer } from "@/app/lib/supabase/server";
+import { AvatarRow } from "../_components/Avatar";
+import { StatusBadge } from "../_components/StatusBadge";
+import { ApplicationsFilter } from "./ApplicationsFilter";
 
 export const dynamic = "force-dynamic";
 
-export default async function ApplicationsList() {
+interface SearchParams { status?: string; q?: string; }
+
+export default async function ApplicationsList({ searchParams }: { searchParams: SearchParams }) {
   const supabase = supabaseServer();
-  const { data: apps } = await supabase
+  let q = supabase
     .from("applications")
-    .select("id, app_ref, parent_names, city, status, created_at, children")
+    .select("id, app_ref, parent_names, city, contact_email, status, created_at, children, decided_at")
     .order("created_at", { ascending: false });
+
+  if (searchParams.status && ["pending", "approved", "denied"].includes(searchParams.status)) {
+    q = q.eq("status", searchParams.status);
+  }
+  if (searchParams.q) {
+    q = q.or(`parent_names.ilike.%${searchParams.q}%,city.ilike.%${searchParams.q}%,app_ref.ilike.%${searchParams.q}%`);
+  }
+  const { data: apps } = await q;
+
+  const counts = await Promise.all([
+    supabase.from("applications").select("*", { count: "exact", head: true }),
+    supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "pending"),
+    supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "approved"),
+    supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "denied"),
+  ]);
 
   return (
     <div>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", marginBottom: "1.5rem" }}>Applications</h1>
-      <table style={tableStyle}>
-        <thead>
-          <tr>
-            <th style={thStyle}>Ref</th>
-            <th style={thStyle}>Family</th>
-            <th style={thStyle}>City</th>
-            <th style={thStyle}>Kids</th>
-            <th style={thStyle}>Status</th>
-            <th style={thStyle}>Submitted</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(apps || []).map((a: any) => (
-            <tr key={a.id}>
-              <td style={tdStyle}>
-                <Link href={`/admin/applications/${a.id}`} style={{ color: "var(--accent)" }}>
-                  {a.app_ref}
-                </Link>
-              </td>
-              <td style={tdStyle}>{a.parent_names}</td>
-              <td style={tdStyle}>{a.city}</td>
-              <td style={tdStyle}>{Array.isArray(a.children) ? a.children.length : 0}</td>
-              <td style={tdStyle}><StatusBadge s={a.status} /></td>
-              <td style={tdStyle}>{new Date(a.created_at).toLocaleDateString()}</td>
+      <header className="ra-page-header">
+        <div className="ra-page-title-block">
+          <span className="ra-eyebrow">All families</span>
+          <h1 className="ra-h1">Applications</h1>
+          <p className="ra-quiet">Review and decide on incoming grant requests.</p>
+        </div>
+      </header>
+
+      <ApplicationsFilter
+        totals={{
+          all:      counts[0].count ?? 0,
+          pending:  counts[1].count ?? 0,
+          approved: counts[2].count ?? 0,
+          denied:   counts[3].count ?? 0,
+        }}
+      />
+
+      <div className="ra-table-card" style={{ marginTop: "1rem" }}>
+        <table className="ra-table">
+          <thead>
+            <tr>
+              <th>Family</th>
+              <th>Ref</th>
+              <th>Kids</th>
+              <th>Status</th>
+              <th style={{ textAlign: "right" }}>Submitted</th>
             </tr>
-          ))}
-          {(!apps || apps.length === 0) && (
-            <tr><td colSpan={6} style={{ ...tdStyle, color: "#888", textAlign: "center" }}>No applications yet.</td></tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(apps || []).map((a: any) => {
+              const kids = Array.isArray(a.children) ? a.children : [];
+              return (
+                <tr key={a.id}>
+                  <td>
+                    <Link href={`/admin/applications/${a.id}`}>
+                      <AvatarRow name={a.parent_names} secondary={a.city + " · " + a.contact_email} />
+                    </Link>
+                  </td>
+                  <td className="ra-tiny" style={{ fontFamily: "ui-monospace, monospace" }}>{a.app_ref}</td>
+                  <td>
+                    {kids.length > 0 ? (
+                      <span className="ra-quiet">
+                        {kids.length} · ages {kids.map((c: any) => c.age).join(", ")}
+                      </span>
+                    ) : <span className="ra-quiet">—</span>}
+                  </td>
+                  <td><StatusBadge status={a.status} /></td>
+                  <td style={{ textAlign: "right" }} className="ra-tiny">
+                    {new Date(a.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+                  </td>
+                </tr>
+              );
+            })}
+            {(!apps || apps.length === 0) && (
+              <tr>
+                <td colSpan={5}>
+                  <div className="ra-empty">
+                    <div className="ra-empty-icon">✉</div>
+                    <div className="ra-empty-title">No applications match</div>
+                    <div>Try clearing filters or wait for new submissions.</div>
+                  </div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
-
-function StatusBadge({ s }: { s: string }) {
-  const color = s === "approved" ? "#3a9e6e" : s === "denied" ? "#e05050" : "#999";
-  return <span style={{ background: color + "22", color, padding: "2px 8px", borderRadius: 4, fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>{s}</span>;
-}
-
-const tableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse", background: "white", border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden" };
-const thStyle: React.CSSProperties = { textAlign: "left", padding: "0.6rem 0.9rem", borderBottom: "1px solid #eee", fontSize: "0.78rem", textTransform: "uppercase", color: "#888", letterSpacing: "0.08em" };
-const tdStyle: React.CSSProperties = { padding: "0.6rem 0.9rem", borderBottom: "1px solid #f3f3f3", fontSize: "0.9rem" };

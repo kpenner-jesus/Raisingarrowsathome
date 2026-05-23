@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/app/lib/supabase/server";
+import { StatusBadge } from "../_components/StatusBadge";
 import GenerateBatchButton from "./GenerateBatchButton";
 import MarkPaidButton from "./MarkPaidButton";
 
@@ -11,55 +12,100 @@ export default async function PayoutsPage() {
     .select("*")
     .order("scheduled_date", { ascending: false });
 
+  // Counts per status
+  const draftN    = (batches || []).filter((b: any) => b.status === "draft").length;
+  const exportedN = (batches || []).filter((b: any) => b.status === "exported").length;
+  const paidN     = (batches || []).filter((b: any) => b.status === "paid").length;
+  const totalPaid = (batches || []).filter((b: any) => b.status === "paid").reduce((s: number, b: any) => s + Number(b.total), 0);
+
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
-        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem" }}>Payouts</h1>
+      <header className="ra-page-header">
+        <div className="ra-page-title-block">
+          <span className="ra-eyebrow">CEO Ministries handoff</span>
+          <h1 className="ra-h1">Payouts</h1>
+          <p className="ra-quiet" style={{ maxWidth: 640, lineHeight: 1.6 }}>
+            Batches auto-generate on the 1st of each month. Download the CSV, send to CEO Ministries accounting,
+            then mark paid once e-transfers go out.
+          </p>
+        </div>
         <GenerateBatchButton />
+      </header>
+
+      <div className="ra-stat-grid" style={{ marginBottom: "1.5rem" }}>
+        <div className="ra-stat">
+          <span className="ra-stat-label">Drafts</span>
+          <span className="ra-stat-value">{draftN}</span>
+          <span className="ra-stat-sub">awaiting CSV export</span>
+        </div>
+        <div className="ra-stat">
+          <span className="ra-stat-label">Exported</span>
+          <span className="ra-stat-value">{exportedN}</span>
+          <span className="ra-stat-sub">waiting on CEO payment</span>
+        </div>
+        <div className="ra-stat">
+          <span className="ra-stat-label">Paid</span>
+          <span className="ra-stat-value">{paidN}</span>
+          <span className="ra-stat-sub">completed batches</span>
+        </div>
+        <div className="ra-stat ra-stat-accent">
+          <span className="ra-stat-label">Total paid out</span>
+          <span className="ra-stat-value">${totalPaid.toFixed(0)}</span>
+          <span className="ra-stat-sub">lifetime</span>
+        </div>
       </div>
 
-      <p style={{ fontSize: "0.85rem", color: "#666", lineHeight: 1.6, marginBottom: "1rem", maxWidth: 720 }}>
-        Batches auto-generate at noon UTC on the 1st of each month (Vercel Cron).
-        Each batch contains every recipient eligible for a payout based on their approved receipts × reimbursement rate, less what they have already been paid.
-        Download the CSV and send it to CEO Ministries accounting. After they pay it out, click <strong>Mark paid</strong>.
-      </p>
-
-      <table style={{ width: "100%", borderCollapse: "collapse", background: "white", border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden" }}>
-        <thead>
-          <tr>
-            <th style={thStyle}>Scheduled</th>
-            <th style={thStyle}>Total</th>
-            <th style={thStyle}>Status</th>
-            <th style={thStyle}>CEO ref</th>
-            <th style={thStyle}>CSV</th>
-            <th style={thStyle}>Mark paid</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(batches || []).map((b: any) => (
-            <tr key={b.id}>
-              <td style={tdStyle}>{b.scheduled_date}</td>
-              <td style={tdStyle}>${Number(b.total).toFixed(2)}</td>
-              <td style={tdStyle}><StatusBadge s={b.status} /></td>
-              <td style={tdStyle}>{b.ceo_reference || "—"}</td>
-              <td style={tdStyle}><a href={`/api/admin/payouts/${b.id}/export`} style={{ color: "var(--accent)" }}>Download</a></td>
-              <td style={tdStyle}>{b.status !== "paid" && <MarkPaidButton batchId={b.id} />}</td>
+      <div className="ra-table-card">
+        <table className="ra-table">
+          <thead>
+            <tr>
+              <th>Scheduled</th>
+              <th>Total</th>
+              <th>Status</th>
+              <th>CEO ref</th>
+              <th>CSV</th>
+              <th style={{ textAlign: "right" }}>Action</th>
             </tr>
-          ))}
-          {(!batches || batches.length === 0) && (
-            <tr><td colSpan={6} style={{ ...tdStyle, color: "#888", textAlign: "center" }}>No batches yet.</td></tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(batches || []).map((b: any) => (
+              <tr key={b.id}>
+                <td>
+                  <span style={{ fontWeight: 500 }}>
+                    {new Date(b.scheduled_date).toLocaleDateString("en-CA", { month: "long", day: "numeric", year: "numeric" })}
+                  </span>
+                </td>
+                <td>
+                  <span style={{ fontFamily: "var(--font-display)", fontSize: "1.05rem" }}>
+                    ${Number(b.total).toFixed(2)}
+                  </span>
+                </td>
+                <td><StatusBadge status={b.status} /></td>
+                <td className="ra-tiny" style={{ fontFamily: "ui-monospace, monospace" }}>{b.ceo_reference || "—"}</td>
+                <td>
+                  <a href={`/api/admin/payouts/${b.id}/export`} className="ra-link" style={{ fontSize: "0.85rem" }}>
+                    Download
+                  </a>
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  {b.status !== "paid" && <MarkPaidButton batchId={b.id} total={Number(b.total)} />}
+                </td>
+              </tr>
+            ))}
+            {(!batches || batches.length === 0) && (
+              <tr>
+                <td colSpan={6}>
+                  <div className="ra-empty">
+                    <div className="ra-empty-icon">$</div>
+                    <div className="ra-empty-title">No batches yet</div>
+                    <div>Click <strong>Generate batch now</strong> or wait for the monthly cron.</div>
+                  </div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
-
-function StatusBadge({ s }: { s: string }) {
-  const colors: Record<string, string> = { draft: "#999", approved: "#e8793a", exported: "#4a7ec7", paid: "#3a9e6e" };
-  const c = colors[s] || "#999";
-  return <span style={{ background: c + "22", color: c, padding: "2px 8px", borderRadius: 4, fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>{s}</span>;
-}
-
-const thStyle: React.CSSProperties = { textAlign: "left", padding: "0.6rem 0.9rem", borderBottom: "1px solid #eee", fontSize: "0.78rem", textTransform: "uppercase", color: "#888" };
-const tdStyle: React.CSSProperties = { padding: "0.6rem 0.9rem", borderBottom: "1px solid #f3f3f3", fontSize: "0.9rem" };
