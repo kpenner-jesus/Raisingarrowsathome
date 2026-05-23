@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/app/lib/supabase/browser";
+import { compressImage } from "@/app/portal/_lib/compressImage";
 
 const ALLOWED_EXTS    = ["jpg", "jpeg", "png", "webp", "heic", "heif", "pdf"];
 const ALLOWED_MIME_RE = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/i;
@@ -32,25 +33,32 @@ export default function NewReceiptPage() {
 
   const upload = async () => {
     if (!file) { setError("Please attach a photo or PDF of the receipt."); return; }
-    if (file.size > MAX_BYTES) { setError("File too large — please keep under 8 MB."); return; }
     if (!ALLOWED_MIME_RE.test(file.type)) {
       setError("Only JPG, PNG, WebP, HEIC, or PDF files are allowed.");
       return;
     }
-    const ext = safeExt(file.name);
-    if (!ALLOWED_EXTS.includes(ext)) { setError("File extension not allowed."); return; }
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0) { setError("Please enter a positive amount."); return; }
     if (amt > MAX_AMOUNT)                    { setError(`Amount can't exceed $${MAX_AMOUNT.toLocaleString()}.`); return; }
 
     setBusy(true); setError("");
+
+    // Compress images client-side (PDFs pass through). Halves average upload size.
+    let processed: File;
+    try { processed = await compressImage(file); }
+    catch { processed = file; }
+
+    if (processed.size > MAX_BYTES) { setError("File too large even after compression — please keep under 8 MB."); setBusy(false); return; }
+    const ext = safeExt(processed.name);
+    if (!ALLOWED_EXTS.includes(ext)) { setError("File extension not allowed."); setBusy(false); return; }
+
     const supabase = supabaseBrowser();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setError("Not signed in."); setBusy(false); return; }
 
     const path = `${user.id}/${randomId()}.${ext}`;
-    const { error: upErr } = await supabase.storage.from("receipts").upload(path, file, {
-      contentType: file.type, cacheControl: "0", upsert: false,
+    const { error: upErr } = await supabase.storage.from("receipts").upload(path, processed, {
+      contentType: processed.type, cacheControl: "0", upsert: false,
     });
     if (upErr) { setError(upErr.message); setBusy(false); return; }
 
