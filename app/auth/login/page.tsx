@@ -72,6 +72,21 @@ function LoginInner() {
             )}
           </div>
         </KidsBehind>
+
+        <a
+          href="/"
+          style={{
+            display: "inline-block",
+            marginTop: "1.25rem",
+            fontSize: "0.85rem",
+            color: "var(--text-muted)",
+            textDecoration: "none",
+            borderBottom: "1px dotted rgba(0,0,0,0.25)",
+            paddingBottom: 1,
+          }}
+        >
+          ← Back to website
+        </a>
       </div>
     </div>
   );
