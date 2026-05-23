@@ -25,6 +25,7 @@ export default async function PortalLayout({ children }: { children: React.React
         <nav style={{ display: "flex", gap: "1.25rem", alignItems: "center", fontSize: "0.9rem", flexWrap: "wrap" }}>
           <Link href="/portal"               style={navLink}>Dashboard</Link>
           <Link href="/portal/receipts/new"  style={navLink}>Upload receipt</Link>
+          <Link href="/portal/receipts/batch" style={navLink}>Batch upload</Link>
           <Link href="/portal/photos"        style={navLink}>Photos</Link>
           <Link href="/portal/testimonials"  style={navLink}>Testimonials</Link>
           <Link href="/portal/statement"     style={navLink}>Statement</Link>

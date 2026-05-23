@@ -6,10 +6,13 @@
 // ============================================================
 
 import { supabaseService } from "./supabase/server";
+import { signToken } from "./hmac";
 
 interface SendArgs {
   broadcastId: string;
 }
+
+const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://raisingarrowsathome.com";
 
 interface SendResult {
   sent: number;
@@ -50,6 +53,14 @@ export async function sendBroadcast({ broadcastId }: SendArgs): Promise<SendResu
     })).filter((r) => !!r.email);
   }
 
+  // Filter out anyone who opted out of broadcasts.
+  if (recipients.length > 0) {
+    const emails = recipients.map((r) => r.email.toLowerCase());
+    const { data: opted } = await svc.from("email_optouts").select("email").in("email", emails);
+    const optedSet = new Set((opted ?? []).map((r: any) => r.email.toLowerCase()));
+    recipients = recipients.filter((r) => !optedSet.has(r.email.toLowerCase()));
+  }
+
   const RESEND_KEY = process.env.RESEND_API_KEY;
   const FROM_EMAIL = process.env.RESEND_FROM || "Raising Arrows <register@raisingarrowsathome.com>";
   if (!RESEND_KEY) {
@@ -62,18 +73,32 @@ export async function sendBroadcast({ broadcastId }: SendArgs): Promise<SendResu
 
   let sent = 0, failed = 0;
   for (const r of recipients) {
-    const personalizedHtml = claimed.body_html.replaceAll("{{parent_names}}", escapeHtml(r.parent_names));
+    let unsubToken = "";
+    try { unsubToken = signToken(`unsub:${r.email.toLowerCase()}`, 60 * 60 * 24 * 365); } catch {}
+    const unsubUrl = `${SITE}/api/unsubscribe?token=${encodeURIComponent(unsubToken)}`;
+    const personalizedHtml = claimed.body_html.replaceAll("{{parent_names}}", escapeHtml(r.parent_names))
+      + `<hr style="border:0;border-top:1px solid #eee;margin:36px 0 12px;">
+         <p style="font-size:0.75rem;color:#aaa;margin:0;">
+           You're receiving this because you're part of Raising Arrows.
+           ${unsubToken ? `<a href="${unsubUrl}" style="color:#aaa;">Unsubscribe</a>` : ""}
+         </p>`;
     try {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${RESEND_KEY}`,
+        "Content-Type": "application/json",
+      };
+      const payload: any = {
+        from: FROM_EMAIL, to: [r.email],
+        subject: claimed.subject, html: personalizedHtml,
+      };
+      if (unsubToken) {
+        payload.headers = {
+          "List-Unsubscribe":      `<${unsubUrl}>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        };
+      }
       const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${RESEND_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: FROM_EMAIL, to: [r.email],
-          subject: claimed.subject, html: personalizedHtml,
-        }),
+        method: "POST", headers, body: JSON.stringify(payload),
       });
       if (res.ok) sent++; else failed++;
     } catch {

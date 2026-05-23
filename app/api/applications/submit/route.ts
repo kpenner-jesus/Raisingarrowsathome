@@ -15,6 +15,8 @@
 import { NextResponse } from "next/server";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { sendAdminAlert } from "@/app/lib/alerts";
+import { notifyApplicationReceived } from "@/app/lib/notify";
+import { signToken } from "@/app/lib/hmac";
 import { getSettings } from "@/app/lib/settings";
 import { randomBytes } from "crypto";
 
@@ -93,8 +95,19 @@ export async function POST(req: Request) {
       .single();
     if (error) return new NextResponse(error.message, { status: 500 });
 
-    // Fire-and-forget admin alert (Slack + email). Never blocks/fails the user.
+    // Fire-and-forget: confirmation email to family with self-withdraw link.
     const origin = new URL(req.url).origin;
+    try {
+      const withdrawToken = signToken(`withdraw:${data.id}`, 60 * 60 * 24 * 30);  // 30 days
+      notifyApplicationReceived({
+        to:           clip(contact_email, 200),
+        parent_names: clip(parent_names, 100),
+        app_ref:      data.app_ref,
+        withdraw_url: `${origin}/apply/withdraw?token=${encodeURIComponent(withdrawToken)}`,
+      }).catch(() => { /* logged inside */ });
+    } catch { /* signing failed (missing secret) — skip silently */ }
+
+    // Fire-and-forget admin alert (Slack + email). Never blocks/fails the user.
     sendAdminAlert({
       title: "New grant application",
       summary: `${clip(parent_names, 60)} just submitted an application.`,

@@ -47,6 +47,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <NavLink href="/admin/broadcasts"      label="Broadcasts"   icon="✉" />
             <NavLink href="/admin/emails"          label="Email log"    icon="⇄" />
             <NavLink href="/admin/email-templates" label="Templates"    icon="◫" />
+            <NavLink href="/admin/categories"      label="Categories"   icon="⌗" />
             <NavLink href="/admin/audit-log"       label="Audit log"    icon="⌖" />
             <NavLink href="/admin/settings"        label="Settings"     icon="⚙" />
             {isSuper && <NavLink href="/admin/team" label="Team"        icon="◉" />}

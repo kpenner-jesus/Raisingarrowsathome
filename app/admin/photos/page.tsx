@@ -37,16 +37,22 @@ export default async function PhotosPage({ searchParams }: {
             Up to 200 most recent submissions. Filter to a year for cohort highlights or pull marketing material.
           </p>
         </div>
-        <form method="get" style={{ display: "flex", gap: "0.5rem", alignItems: "end" }}>
-          <div>
-            <label className="ra-label">Year</label>
-            <select name="year" defaultValue={searchParams?.year ?? ""} className="ra-input">
-              <option value="">All</option>
-              {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
-          <button type="submit" className="ra-btn">Apply</button>
-        </form>
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "end", flexWrap: "wrap" }}>
+          <form method="get" style={{ display: "flex", gap: "0.5rem", alignItems: "end" }}>
+            <div>
+              <label className="ra-label">Year</label>
+              <select name="year" defaultValue={searchParams?.year ?? ""} className="ra-input">
+                <option value="">All</option>
+                {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <button type="submit" className="ra-btn">Apply</button>
+          </form>
+          {searchParams?.year && (
+            <a href={`/api/admin/exports/photos.zip?year=${searchParams.year}`}
+               className="ra-btn ra-btn-primary">⬇ Zip {searchParams.year}</a>
+          )}
+        </div>
       </header>
 
       {(photos?.length ?? 0) === 0 ? (

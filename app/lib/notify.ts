@@ -165,6 +165,27 @@ export async function notifyApplicationApproved(args: {
   });
 }
 
+export async function notifyApplicationReceived(args: {
+  to: string;
+  parent_names: string;
+  app_ref: string;
+  withdraw_url: string;
+}) {
+  await send({
+    to: args.to,
+    subject: "We received your Raising Arrows application",
+    html: wrap(`
+      <p>Hi ${esc(args.parent_names)},</p>
+      <p>Thanks for applying. Your application reference is <strong>${esc(args.app_ref)}</strong>.</p>
+      <p>Our admin team will review within ~2 weeks. You'll hear back by email either way.</p>
+      <p style="font-size:0.85rem;color:#666;margin-top:32px;">Changed your mind?
+        <a href="${esc(args.withdraw_url)}" style="color:#666;">Withdraw this application</a>.
+      </p>
+      <p>In Him,<br>The Raising Arrows team</p>
+    `),
+  });
+}
+
 export async function notifyApplicationDenied(args: {
   to: string;
   parent_names: string;
