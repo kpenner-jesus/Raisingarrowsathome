@@ -74,10 +74,13 @@ export default function NewPhotoPage() {
           <label style={lbl}>Photo</label>
           <input
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+            accept="image/*"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             style={{ display: "block", fontSize: "0.9rem" }}
           />
+          <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.35rem", lineHeight: 1.5 }}>
+            📷 On your phone, tap to <strong>take a photo</strong> or pick one from your library.
+          </div>
           {file && <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.35rem" }}>{file.name} · {(file.size/1024).toFixed(0)} KB</div>}
         </div>
         <div>
