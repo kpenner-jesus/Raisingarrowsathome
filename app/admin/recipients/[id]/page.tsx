@@ -63,7 +63,7 @@ export default async function RecipientDetail({ params }: { params: { id: string
           <span className="ra-eyebrow">Grant balance</span>
           <span className="ra-tiny">{(Number(recipient.reimbursement_rate) * 100).toFixed(0)}% reimbursement</span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", alignItems: "center" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1.5rem", alignItems: "center" }}>
           <div>
             <div className="ra-quiet" style={{ fontSize: "0.85rem" }}>Paid of</div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: "2rem", lineHeight: 1, color: "var(--ra-ink)" }}>

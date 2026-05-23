@@ -92,7 +92,7 @@ export default async function AdminDashboard() {
         </Link>
       </section>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.25rem" }}>
         {/* Latest applications */}
         <section className="ra-card">
           <h3 className="ra-section-title">

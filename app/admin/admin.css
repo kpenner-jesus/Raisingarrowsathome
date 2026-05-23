@@ -41,6 +41,153 @@
   min-height: 100vh;
 }
 
+/* ── ADMIN SHELL (responsive) ──
+   Desktop: 232px sticky sidebar on the left + scrollable main.
+   Mobile (< 768px): sidebar collapses to a horizontal top bar with
+   scrollable nav, brand on top, sign-out tucked beside it. */
+.ra-admin-shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  min-height: 100vh;
+}
+.ra-admin-sidebar {
+  background: linear-gradient(165deg, #1e1715 0%, #100b0a 100%);
+  color: #fff;
+  padding: 1.5rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  border-right: 1px solid rgba(255,255,255,0.05);
+}
+.ra-admin-brand {
+  display: block;
+  padding: 0 0.5rem 1.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 1.25rem;
+  text-decoration: none;
+  color: inherit;
+}
+.ra-admin-brand-name {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.35rem;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+.ra-admin-brand-sub {
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+  margin-top: 0.35rem;
+  font-weight: 500;
+}
+.ra-admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.ra-admin-signout {
+  margin-top: auto;
+  padding-top: 1.5rem;
+}
+.ra-admin-signout-email {
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.4);
+  margin-bottom: 0.5rem;
+  padding: 0 0.5rem;
+  letter-spacing: 0.05em;
+  word-break: break-all;
+}
+.ra-admin-signout-btn {
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.85rem;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.7);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ra-admin-signout-btn:hover {
+  background: rgba(255,255,255,0.05);
+  color: rgba(255,255,255,0.95);
+}
+.ra-admin-main {
+  padding: 2rem 2.5rem 4rem;
+  min-width: 0;            /* allow children to shrink within grid track */
+}
+
+/* ── Mobile shell ── */
+@media (max-width: 767px) {
+  .ra-admin-shell {
+    grid-template-columns: 1fr;
+  }
+  .ra-admin-sidebar {
+    position: static;
+    height: auto;
+    padding: 1rem 1rem 0.6rem;
+    border-right: none;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+  .ra-admin-brand {
+    padding: 0 0 0.75rem;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem;
+  }
+  .ra-admin-brand-name { font-size: 1.15rem; }
+  .ra-admin-brand-sub  { margin-top: 0; font-size: 0.6rem; letter-spacing: 0.12em; }
+  .ra-admin-nav {
+    flex-direction: row;
+    gap: 0.25rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    padding-bottom: 0.5rem;
+  }
+  .ra-admin-nav a {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .ra-admin-signout {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .ra-admin-signout-email {
+    margin-bottom: 0;
+    padding: 0;
+    font-size: 0.65rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ra-admin-signout-btn {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.78rem;
+  }
+  .ra-admin-main {
+    padding: 1.25rem 1rem 3rem;
+  }
+}
+
 .ra-display { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.01em; }
 
 /* ── HEADINGS ── */
