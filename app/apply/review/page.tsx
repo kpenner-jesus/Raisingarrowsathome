@@ -86,6 +86,35 @@ export default function ReviewPage() {
 
     emailjs.init({ publicKey: PUBKEY });
 
+    // Persist to Supabase so admin can review in /admin/applications.
+    // Fire-and-forget — failure here should not block submission, but we log it.
+    fetch("/api/applications/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        app_ref: appRef,
+        parent_names: store.parentNames,
+        city: store.city,
+        contact_email: store.contactEmail,
+        contact_phone: store.contactPhone,
+        income_range: store.incomeRange,
+        current_schooling: store.currentSchooling,
+        children: store.children,
+        answers: {
+          whyHomeschool:          store.whyHomeschool,
+          biggestConcern:         store.biggestConcern,
+          educationalGoals:       store.educationalGoals,
+          whatGrantMakesPossible: store.whatGrantMakesPossible,
+          singleIncome:           store.singleIncome,
+          christianFaith:         store.christianFaith,
+          localChurch:            store.localChurch,
+          curriculumConsidering:  store.curriculumConsidering,
+          howGrantHelps:          store.howGrantHelps,
+        },
+        video_link: store.videoLink,
+      }),
+    }).catch((err) => console.error("DB submit failed:", err));
+
     emailjs.send(SERVICE, TEMPLATE, params)
       .then(() => {
         return emailjs.send(SERVICE, GUEST, { ...params, to_email: store.contactEmail });

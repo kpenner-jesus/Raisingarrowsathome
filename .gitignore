@@ -1,0 +1,42 @@
+# Next.js
+/.next/
+/out/
+next-env.d.ts
+
+# Dependencies
+/node_modules/
+/.pnp
+.pnp.js
+
+# Production builds
+/build
+/dist
+
+# Env — never commit secrets
+.env
+.env.local
+.env*.local
+
+# Vercel
+/.vercel/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Test artifacts
+/playwright-report/
+/test-results/
+/.playwright-mcp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
