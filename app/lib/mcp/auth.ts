@@ -43,7 +43,8 @@ export async function authBearer(authHeader: string | null): Promise<AuthedToken
   if (token.expires_at && new Date(token.expires_at) < new Date()) return null;
 
   const profile = (token as any).profiles;
-  if (profile.role !== "admin") return null;
+  if (!profile) return null;
+  if (profile.role !== "admin" && profile.role !== "super_admin") return null;
 
   // Fire-and-forget last_used update
   supabase.from("api_tokens").update({ last_used_at: new Date().toISOString() }).eq("id", token.id).then(() => {});

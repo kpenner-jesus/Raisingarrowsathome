@@ -9,6 +9,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
 
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("role").eq("id", user.id).single()
+    : { data: null };
+  const isSuper = profile?.role === "super_admin";
+
   return (
     <AdminProviders>
       <div className="ra-admin" style={{ display: "grid", gridTemplateColumns: "232px 1fr", minHeight: "100vh" }}>
@@ -40,7 +45,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               fontSize: "0.7rem", letterSpacing: "0.15em", textTransform: "uppercase",
               color: "rgba(255,255,255,0.45)", marginTop: "0.35rem", fontWeight: 500,
             }}>
-              Admin
+              {isSuper ? "Super-admin" : "Admin"}
             </div>
           </div>
 
@@ -49,6 +54,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <NavLink href="/admin/applications" label="Applications" icon="✎" />
             <NavLink href="/admin/recipients"   label="Recipients"   icon="❀" />
             <NavLink href="/admin/payouts"      label="Payouts"      icon="$" />
+            {isSuper && <NavLink href="/admin/team" label="Team" icon="◉" />}
           </nav>
 
           <form action="/auth/logout" method="post" style={{ marginTop: "auto", paddingTop: "1.5rem" }}>

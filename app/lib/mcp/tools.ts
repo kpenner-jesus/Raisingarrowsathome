@@ -673,6 +673,47 @@ const bulkCreateRecipients: Tool = {
   },
 };
 
+const setUserRole: Tool = {
+  name:        "set_user_role",
+  description: "Promote/demote a team member. super_admin only — if called with a non-super-admin token, returns an error. Safety: won't demote the last super_admin.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      email: { type: "string" },
+      role:  { type: "string", enum: ["recipient", "admin", "super_admin"] },
+    },
+    required: ["email", "role"],
+  },
+  handler: async ({ email, role }, ctx) => {
+    const supabase = supabaseService();
+
+    // Verify the caller is a super_admin
+    const { data: actor } = await supabase.from("profiles").select("role").eq("id", ctx.profile_id).single();
+    if (actor?.role !== "super_admin") throw new Error("only super_admin can change roles");
+
+    const { data: target, error: loadErr } = await supabase.from("profiles").select("id, email, role").eq("email", email).single();
+    if (loadErr || !target) throw new Error("user not found");
+
+    if (target.role === "super_admin" && role !== "super_admin") {
+      const { count } = await supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "super_admin");
+      if ((count ?? 0) <= 1) throw new Error("cannot demote the last super_admin");
+    }
+
+    const { error } = await supabase.from("profiles").update({ role }).eq("id", target.id);
+    if (error) throw new Error(error.message);
+
+    await supabase.from("audit_log").insert({
+      actor_id:     ctx.profile_id,
+      action:       "team.role_change",
+      target_table: "profiles",
+      target_id:    target.id,
+      details:      { email, from: target.role, to: role },
+    });
+
+    return { ok: true, email, from: target.role, to: role };
+  },
+};
+
 export const TOOLS: Tool[] = [
   listApplications,
   getApplication,
@@ -689,6 +730,7 @@ export const TOOLS: Tool[] = [
   decideReceipt,
   modifyRecipient,
   bulkCreateRecipients,
+  setUserRole,
   generatePayoutBatch,
   markBatchPaid,
   exportBatchCsv,

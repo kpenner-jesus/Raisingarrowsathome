@@ -30,8 +30,13 @@ export async function middleware(req: NextRequest) {
       .select("role")
       .eq("id", user.id)
       .single();
-    if (profile?.role !== "admin") {
+    const role = profile?.role;
+    if (role !== "admin" && role !== "super_admin") {
       return NextResponse.redirect(new URL("/portal", req.url));
+    }
+    // /admin/team is super_admin only
+    if (pathname.startsWith("/admin/team") && role !== "super_admin") {
+      return NextResponse.redirect(new URL("/admin", req.url));
     }
   }
 
