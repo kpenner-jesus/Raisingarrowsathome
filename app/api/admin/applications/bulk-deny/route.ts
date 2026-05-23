@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
+import { notifyApplicationDenied } from "@/app/lib/notify";
 
 export async function POST(req: Request) {
   const auth = supabaseServer();
@@ -41,5 +42,28 @@ export async function POST(req: Request) {
     });
   }
 
-  return NextResponse.json({ ok: true, denied_count: updated?.length ?? 0, denied_ids: (updated ?? []).map((u: any) => u.id) });
+  // Send rejection emails. Each send is fire-and-forget inside notify
+  // (errors logged, not raised) so a flaky inbox can't break the batch.
+  let emailed = 0, failed = 0;
+  await Promise.all((updated ?? []).map(async (u: any) => {
+    if (!u.contact_email) { failed++; return; }
+    try {
+      await notifyApplicationDenied({
+        to:           u.contact_email,
+        parent_names: u.parent_names,
+        admin_notes:  notes,
+      });
+      emailed++;
+    } catch {
+      failed++;
+    }
+  }));
+
+  return NextResponse.json({
+    ok: true,
+    denied_count: updated?.length ?? 0,
+    denied_ids:   (updated ?? []).map((u: any) => u.id),
+    emailed,
+    failed,
+  });
 }

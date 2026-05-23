@@ -44,12 +44,15 @@ export function ApplicationsTable({ rows }: { rows: Row[] }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: Array.from(selected), notes: reason }),
       });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        throw new Error(j.error || `HTTP ${r.status}`);
-      }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
       setDenyOpen(false); setSelected(new Set()); setReason("");
       router.refresh();
+      // Surface email outcome on the rendered toast (best-effort)
+      if (typeof window !== "undefined") {
+        const emailNote = (j.emailed != null) ? ` (${j.emailed} emailed${j.failed ? `, ${j.failed} failed` : ""})` : "";
+        try { (window as any).alert(`Denied ${j.denied_count}${emailNote}`); } catch {}
+      }
     } catch (e: any) {
       setError(e?.message || "Failed");
     } finally {
