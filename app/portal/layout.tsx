@@ -27,6 +27,7 @@ export default async function PortalLayout({ children }: { children: React.React
           <Link href="/portal/receipts/new"  style={navLink}>Upload receipt</Link>
           <Link href="/portal/photos"        style={navLink}>Photos</Link>
           <Link href="/portal/testimonials"  style={navLink}>Testimonials</Link>
+          <Link href="/portal/help"          style={navLink}>Help</Link>
           <form action="/auth/logout" method="post" style={{ display: "inline" }}>
             <button type="submit" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.85rem", fontFamily: "var(--font-body)" }}>
               Sign out · {user?.email}

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "../../_components/Toaster";
+import { HelpHint } from "../../../_components/HelpHint";
 
 interface Props {
   id: string;
@@ -60,7 +61,18 @@ export default function ReceiptDecide({ id, amount, currency, rate, description 
 
             {open === "approved" ? (
               <>
-                <label className="ra-label">Reimbursable amount (CAD)</label>
+                <label className="ra-label">
+                  Reimbursable amount (CAD)
+                  <HelpHint
+                    title="Reimbursable amount"
+                    body="How much CAD we'll actually pay this family back for this receipt. For CAD receipts this defaults to receipt × reimbursement rate. For USD receipts it's required — you pick the CAD value at today's exchange rate."
+                    examples={[
+                      "CAD $100 receipt at 75% rate → default $75. Approve as-is.",
+                      "USD $80 receipt → type ≈ $109 CAD (rate of the day).",
+                      "Family shared a $1200 bulk order with 3 other families, only $300 is theirs → type $225 ($300 × 75%).",
+                    ]}
+                  />
+                </label>
                 <div style={{ position: "relative" }}>
                   <span style={{ position: "absolute", left: "0.85rem", top: "50%", transform: "translateY(-50%)", color: "var(--ra-ink-muted)" }}>$</span>
                   <input

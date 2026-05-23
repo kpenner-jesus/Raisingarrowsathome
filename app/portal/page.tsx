@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabaseServer } from "@/app/lib/supabase/server";
 import { calcBalance } from "@/app/lib/grant-calc";
+import { HelpHint } from "@/app/_components/HelpHint";
 
 export const dynamic = "force-dynamic";
 
@@ -86,10 +87,14 @@ export default async function PortalDashboard() {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "1rem", marginBottom: "2.5rem" }}>
-        <Card label="Approved cap"  value={`$${Number(recipient.approved_amount).toFixed(2)}`} />
-        <Card label="Paid to date"  value={`$${paidToDate.toFixed(2)}`} />
-        <Card label="Remaining"     value={`$${balance.remainingCap.toFixed(2)}`} />
-        <Card label="Next payout"   value={`$${balance.eligibleForNextPayout.toFixed(2)}`} accent />
+        <Card label="Approved cap" value={`$${Number(recipient.approved_amount).toFixed(2)}`}
+              help={{ body: "The maximum total reimbursement you can receive from this grant over its lifetime.", examples: ["A $750 cap means we'll send you up to $750 total — split across however many payouts it takes."] }} />
+        <Card label="Paid to date" value={`$${paidToDate.toFixed(2)}`}
+              help={{ body: "How much we've actually sent you via e-transfer so far.", examples: ["If you've received one $440 e-transfer, this shows $440.00."] }} />
+        <Card label="Remaining" value={`$${balance.remainingCap.toFixed(2)}`}
+              help={{ body: "Your cap minus everything that's been paid or is queued to be paid. Once this hits $0 the grant is fully used.", examples: ["$875 cap − $440 paid = $435 remaining."] }} />
+        <Card label="Next payout" value={`$${balance.eligibleForNextPayout.toFixed(2)}`} accent
+              help={{ body: "What you'll receive on the next 15th or end-of-month payout — assuming all your currently-approved receipts go through.", examples: ["$200 of receipts approved at 75% rate → $150 next payout.", "If this shows $0, either no receipts are approved yet or you've already used the full cap."] }} />
       </div>
 
       <div style={{ display: "flex", gap: "0.75rem", marginBottom: "2.5rem", flexWrap: "wrap" }}>
@@ -129,7 +134,7 @@ export default async function PortalDashboard() {
   );
 }
 
-function Card({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Card({ label, value, accent, help }: { label: string; value: string; accent?: boolean; help?: { body: string; examples?: string[] } }) {
   return (
     <div style={{
       background: "rgba(255,255,255,0.85)",
@@ -138,8 +143,9 @@ function Card({ label, value, accent }: { label: string; value: string; accent?:
       padding: "1.25rem 1.25rem",
       boxShadow: "var(--shadow-card)",
     }}>
-      <div style={{ fontSize: "0.7rem", textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.08em", marginBottom: "0.35rem", fontWeight: 600 }}>
+      <div style={{ fontSize: "0.7rem", textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.08em", marginBottom: "0.35rem", fontWeight: 600, display: "flex", alignItems: "center" }}>
         {label}
+        {help && <HelpHint body={help.body} examples={help.examples} />}
       </div>
       <div style={{ fontSize: "1.8rem", fontFamily: "var(--font-display)", fontWeight: 500, color: accent ? "var(--accent)" : "inherit", lineHeight: 1 }}>
         {value}

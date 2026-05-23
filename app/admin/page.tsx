@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabaseServer } from "@/app/lib/supabase/server";
 import { AvatarRow } from "./_components/Avatar";
 import { StatusBadge } from "./_components/StatusBadge";
+import { HelpHint } from "../_components/HelpHint";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +17,27 @@ export default async function AdminDashboard() {
     supabase.from("receipts").select("id, amount, status, created_at, description, recipients!inner(applications!inner(parent_names))").eq("status", "pending").order("created_at", { ascending: false }).limit(5),
   ]);
 
-  const stats = [
-    { label: "Pending applications", value: pendingApps.count ?? 0,      href: "/admin/applications", pulse: (pendingApps.count ?? 0) > 0 },
-    { label: "Active recipients",    value: activeRecipients.count ?? 0, href: "/admin/recipients" },
-    { label: "Receipts to review",   value: pendingReceipts.count ?? 0,  href: "/admin/recipients",   pulse: (pendingReceipts.count ?? 0) > 0 },
-    { label: "Open payout batches",  value: draftBatches.count ?? 0,     href: "/admin/payouts",      pulse: (draftBatches.count ?? 0) > 0 },
+  const stats: { label: string; value: number; href: string; pulse?: boolean; help: { body: string; examples?: string[] } }[] = [
+    {
+      label: "Pending applications", value: pendingApps.count ?? 0,
+      href: "/admin/applications", pulse: (pendingApps.count ?? 0) > 0,
+      help: { body: "Families who submitted the apply form and are waiting for your approve/deny decision.", examples: ["A new submission from 'Sarah and Tim Penner' came in last night and needs review."] },
+    },
+    {
+      label: "Active recipients", value: activeRecipients.count ?? 0,
+      href: "/admin/recipients",
+      help: { body: "Approved families who are currently allowed to upload receipts. Suspended/completed recipients are not counted.", examples: ["7 grandfathered families + every new approval = the total here."] },
+    },
+    {
+      label: "Receipts to review", value: pendingReceipts.count ?? 0,
+      href: "/admin/recipients", pulse: (pendingReceipts.count ?? 0) > 0,
+      help: { body: "Receipts a recipient has uploaded but you haven't approved/rejected yet. Approving sets the CAD reimbursable amount.", examples: ["A family uploaded a $124 Sonlight Core A invoice yesterday → 'pending' until you click ✓ or ×."] },
+    },
+    {
+      label: "Open payout batches", value: draftBatches.count ?? 0,
+      href: "/admin/payouts", pulse: (draftBatches.count ?? 0) > 0,
+      help: { body: "Payout batches that haven't been marked paid yet. Includes both 'draft' (not yet exported) and 'exported' (CSV sent to CEO Ministries, awaiting their payment).", examples: ["After the 15th cron generates a batch, it sits as 'draft' until you download the CSV."] },
+    },
   ];
 
   return (
@@ -37,13 +54,18 @@ export default async function AdminDashboard() {
 
       <div className="ra-stat-grid" style={{ marginBottom: "2.25rem" }}>
         {stats.map((s) => (
-          <Link key={s.label} href={s.href} className={`ra-stat ${s.pulse ? "ra-stat-pulse" : ""} ${s.value > 0 && s.pulse ? "ra-stat-accent" : ""}`}>
-            <span className="ra-stat-label">{s.label}</span>
-            <span className="ra-stat-value">{s.value}</span>
-            <span className="ra-stat-sub">
-              {s.value === 0 ? "All clear" : "View →"}
+          <div key={s.label} className={`ra-stat ${s.pulse ? "ra-stat-pulse" : ""} ${s.value > 0 && s.pulse ? "ra-stat-accent" : ""}`} style={{ position: "relative" }}>
+            <span className="ra-stat-label" style={{ display: "flex", alignItems: "center" }}>
+              {s.label}
+              <HelpHint body={s.help.body} examples={s.help.examples} />
             </span>
-          </Link>
+            <Link href={s.href} style={{ color: "inherit", textDecoration: "none" }}>
+              <span className="ra-stat-value">{s.value}</span>
+              <span className="ra-stat-sub" style={{ display: "block", marginTop: 4 }}>
+                {s.value === 0 ? "All clear" : "View →"}
+              </span>
+            </Link>
+          </div>
         ))}
       </div>
 

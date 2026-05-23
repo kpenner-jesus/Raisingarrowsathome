@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "../../_components/Toaster";
+import { HelpHint } from "../../../_components/HelpHint";
 
 interface Props {
   recipient: {
@@ -52,14 +53,20 @@ export default function ModifyForm({ recipient }: Props) {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: "1rem", alignItems: "end" }}>
         <div>
-          <label className="ra-label">Cap (CAD)</label>
+          <label className="ra-label">
+            Cap (CAD)
+            <HelpHint title="Approved cap" body="Maximum total reimbursement this family can receive over the life of the grant. Sanity-capped at $50,000." examples={["1 kid age 8 → default cap $375.", "2 kids ages 8 + 10 → default cap $875."]} />
+          </label>
           <div style={{ position: "relative" }}>
             <span style={{ position: "absolute", left: "0.75rem", top: "50%", transform: "translateY(-50%)", color: "var(--ra-ink-muted)" }}>$</span>
             <input type="number" min="0" step="0.01" value={cap} onChange={(e) => setCap(parseFloat(e.target.value) || 0)} className="ra-input" style={{ paddingLeft: "1.5rem" }} />
           </div>
         </div>
         <div>
-          <label className="ra-label">Reimbursement rate</label>
+          <label className="ra-label">
+            Reimbursement rate
+            <HelpHint title="Reimbursement rate" body="Percentage of each approved CAD receipt we pay back automatically. Standard = 75%. Lower it for partial-coverage scenarios." examples={["75% rate, $100 receipt → $75 reimbursed."]} />
+          </label>
           <div className="ra-row" style={{ gap: "0.5rem", alignItems: "center" }}>
             <input
               type="range" min="0" max="1" step="0.05" value={rate}
@@ -72,7 +79,10 @@ export default function ModifyForm({ recipient }: Props) {
           </div>
         </div>
         <div>
-          <label className="ra-label">Status</label>
+          <label className="ra-label">
+            Status
+            <HelpHint title="Recipient status" body="active = included in auto-batches. suspended = excluded (temporary). completed = excluded (done)." examples={["Family won't respond to receipt rejections → 'suspended' until resolved.", "Family hit their cap and no more grant available → 'completed'."]} />
+          </label>
           <select value={status} onChange={(e) => setStatus(e.target.value)} className="ra-select">
             <option value="active">active</option>
             <option value="suspended">suspended</option>
