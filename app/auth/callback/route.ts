@@ -1,31 +1,46 @@
 // Magic-link callback. Exchanges the code for a session cookie, then redirects.
 //
+// Routing rules:
+//   - If `next` is an explicit /admin/... or /portal/... path, honor it.
+//   - Otherwise, route by role: admin/super_admin → /admin, recipient → /portal.
+//
 // Security: `next` is only honored if it's a same-origin relative path
-// (starts with `/`, but not `//` which would be protocol-relative). Anything
-// else falls back to `/portal`, preventing open-redirect phishing.
+// (starts with `/`, not `//`, no scheme, no backslash override).
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/app/lib/supabase/server";
 
-/** Returns next iff it's a safe same-origin path; otherwise returns "/portal". */
-function sanitizeNext(raw: string | null): string {
-  if (!raw) return "/portal";
-  // Must start with a single slash (relative path), not "//" (protocol-relative),
-  // not contain backslashes (Windows-style override), and not be a scheme like `javascript:`.
-  if (!raw.startsWith("/")) return "/portal";
-  if (raw.startsWith("//"))  return "/portal";
-  if (raw.startsWith("/\\")) return "/portal";
-  if (/^[a-z]+:/i.test(raw)) return "/portal";
-  return raw;
+function isSafeRelativePath(raw: string | null): boolean {
+  if (!raw) return false;
+  if (!raw.startsWith("/")) return false;
+  if (raw.startsWith("//"))  return false;
+  if (raw.startsWith("/\\")) return false;
+  if (/^[a-z]+:/i.test(raw)) return false;
+  return true;
 }
 
 export async function GET(req: Request) {
   const url  = new URL(req.url);
   const code = url.searchParams.get("code");
-  const next = sanitizeNext(url.searchParams.get("next"));
+  const rawNext = url.searchParams.get("next");
 
+  const supabase = supabaseServer();
   if (code) {
-    const supabase = supabaseServer();
     await supabase.auth.exchangeCodeForSession(code);
   }
-  return NextResponse.redirect(new URL(next, url.origin));
+
+  // Honor an explicit deep link if it's a safe relative path.
+  if (rawNext && isSafeRelativePath(rawNext) && rawNext !== "/portal" && rawNext !== "/admin") {
+    return NextResponse.redirect(new URL(rawNext, url.origin));
+  }
+
+  // Otherwise route by role.
+  const { data: { user } } = await supabase.auth.getUser();
+  if (user) {
+    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    if (profile?.role === "admin" || profile?.role === "super_admin") {
+      return NextResponse.redirect(new URL("/admin", url.origin));
+    }
+  }
+
+  return NextResponse.redirect(new URL("/portal", url.origin));
 }

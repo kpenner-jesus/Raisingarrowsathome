@@ -30,7 +30,7 @@ export default function LandingPage() {
             transition: "background 0.15s, border-color 0.15s",
           }}
         >
-          Recipient sign-in →
+          Sign in →
         </a>
       </div>
 
@@ -248,7 +248,7 @@ export default function LandingPage() {
           </a>
           <div style={{ marginTop: "0.75rem" }}>
             <a href="/auth/login" style={{ color: "var(--text-muted)", textDecoration: "underline" }}>
-              Recipient sign-in
+              Sign in
             </a>
           </div>
         </div>
