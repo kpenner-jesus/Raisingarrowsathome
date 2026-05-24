@@ -12,7 +12,7 @@ export default async function TestimonialsPage({ searchParams }: {
 
   let q = svc.from("testimonials").select(`
     id, body, status, featured, created_at, reviewed_at,
-    recipients!inner(applications!inner(parent_names, app_ref, city, province))
+    recipients!inner(applications!inner(parent_names, app_ref, city))
   `).order("created_at", { ascending: false });
 
   if (status !== "all") q = q.eq("status", status);

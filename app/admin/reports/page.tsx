@@ -1,6 +1,7 @@
 // /admin/reports — YTD figures + CSV exports.
 import Link from "next/link";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { YearPicker } from "./YearPicker";
 
 export const dynamic = "force-dynamic";
 
@@ -49,12 +50,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { y
             Snapshot for the accountant. Exports are CRA-ready CSVs.
           </p>
         </div>
-        <form method="get">
-          <label className="ra-label" style={{ display: "block" }}>Year</label>
-          <select name="year" defaultValue={String(year)} className="ra-input" onChange={(e) => e.currentTarget.form?.submit()}>
-            {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </form>
+        <YearPicker year={year} options={yearOptions} />
       </header>
 
       <div className="ra-stat-grid" style={{ marginBottom: "1.75rem" }}>

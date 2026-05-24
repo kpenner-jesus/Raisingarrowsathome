@@ -8,7 +8,7 @@ interface Item {
   status: "pending" | "approved" | "hidden";
   featured: boolean;
   created_at: string;
-  recipients?: { applications?: { parent_names?: string; app_ref?: string; city?: string; province?: string } };
+  recipients?: { applications?: { parent_names?: string; app_ref?: string; city?: string } };
 }
 
 export function TestimonialManager({ items }: { items: Item[] }) {
@@ -52,7 +52,7 @@ export function TestimonialManager({ items }: { items: Item[] }) {
       {items.map((t) => {
         const fam = t.recipients?.applications?.parent_names ?? "(unknown family)";
         const ref = t.recipients?.applications?.app_ref ?? "";
-        const place = [t.recipients?.applications?.city, t.recipients?.applications?.province].filter(Boolean).join(", ");
+        const place = t.recipients?.applications?.city || "";
         const busy = busyId === t.id;
         return (
           <article key={t.id} className="ra-card" style={{ padding: "1.2rem 1.3rem" }}>

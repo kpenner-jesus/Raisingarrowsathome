@@ -95,24 +95,26 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
 
   } else if (kind === "recipients") {
     const { data, error } = await svc.from("recipients").select(`
-      id, status, reimbursement_rate, cap, currency, created_at,
-      applications!inner(parent_names, app_ref, email, city, province, country)
+      id, status, reimbursement_rate, approved_amount, created_at, cohort_year,
+      address_street, address_city, address_postal,
+      applications!inner(parent_names, app_ref, contact_email, contact_phone, city)
     `).order("created_at", { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     csv = toCsv(
-      ["App ref", "Family", "Email", "City", "Province", "Country", "Status", "Rate", "Cap", "Currency", "Approved"],
+      ["App ref", "Family", "Email", "Phone", "Address street", "Address city", "Postal", "Status", "Rate", "Cap (approved)", "Cohort year", "Approved date"],
       (data ?? []).map((r: any) => [
         r.applications?.app_ref ?? "",
         r.applications?.parent_names ?? "",
-        r.applications?.email ?? "",
-        r.applications?.city ?? "",
-        r.applications?.province ?? "",
-        r.applications?.country ?? "",
+        r.applications?.contact_email ?? "",
+        r.applications?.contact_phone ?? "",
+        r.address_street ?? "",
+        r.address_city ?? r.applications?.city ?? "",
+        r.address_postal ?? "",
         r.status ?? "",
         r.reimbursement_rate ?? "",
-        r.cap ?? "",
-        r.currency ?? "",
+        r.approved_amount ?? "",
+        r.cohort_year ?? "",
         r.created_at?.slice(0, 10) ?? "",
       ])
     );
