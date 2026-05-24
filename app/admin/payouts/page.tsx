@@ -1,6 +1,7 @@
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { calcBalance } from "@/app/lib/grant-calc";
 import { StatusBadge } from "../_components/StatusBadge";
+import { SortHeader } from "../_components/SortHeader";
 import GenerateBatchButton from "./GenerateBatchButton";
 import MarkPaidButton from "./MarkPaidButton";
 import { DeleteDraftButton } from "./DeleteDraftButton";
@@ -52,10 +53,20 @@ async function computeEligiblePreview() {
   };
 }
 
-export default async function PayoutsPage() {
+export default async function PayoutsPage({ searchParams }: { searchParams?: { sort?: string; dir?: string } }) {
   const supabase = supabaseServer();
+
+  const VALID = ["scheduled", "total", "status"] as const;
+  type Col = typeof VALID[number];
+  const SORT_MAP: Record<Col, string> = {
+    scheduled: "scheduled_date", total: "total", status: "status",
+  };
+  const sortRaw = (searchParams?.sort ?? "scheduled") as Col;
+  const sortCol: Col = (VALID as readonly string[]).includes(sortRaw) ? sortRaw : "scheduled";
+  const dir: "asc" | "desc" = searchParams?.dir === "asc" ? "asc" : "desc";
+
   const [{ data: batches }, preview] = await Promise.all([
-    supabase.from("payout_batches").select("*").order("scheduled_date", { ascending: false }),
+    supabase.from("payout_batches").select("*").order(SORT_MAP[sortCol], { ascending: dir === "asc" }),
     computeEligiblePreview(),
   ]);
 
@@ -146,9 +157,9 @@ export default async function PayoutsPage() {
         <table className="ra-table">
           <thead>
             <tr>
-              <th>Scheduled</th>
-              <th>Total</th>
-              <th>Status</th>
+              <SortHeader label="Scheduled" col="scheduled" currentSort={sortCol} currentDir={dir} basePath="/admin/payouts" />
+              <SortHeader label="Total"     col="total"     currentSort={sortCol} currentDir={dir} basePath="/admin/payouts" />
+              <SortHeader label="Status"    col="status"    currentSort={sortCol} currentDir={dir} basePath="/admin/payouts" />
               <th>CEO ref</th>
               <th>CSV</th>
               <th style={{ textAlign: "right" }}>Action</th>

@@ -16,7 +16,39 @@ interface Row {
   children: any[] | null;
 }
 
-export function ApplicationsTable({ rows }: { rows: Row[] }) {
+interface SortInfo {
+  col: string;
+  dir: "asc" | "desc";
+  /** Preserved URL params (status, q, etc) — included in every sort link */
+  extra: Record<string, string | undefined>;
+}
+
+/** Inline sortable <th> for the bulk-aware applications table. */
+function SortTh({ label, col, sort, align = "left" }: {
+  label: string; col: string; sort?: SortInfo; align?: "left" | "right" | "center";
+}) {
+  if (!sort) return <th style={{ textAlign: align }}>{label}</th>;
+  const isActive = sort.col === col;
+  const nextDir: "asc" | "desc" = isActive ? (sort.dir === "asc" ? "desc" : "asc") : "asc";
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(sort.extra)) {
+    if (v) params.set(k, v);
+  }
+  params.set("sort", col);
+  params.set("dir", nextDir);
+  const arrow = isActive ? (sort.dir === "asc" ? " ↑" : " ↓") : "";
+  return (
+    <th style={{ textAlign: align }}>
+      <Link href={`/admin/applications?${params.toString()}`}
+        style={{ color: "inherit", textDecoration: "none", fontWeight: 600, cursor: "pointer", opacity: isActive ? 1 : 0.85 }}
+        title={`Sort by ${label} (${nextDir})`}>
+        {label}{arrow}
+      </Link>
+    </th>
+  );
+}
+
+export function ApplicationsTable({ rows, sort }: { rows: Row[]; sort?: SortInfo }) {
   const router = useRouter();
   const pendingIds = rows.filter((r) => r.status === "pending").map((r) => r.id);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -90,11 +122,11 @@ export function ApplicationsTable({ rows }: { rows: Row[] }) {
                     title="Select all pending" />
                 </th>
               )}
-              <th>Family</th>
+              <SortTh label="Family" col="family"     sort={sort} />
               <th>Ref</th>
               <th>Kids</th>
-              <th>Status</th>
-              <th style={{ textAlign: "right" }}>Submitted</th>
+              <SortTh label="Status" col="status"     sort={sort} />
+              <SortTh label="Submitted" col="created" sort={sort} align="right" />
             </tr>
           </thead>
           <tbody>

@@ -6,20 +6,32 @@ import { supabaseService } from "@/app/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
+function sanitize(raw: string): string {
+  return raw.slice(0, 100)
+    .replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")
+    .replace(/,/g, "").replace(/[()*]/g, "").trim();
+}
+
 export default async function PhotosPage({ searchParams }: {
-  searchParams?: { recipient?: string; year?: string };
+  searchParams?: { recipient?: string; year?: string; q?: string; dir?: string };
 }) {
   const svc = supabaseService();
+  const dir: "asc" | "desc" = searchParams?.dir === "asc" ? "asc" : "desc";
+  const searchRaw = (searchParams?.q ?? "").trim();
+  const term = sanitize(searchRaw);
 
   let q = svc.from("photos").select(`
     id, image_path, caption, created_at, recipient_id,
     recipients!inner(id, applications!inner(parent_names, app_ref))
-  `).order("created_at", { ascending: false }).limit(200);
+  `).order("created_at", { ascending: dir === "asc" }).limit(200);
 
   if (searchParams?.recipient) q = q.eq("recipient_id", searchParams.recipient);
   if (searchParams?.year && /^\d{4}$/.test(searchParams.year)) {
     const y = Number(searchParams.year);
     q = q.gte("created_at", `${y}-01-01T00:00:00Z`).lt("created_at", `${y + 1}-01-01T00:00:00Z`);
+  }
+  if (term) {
+    q = q.or(`parent_names.ilike.%${term}%,app_ref.ilike.%${term}%`, { foreignTable: "recipients.applications" });
   }
   const { data: photos } = await q;
 
@@ -40,10 +52,22 @@ export default async function PhotosPage({ searchParams }: {
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "end", flexWrap: "wrap" }}>
           <form method="get" style={{ display: "flex", gap: "0.5rem", alignItems: "end" }}>
             <div>
+              <label className="ra-label">Search</label>
+              <input name="q" defaultValue={searchRaw} placeholder="family name or app ref…"
+                className="ra-input" style={{ minWidth: 200 }} />
+            </div>
+            <div>
               <label className="ra-label">Year</label>
               <select name="year" defaultValue={searchParams?.year ?? ""} className="ra-input">
                 <option value="">All</option>
                 {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="ra-label">Sort</label>
+              <select name="dir" defaultValue={dir} className="ra-input">
+                <option value="desc">Newest first</option>
+                <option value="asc">Oldest first</option>
               </select>
             </div>
             <button type="submit" className="ra-btn">Apply</button>

@@ -1,12 +1,13 @@
 import { notFound } from "next/navigation";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { StatusBadge } from "../_components/StatusBadge";
+import { SortHeader } from "../_components/SortHeader";
 import TeamRow from "./TeamRow";
 import InviteForm from "./InviteForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function TeamPage() {
+export default async function TeamPage({ searchParams }: { searchParams?: { sort?: string; dir?: string } }) {
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return notFound();
@@ -14,13 +15,19 @@ export default async function TeamPage() {
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
   if (profile?.role !== "super_admin") return notFound();
 
+  const VALID = ["role", "email", "created"] as const;
+  type Col = typeof VALID[number];
+  const SORT_MAP: Record<Col, string> = { role: "role", email: "email", created: "created_at" };
+  const sortRaw = (searchParams?.sort ?? "role") as Col;
+  const sortCol: Col = (VALID as readonly string[]).includes(sortRaw) ? sortRaw : "role";
+  const dir: "asc" | "desc" = searchParams?.dir === "asc" ? "asc" : "desc";
+
   const service = supabaseService();
   const { data: team } = await service
     .from("profiles")
     .select("id, email, role, created_at")
     .in("role", ["admin", "super_admin"])
-    .order("role", { ascending: false })
-    .order("email", { ascending: true });
+    .order(SORT_MAP[sortCol], { ascending: dir === "asc" });
 
   const { data: list } = await service.auth.admin.listUsers();
   const lastSignIn: Record<string, string | null> = {};
@@ -53,9 +60,9 @@ export default async function TeamPage() {
         <table className="ra-table">
           <thead>
             <tr>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Joined</th>
+              <SortHeader label="Email"   col="email"   currentSort={sortCol} currentDir={dir} basePath="/admin/team" />
+              <SortHeader label="Role"    col="role"    currentSort={sortCol} currentDir={dir} basePath="/admin/team" />
+              <SortHeader label="Joined"  col="created" currentSort={sortCol} currentDir={dir} basePath="/admin/team" />
               <th>Last sign-in</th>
               <th style={{ textAlign: "right" }}></th>
             </tr>

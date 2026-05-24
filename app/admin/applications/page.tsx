@@ -4,30 +4,39 @@ import { ApplicationsTable } from "./BulkActions";
 
 export const dynamic = "force-dynamic";
 
-interface SearchParams { status?: string; q?: string; }
+interface SearchParams { status?: string; q?: string; sort?: string; dir?: string; }
+
+const VALID_SORTS = ["family", "status", "created"] as const;
+type SortCol = typeof VALID_SORTS[number];
+const SORT_MAP: Record<SortCol, string> = {
+  family:  "parent_names",
+  status:  "status",
+  created: "created_at",
+};
 
 export default async function ApplicationsList({ searchParams }: { searchParams: SearchParams }) {
   const supabase = supabaseServer();
+
+  const sortRaw = (searchParams.sort ?? "created") as SortCol;
+  const sortCol: SortCol = (VALID_SORTS as readonly string[]).includes(sortRaw) ? sortRaw : "created";
+  const dir: "asc" | "desc" = searchParams.dir === "asc" ? "asc" : "desc";
+
   let q = supabase
     .from("applications")
     .select("id, app_ref, parent_names, city, contact_email, status, created_at, children, decided_at")
-    .order("created_at", { ascending: false });
+    .order(SORT_MAP[sortCol], { ascending: dir === "asc" });
 
   if (searchParams.status && ["pending", "approved", "denied"].includes(searchParams.status)) {
     q = q.eq("status", searchParams.status);
   }
   if (searchParams.q) {
-    // Sanitize search term:
-    //  - escape PostgREST `.or()` separator (comma) so user can't inject extra predicates
-    //  - escape ILIKE wildcards (%, _) so literal text doesn't match unintended rows
-    //  - cap length to defend against absurd inputs
     const term = searchParams.q
       .slice(0, 100)
       .replace(/\\/g, "\\\\")
       .replace(/%/g, "\\%")
       .replace(/_/g, "\\_")
-      .replace(/,/g, "")        // PostgREST .or() splits on commas
-      .replace(/[()*]/g, "");   // strip PostgREST operator chars
+      .replace(/,/g, "")
+      .replace(/[()*]/g, "");
     if (term) {
       q = q.or(`parent_names.ilike.%${term}%,city.ilike.%${term}%,app_ref.ilike.%${term}%`);
     }
@@ -40,6 +49,11 @@ export default async function ApplicationsList({ searchParams }: { searchParams:
     supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "approved"),
     supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "denied"),
   ]);
+
+  const extra: Record<string, string | undefined> = {
+    q: searchParams.q || undefined,
+    status: searchParams.status || undefined,
+  };
 
   return (
     <div>
@@ -60,7 +74,10 @@ export default async function ApplicationsList({ searchParams }: { searchParams:
         }}
       />
 
-      <ApplicationsTable rows={(apps as any[]) ?? []} />
+      <ApplicationsTable
+        rows={(apps as any[]) ?? []}
+        sort={{ col: sortCol, dir, extra }}
+      />
     </div>
   );
 }
