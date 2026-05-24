@@ -2,6 +2,7 @@ import { supabaseServer } from "@/app/lib/supabase/server";
 import { StatusBadge } from "../_components/StatusBadge";
 import GenerateBatchButton from "./GenerateBatchButton";
 import MarkPaidButton from "./MarkPaidButton";
+import { DeleteDraftButton } from "./DeleteDraftButton";
 
 export const dynamic = "force-dynamic";
 
@@ -88,7 +89,16 @@ export default async function PayoutsPage() {
                   </a>
                 </td>
                 <td style={{ textAlign: "right" }}>
-                  {b.status !== "paid" && <MarkPaidButton batchId={b.id} total={Number(b.total)} />}
+                  <div style={{ display: "inline-flex", gap: "0.4rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {b.status !== "paid" && <MarkPaidButton batchId={b.id} total={Number(b.total)} />}
+                    {b.status === "draft" && (
+                      <DeleteDraftButton
+                        batchId={b.id}
+                        total={Number(b.total)}
+                        scheduledDate={new Date(b.scheduled_date).toLocaleDateString("en-CA", { month: "long", day: "numeric", year: "numeric" })}
+                      />
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
