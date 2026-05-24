@@ -16,9 +16,8 @@ export function EnvBanner() {
       role="status"
       aria-label="Non-production environment"
       style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 9999,
+        position: "relative",
+        zIndex: 1,
         width: "100%",
         background: "linear-gradient(90deg, #e8793a, #c45f20)",
         color: "#fff",
