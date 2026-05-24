@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { NavLink } from "./_components/NavLink";
 import { AdminProviders } from "./_components/AdminProviders";
-import { MobileNavShell, Icons } from "@/app/_components/MobileNav";
+import { MobileNavShell } from "@/app/_components/MobileNav";
 import { AdminLogoutLink } from "./_components/AdminLogoutLink";
 import "./admin.css";
 
@@ -60,10 +60,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </>
         }
         tabItems={[
-          { href: "/admin",              label: "Dashboard", icon: Icons.home },
-          { href: "/admin/applications", label: "Apps",      icon: Icons.apps },
-          { href: "/admin/recipients",   label: "Families",  icon: Icons.users },
-          { href: "/admin/payouts",      label: "Payouts",   icon: Icons.cash },
+          { href: "/admin",              label: "Dashboard", icon: "home" },
+          { href: "/admin/applications", label: "Apps",      icon: "apps" },
+          { href: "/admin/recipients",   label: "Families",  icon: "users" },
+          { href: "/admin/payouts",      label: "Payouts",   icon: "cash" },
         ]}
       />
 

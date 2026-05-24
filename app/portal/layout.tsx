@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { supabaseServer } from "@/app/lib/supabase/server";
-import { MobileNavShell, Icons } from "@/app/_components/MobileNav";
+import { MobileNavShell } from "@/app/_components/MobileNav";
 import { PortalLogoutLink } from "./_PortalLogoutLink";
 
 export const dynamic = "force-dynamic";
@@ -93,10 +93,10 @@ export default async function PortalLayout({ children }: { children: React.React
           </>
         }
         tabItems={[
-          { href: "/portal",           label: "Home",      icon: Icons.home },
-          { href: "/portal/statement", label: "Statement", icon: Icons.doc },
-          { href: "/portal/photos",    label: "Photos",    icon: Icons.photos },
-          { href: "/portal/help",      label: "Help",      icon: Icons.help },
+          { href: "/portal",           label: "Home",      icon: "home" },
+          { href: "/portal/statement", label: "Statement", icon: "doc" },
+          { href: "/portal/photos",    label: "Photos",    icon: "photos" },
+          { href: "/portal/help",      label: "Help",      icon: "help" },
         ]}
       />
 

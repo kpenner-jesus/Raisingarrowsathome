@@ -13,11 +13,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+export type IconKey =
+  | "home" | "doc" | "photos" | "help"
+  | "users" | "cash" | "apps" | "more"
+  | "upload" | "user" | "close";
+
 type TabItem = {
   href: string;
   label: string;
-  /** Inline SVG paths (no fill, stroke-width set on parent <svg>) */
-  icon: React.ReactNode;
+  /** Icon name (looked up in internal map — keeps the value JSON-serializable
+   *  so it can cross the server-component → client-component RSC boundary). */
+  icon: IconKey;
   /** If true, treats this as the "More" tab that triggers the drawer */
   isMore?: boolean;
 };
@@ -29,8 +35,12 @@ type DrawerItem = {
   glyph?: string;
 };
 
-/* ───────── shared icons (24x24, stroke=currentColor 2) ───────── */
-export const Icons = {
+/* ───────── shared icons (24x24, stroke=currentColor 2) ─────────
+ * Internal map. NOT exported — exporting React elements from a
+ * "use client" module breaks RSC serialization when a server
+ * component tries to pass them as props.
+ */
+const ICONS: Record<IconKey, React.ReactNode> = {
   home: (
     <svg fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
       <path d="M3 12l9-9 9 9M5 10v10h14V10" />
@@ -125,14 +135,14 @@ export function MobileTabBar({
                 minHeight: 48, justifyContent: "center",
               }}
             >
-              <span style={{ width: 24, height: 24, display: "inline-block" }}>{it.icon}</span>
+              <span style={{ width: 24, height: 24, display: "inline-block" }}>{ICONS[it.icon]}</span>
               {it.label}
             </button>
           );
         }
         return (
           <Link key={it.href} href={it.href} className={active ? "is-active" : ""}>
-            <span style={{ width: 24, height: 24, display: "inline-block" }}>{it.icon}</span>
+            <span style={{ width: 24, height: 24, display: "inline-block" }}>{ICONS[it.icon]}</span>
             {it.label}
           </Link>
         );
@@ -164,7 +174,7 @@ export function MobileAppBar({
         aria-label={rightAriaLabel}
         onClick={onRightClick}
       >
-        {rightIcon ?? Icons.more}
+        {rightIcon ?? ICONS.more}
       </button>
     </header>
   );
@@ -209,7 +219,7 @@ export function MobileDrawer({
         <div className="ra-drawer-head">
           <span className="ra-drawer-head-name">{title}</span>
           <button type="button" className="ra-appbar-icon" aria-label="Close menu" onClick={onClose}>
-            {Icons.close}
+            {ICONS.close}
           </button>
         </div>
         <nav className="ra-drawer-nav">
@@ -246,9 +256,9 @@ export function MobileNavShell({
   tabItems: TabItem[];
 }) {
   const [open, setOpen] = useState(false);
-  const tabsWithMore = tabItems.some((t) => t.isMore)
+  const tabsWithMore: TabItem[] = tabItems.some((t) => t.isMore)
     ? tabItems
-    : [...tabItems, { href: "#more", label: "More", icon: Icons.more, isMore: true }];
+    : [...tabItems, { href: "#more", label: "More", icon: "more", isMore: true }];
   return (
     <>
       <MobileAppBar brand={brand} onRightClick={() => setOpen(true)} />
