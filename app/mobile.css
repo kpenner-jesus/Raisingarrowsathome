@@ -19,7 +19,16 @@
 }
 
 /* ─────────────────────────────────────────────────────────────
-   2. Mobile-wide form defaults: prevent iOS zoom on focus,
+   2. Force body to be the scroll container.
+      If any descendant grabs overflow:auto, position:fixed
+      bars stop tracking viewport. Explicit overflow on html+body
+      guarantees the bar pinning works.
+   ───────────────────────────────────────────────────────────── */
+html { overflow-x: hidden; overflow-y: auto; height: auto; }
+body { overflow-x: hidden; overflow-y: auto; min-height: 100dvh; }
+
+/* ─────────────────────────────────────────────────────────────
+   3. Mobile-wide form defaults: prevent iOS zoom on focus,
       grow tap targets to 48px (WCAG AAA + Apple HIG)
    ───────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
@@ -252,10 +261,9 @@
     position: fixed; bottom: 0; left: 0; right: 0;
     z-index: 50;
     grid-template-columns: repeat(var(--tab-count, 4), 1fr);
-    background: rgba(255,255,255,0.94);
-    backdrop-filter: saturate(180%) blur(20px);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    background: #fff;
     border-top: 1px solid rgba(0,0,0,0.08);
+    box-shadow: 0 -1px 0 rgba(0,0,0,0.02);
     padding: 0.45rem 0 calc(0.45rem + env(safe-area-inset-bottom, 0px));
   }
   .ra-tabbar a {
@@ -280,12 +288,12 @@
   .ra-appbar {
     display: flex; align-items: center; justify-content: space-between;
     padding: 0.7rem 1rem;
-    background: rgba(255,255,255,0.94);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border-bottom: 1px solid rgba(0,0,0,0.05);
-    /* Use fixed (not sticky) so it survives any quirky scrolling ancestor.
-       Body gets padding-top to compensate (see admin/portal main overrides). */
+    /* Solid background (no backdrop-filter): blur on fixed elements has
+       Chrome rendering quirks that cause the bar to disappear when other
+       fixed/transformed elements paint over the same area. */
+    background: #fff;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.02);
     position: fixed; top: 0; left: 0; right: 0; z-index: 40;
     height: 56px;
   }
