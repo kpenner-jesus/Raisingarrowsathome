@@ -581,3 +581,49 @@
   h2.ra-h2 { font-size: 1.2rem !important; }
   .ra-page-pad { padding: 0.75rem 0 !important; }
 }
+
+/* ─────────────────────────────────────────────────────────────
+  16. EMAIL TEMPLATES editor (/admin/email-templates)
+       Desktop: 220px sidebar | 1fr editor.
+       Mobile : dropdown picker on top, stacked editor, sticky save bar
+                (positioned above the admin bottom tab bar).
+   ───────────────────────────────────────────────────────────── */
+.ra-tpl-cols {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 1.25rem;
+  min-width: 0;
+}
+.ra-tpl-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.ra-tpl-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+.ra-tpl-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  width: 100%;
+}
+.ra-tpl-preview > summary::-webkit-details-marker { display: none; }
+.ra-tpl-plaintext > summary::-webkit-details-marker { display: none; }
+.ra-tpl-plaintext > summary::after { content: " +"; color: var(--accent); font-weight: 600; }
+.ra-tpl-plaintext[open] > summary::after { content: " −"; }
+
+@media (max-width: 768px) {
+  .ra-tpl-cols {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .ra-tpl-textarea {
+    font-size: 16px;        /* prevent iOS zoom */
+    line-height: 1.45;
+  }
+  /* Extra bottom padding so the sticky save bar + tab bar don't cover content */
+  .ra-tpl-editor { padding-bottom: 130px; }
+}

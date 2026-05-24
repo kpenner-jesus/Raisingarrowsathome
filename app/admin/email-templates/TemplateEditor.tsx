@@ -57,58 +57,125 @@ export function TemplateEditor({ templates }: { templates: Tpl[] }) {
   const subject = d.subject   ?? cur.subject;
   const html    = d.body_html ?? cur.body_html;
   const text    = d.body_text ?? cur.body_text ?? "";
+  const isDirty = !!drafts[curKey];
+  const dirtyCount = Object.keys(drafts).length;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: "1.25rem" }}>
-      <aside style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-        {templates.map((t) => {
-          const isActive = t.key === active;
-          const isDirty = !!drafts[t.key];
-          return (
-            <button key={t.key} onClick={() => setActive(t.key)}
-              className={isActive ? "ra-tab ra-tab-active" : "ra-tab"}
-              style={{ textAlign: "left", borderRadius: 8 }}>
-              {t.label} {isDirty && <span style={{ color: "var(--ra-accent)" }}>•</span>}
+    <div className="ra-tpl-editor">
+      {/* ─── Mobile template picker (dropdown) ─── */}
+      <div className="ra-only-mobile" style={{ marginBottom: "1rem" }}>
+        <label className="ra-label">Which email?</label>
+        <select
+          className="ra-input"
+          value={active}
+          onChange={(e) => setActive(e.target.value)}
+          style={{ width: "100%" }}
+        >
+          {templates.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.label}{drafts[t.key] ? " •" : ""}
+            </option>
+          ))}
+        </select>
+        {dirtyCount > 0 && (
+          <div className="ra-tiny" style={{ marginTop: "0.4rem", color: "var(--ra-accent, #e8793a)" }}>
+            {dirtyCount} unsaved change{dirtyCount === 1 ? "" : "s"} across templates
+          </div>
+        )}
+      </div>
+
+      {/* ─── Desktop two-column layout ─── */}
+      <div className="ra-tpl-cols">
+        {/* Sidebar — desktop button list */}
+        <aside className="ra-only-desktop ra-tpl-sidebar">
+          {templates.map((t) => {
+            const isActive = t.key === active;
+            const isDirtyTab = !!drafts[t.key];
+            return (
+              <button
+                key={t.key}
+                onClick={() => setActive(t.key)}
+                className={isActive ? "ra-tab ra-tab-active" : "ra-tab"}
+                style={{ textAlign: "left", borderRadius: 8 }}
+              >
+                {t.label} {isDirtyTab && <span style={{ color: "var(--ra-accent)" }}>•</span>}
+              </button>
+            );
+          })}
+        </aside>
+
+        {/* Editor + preview */}
+        <div className="ra-tpl-main">
+          <div className="ra-card">
+            <div className="ra-tiny" style={{ marginBottom: "0.4rem" }}>
+              <strong>Variables:</strong>{" "}
+              {cur.vars.length === 0
+                ? <span className="ra-quiet">none</span>
+                : cur.vars.map((v) => <code key={v} style={{ marginRight: 6 }}>{`{{${v}}}`}</code>)
+              }
+            </div>
+
+            <label className="ra-label">Subject line</label>
+            <input className="ra-input" value={subject} onChange={(e) => set("subject", e.target.value)} />
+
+            <label className="ra-label" style={{ marginTop: "1rem" }}>Email body (HTML)</label>
+            <textarea
+              className="ra-input ra-textarea ra-tpl-textarea"
+              rows={10}
+              value={html}
+              onChange={(e) => set("body_html", e.target.value)}
+            />
+
+            {/* Plain-text fallback collapsed by default on mobile to save scroll */}
+            <details className="ra-tpl-plaintext" style={{ marginTop: "1rem" }}>
+              <summary className="ra-label" style={{ cursor: "pointer", listStyle: "none" }}>
+                Plain-text fallback (optional) <span className="ra-quiet" style={{ fontWeight: 400 }}>· tap to {text ? "edit" : "add"}</span>
+              </summary>
+              <textarea
+                className="ra-input ra-textarea ra-tpl-textarea"
+                rows={5}
+                value={text}
+                onChange={(e) => set("body_text", e.target.value)}
+                style={{ marginTop: "0.5rem" }}
+              />
+            </details>
+          </div>
+
+          {/* Preview — always open on desktop, accordion on mobile */}
+          <details className="ra-tpl-preview" open>
+            <summary style={{ cursor: "pointer", listStyle: "none", padding: "0.6rem 0.8rem", background: "var(--ra-bg-soft, #faf6ef)", borderRadius: 10, fontWeight: 600, fontSize: "0.9rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>Preview</span>
+              <span className="ra-quiet" style={{ fontWeight: 400, fontSize: "0.78rem" }}>(variables shown literal)</span>
+            </summary>
+            <div className="ra-card" style={{ marginTop: "0.5rem" }}>
+              <div style={{ background: "#fff", padding: "1rem", borderRadius: 8, border: "1px solid var(--ra-line)" }}>
+                <div style={{ fontWeight: 500, marginBottom: "0.5rem" }}>{subject}</div>
+                <div dangerouslySetInnerHTML={{ __html: html }} />
+              </div>
+            </div>
+          </details>
+
+          {msg && <div className={msg.kind === "ok" ? "ra-alert-success" : "ra-alert-error"}>{msg.text}</div>}
+
+          {/* Desktop save row */}
+          <div className="ra-only-desktop" style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+            <button className="ra-btn ra-btn-primary" disabled={busy || !isDirty} onClick={save}>
+              {busy ? "Saving…" : "Save template"}
             </button>
-          );
-        })}
-      </aside>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem", minWidth: 0 }}>
-        <div className="ra-card">
-          <div className="ra-tiny" style={{ marginBottom: "0.4rem" }}>
-            Variables: {cur.vars.map((v) => <code key={v} style={{ marginRight: 6 }}>{`{{${v}}}`}</code>)}
-          </div>
-
-          <label className="ra-label">Subject</label>
-          <input className="ra-input" value={subject} onChange={(e) => set("subject", e.target.value)} />
-
-          <label className="ra-label" style={{ marginTop: "1rem" }}>HTML body</label>
-          <textarea className="ra-input ra-textarea" rows={10} value={html}
-            onChange={(e) => set("body_html", e.target.value)}
-            style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.85rem" }} />
-
-          <label className="ra-label" style={{ marginTop: "1rem" }}>Plain-text fallback (optional)</label>
-          <textarea className="ra-input ra-textarea" rows={5} value={text}
-            onChange={(e) => set("body_text", e.target.value)}
-            style={{ fontFamily: "ui-monospace, monospace", fontSize: "0.85rem" }} />
-        </div>
-
-        <div className="ra-card">
-          <div className="ra-tiny" style={{ marginBottom: "0.5rem" }}>Preview (variables shown literal)</div>
-          <div style={{ background: "#fff", padding: "1rem", borderRadius: 8, border: "1px solid var(--ra-line)" }}>
-            <div style={{ fontWeight: 500, marginBottom: "0.5rem" }}>{subject}</div>
-            <div dangerouslySetInnerHTML={{ __html: html }} />
           </div>
         </div>
+      </div>
 
-        {msg && <div className={msg.kind === "ok" ? "ra-alert-success" : "ra-alert-error"}>{msg.text}</div>}
-
-        <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
-          <button className="ra-btn ra-btn-primary" disabled={busy || !drafts[curKey]} onClick={save}>
-            {busy ? "Saving…" : "Save template"}
-          </button>
-        </div>
+      {/* Sticky save bar — mobile only */}
+      <div className="ra-only-mobile ra-mobile-cta" style={{ position: "fixed", bottom: 64 /* sit above tabbar */, left: 0, right: 0, zIndex: 35 }}>
+        <button
+          className="ra-btn ra-btn-primary"
+          disabled={busy || !isDirty}
+          onClick={save}
+          style={{ width: "100%", opacity: isDirty ? 1 : 0.6 }}
+        >
+          {busy ? "Saving…" : isDirty ? `Save "${cur.label}"` : "No changes"}
+        </button>
       </div>
     </div>
   );
