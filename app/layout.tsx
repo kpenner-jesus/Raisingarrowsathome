@@ -3,6 +3,7 @@ import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { EnvBanner } from "./_components/EnvBanner";
 import "./globals.css";
+import "./mobile.css";
 
 const SITE = "https://raisingarrowsathome.com";
 const DESC =

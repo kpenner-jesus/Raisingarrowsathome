@@ -103,7 +103,7 @@ export default async function AuditLogPage({ searchParams }: {
             <div>Try widening the date range.</div>
           </div>
         ) : (
-          <table className="ra-table">
+          <table className="ra-table ra-table-mobile">
             <thead>
               <tr>
                 <th>When</th>

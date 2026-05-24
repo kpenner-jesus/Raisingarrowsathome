@@ -35,7 +35,7 @@ export default async function BroadcastsPage() {
         {(history.data?.length ?? 0) === 0 ? (
           <div className="ra-quiet">Nothing sent yet.</div>
         ) : (
-          <table className="ra-table">
+          <table className="ra-table ra-table-mobile">
             <thead><tr><th>When</th><th>By</th><th>Subject</th><th>Audience</th><th style={{ textAlign: "right" }}>Sent</th><th style={{ textAlign: "right" }}>Failed</th></tr></thead>
             <tbody>
               {(history.data as any[]).map((b) => (

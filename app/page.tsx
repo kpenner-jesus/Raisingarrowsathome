@@ -41,7 +41,7 @@ export default function LandingPage() {
                   : "Sign in →";
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-gradient)" }}>
+    <div className="ra-landing-with-cta-pad" style={{ minHeight: "100vh", background: "var(--bg-gradient)" }}>
 
       {/* ── TOP BAR (sign-in link) ──────────────────────────── */}
       <div style={{
@@ -181,10 +181,12 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* FAQ */}
+        {/* FAQ — desktop = expanded cards, mobile = accordion */}
         <div style={{ marginBottom: "3rem" }}>
           <div className="tf-step-label" style={{ marginBottom: "0.75rem" }}>FAQ</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+
+          {/* Desktop: always-expanded cards */}
+          <div className="ra-only-desktop" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
             {SITE_CONFIG.faqs.map((faq, i) => (
               <div key={i} style={{
                 background: "rgba(255,255,255,0.72)", border: "1.5px solid rgba(0,0,0,0.09)",
@@ -198,6 +200,44 @@ export default function LandingPage() {
                   {faq.a}
                 </div>
               </div>
+            ))}
+          </div>
+
+          {/* Mobile: native <details> accordion (tap to expand) */}
+          <div className="ra-only-mobile" style={{
+            background: "rgba(255,255,255,0.72)",
+            border: "1.5px solid rgba(0,0,0,0.09)",
+            borderRadius: "var(--radius-md)",
+            overflow: "hidden",
+            boxShadow: "var(--shadow-card)",
+          }}>
+            {SITE_CONFIG.faqs.map((faq, i) => (
+              <details key={i} style={{ borderBottom: i < SITE_CONFIG.faqs.length - 1 ? "1px solid rgba(0,0,0,0.06)" : "none" }}>
+                <summary style={{
+                  listStyle: "none",
+                  cursor: "pointer",
+                  padding: "1rem 1.1rem",
+                  fontWeight: 500,
+                  fontSize: "0.95rem",
+                  color: "var(--text-primary)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "0.5rem",
+                }}>
+                  <span>{faq.q}</span>
+                  <span style={{ color: "var(--accent)", fontSize: "1.3rem", lineHeight: 1, flexShrink: 0 }} aria-hidden>+</span>
+                </summary>
+                <div style={{
+                  padding: "0 1.1rem 1rem",
+                  fontSize: "0.9rem",
+                  color: "var(--text-secondary)",
+                  lineHeight: 1.6,
+                  fontWeight: 300,
+                }}>
+                  {faq.a}
+                </div>
+              </details>
             ))}
           </div>
         </div>
@@ -286,6 +326,17 @@ export default function LandingPage() {
               Tax-receiptable through CEO Ministries (registered charity)
             </div>
           </div>
+        </div>
+
+        {/* ── Mobile-only sticky bottom Apply CTA ── */}
+        <div className="ra-landing-cta-sticky">
+          <button
+            onClick={() => router.push("/apply/family")}
+            className="ra-btn ra-btn-primary"
+            style={{ background: "var(--accent)", color: "#fff", border: "none", fontWeight: 600 }}
+          >
+            Apply for the grant →
+          </button>
         </div>
 
         {/* Footer */}

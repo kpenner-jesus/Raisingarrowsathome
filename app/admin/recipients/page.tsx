@@ -153,7 +153,7 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
       )}
 
       <div className="ra-table-card">
-        <table className="ra-table">
+        <table className="ra-table ra-table-mobile">
           <thead>
             <tr>
               <SortHeader label="Family"   col="family"   currentSort={sortCol} currentDir={dir} basePath={base} extraParams={extra} />
@@ -171,26 +171,26 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
               const pct = cap > 0 ? paid / cap : 0;
               return (
                 <tr key={r.id}>
-                  <td>
+                  <td data-label="Family">
                     <Link href={`/admin/recipients/${r.id}`}>
                       <AvatarRow name={r.applications.parent_names} secondary={`${r.applications.city} · ${r.applications.app_ref}`} />
                     </Link>
                   </td>
-                  <td>
+                  <td data-label="Cap">
                     <span style={{ fontFamily: "var(--font-display)", fontSize: "1.05rem" }}>
                       ${cap.toFixed(2)}
                     </span>
                     <div className="ra-tiny">{(Number(r.reimbursement_rate) * 100).toFixed(0)}% rate</div>
                   </td>
-                  <td>
+                  <td data-label="Progress">
                     <ProgressBar value={pct} variant={pct >= 0.99 ? "success" : "default"} ariaLabel={`${Math.round(pct * 100)}% paid out`} />
                     <div className="ra-tiny" style={{ marginTop: "0.3rem" }}>
                       ${paid.toFixed(2)} paid · ${(cap - paid).toFixed(2)} remaining
                     </div>
                   </td>
-                  <td><StatusBadge status={r.status} /></td>
-                  <td className="ra-tiny">{r.cohort_year ?? "—"}</td>
-                  <td style={{ textAlign: "right" }} className="ra-tiny">
+                  <td data-label="Status"><StatusBadge status={r.status} /></td>
+                  <td data-label="Cohort" className="ra-tiny">{r.cohort_year ?? "—"}</td>
+                  <td data-label="Approved" style={{ textAlign: "right" }} className="ra-tiny">
                     {new Date(r.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
                   </td>
                 </tr>

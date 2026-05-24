@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { NavLink } from "./_components/NavLink";
 import { AdminProviders } from "./_components/AdminProviders";
+import { MobileNavShell, Icons } from "@/app/_components/MobileNav";
+import { AdminLogoutLink } from "./_components/AdminLogoutLink";
 import "./admin.css";
 
 export const dynamic = "force-dynamic";
@@ -22,8 +24,49 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
   const isSuper = profile?.role === "super_admin";
 
+  // Drawer items: full nav (mirrors sidebar). Includes super-admin gated items.
+  const drawerItems = [
+    { href: "/admin",                 label: "Dashboard",    glyph: "◇" },
+    { href: "/admin/search",          label: "Search",       glyph: "⌕" },
+    { href: "/admin/applications",    label: "Applications", glyph: "✎" },
+    { href: "/admin/recipients",      label: "Recipients",   glyph: "❀" },
+    { href: "/admin/payouts",         label: "Payouts",      glyph: "$" },
+    { href: "/admin/photos",          label: "Photos",       glyph: "▢" },
+    { href: "/admin/testimonials",    label: "Testimonials", glyph: "”" },
+    { href: "/admin/reports",         label: "Reports",      glyph: "≡" },
+    { href: "/admin/broadcasts",      label: "Broadcasts",   glyph: "✉" },
+    { href: "/admin/emails",          label: "Email log",    glyph: "⇄" },
+    { href: "/admin/email-templates", label: "Templates",    glyph: "◫" },
+    { href: "/admin/categories",      label: "Categories",   glyph: "⌗" },
+    { href: "/admin/audit-log",       label: "Audit log",    glyph: "⌖" },
+    { href: "/admin/settings",        label: "Settings",     glyph: "⚙" },
+    ...(isSuper ? [{ href: "/admin/team", label: "Team", glyph: "◉" }] : []),
+    { href: "/admin/mcp",             label: "AI / MCP",     glyph: "✦" },
+    { href: "/admin/help",            label: "Help",         glyph: "?" },
+  ];
+
   return (
     <AdminProviders>
+      {/* Mobile chrome lives OUTSIDE the grid so its sticky/fixed children
+          don't become grid items. Hidden on desktop via mobile.css. */}
+      <MobileNavShell
+        brand="Raising Arrows"
+        drawerTitle={isSuper ? "Super-admin" : "Admin"}
+        drawerItems={drawerItems}
+        drawerFooter={
+          <>
+            <div className="em">Signed in as<br /><strong style={{ color: "var(--text-primary)" }}>{user?.email}</strong></div>
+            <AdminLogoutLink />
+          </>
+        }
+        tabItems={[
+          { href: "/admin",              label: "Dashboard", icon: Icons.home },
+          { href: "/admin/applications", label: "Apps",      icon: Icons.apps },
+          { href: "/admin/recipients",   label: "Families",  icon: Icons.users },
+          { href: "/admin/payouts",      label: "Payouts",   icon: Icons.cash },
+        ]}
+      />
+
       <div className="ra-admin ra-admin-shell">
         <aside className="ra-admin-sidebar">
           <Link href="/" className="ra-admin-brand" title="Open public website">
@@ -60,6 +103,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <button type="submit" className="ra-admin-signout-btn">Sign out</button>
           </form>
         </aside>
+
         <main className="ra-admin-main">
           {children}
         </main>

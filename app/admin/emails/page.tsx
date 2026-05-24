@@ -88,7 +88,7 @@ export default async function EmailsPage() {
             </div>
           </div>
         ) : (
-          <table className="ra-table">
+          <table className="ra-table ra-table-mobile">
             <thead><tr><th>When</th><th>Event</th><th>To</th><th>Subject</th></tr></thead>
             <tbody>
               {events.map((e: any) => (
@@ -116,7 +116,7 @@ export default async function EmailsPage() {
         ) : data.length === 0 ? (
           <div className="ra-quiet">No sends returned by Resend.</div>
         ) : (
-          <table className="ra-table">
+          <table className="ra-table ra-table-mobile">
             <thead>
               <tr><th>When</th><th>To</th><th>Subject</th><th>Status</th></tr>
             </thead>

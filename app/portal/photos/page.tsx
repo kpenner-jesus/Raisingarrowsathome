@@ -23,25 +23,32 @@ export default async function PhotosPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "0.75rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem", flexWrap: "wrap", gap: "0.75rem" }}>
         <div>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem" }}>Your photos</h1>
-          <p style={{ color: "var(--text-secondary)", marginTop: "0.25rem" }}>Share moments from your homeschool journey.</p>
+          <p style={{ color: "var(--text-secondary)", marginTop: "0.25rem", fontSize: "0.92rem" }}>
+            Share moments from your homeschool journey.
+          </p>
         </div>
-        <Link href="/portal/photos/new" className="tf-ok" style={{ textDecoration: "none" }}>+ Upload photo</Link>
+        <Link href="/portal/photos/new" className="tf-ok ra-only-desktop" style={{ textDecoration: "none" }}>
+          + Upload photo
+        </Link>
       </div>
 
       {signed.length === 0 ? (
-        <p style={{ color: "var(--text-muted)" }}>No photos yet.</p>
+        <div className="ra-photo-grid ra-photo-grid-mobile" style={{ minHeight: 200 }}>
+          <Link href="/portal/photos/new" className="ra-photo-tile ra-photo-add" aria-label="Add a photo">+</Link>
+        </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "0.75rem" }}>
+        <div className="ra-photo-grid ra-photo-grid-mobile">
+          <Link href="/portal/photos/new" className="ra-photo-tile ra-photo-add ra-only-mobile" aria-label="Add a photo">+</Link>
           {signed.map((p: any) => (
-            <div key={p.id} style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 10, overflow: "hidden" }}>
+            <div key={p.id} className="ra-photo-tile" style={{ background: "rgba(255,255,255,0.7)", border: "1px solid rgba(0,0,0,0.08)" }}>
               {p.signed_url
-                ? <img src={p.signed_url} alt={p.caption || ""} style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", display: "block" }} />
+                ? <img src={p.signed_url} alt={p.caption || ""} />
                 : <div style={{ aspectRatio: "1/1", background: "#eee", display: "flex", alignItems: "center", justifyContent: "center", color: "#999", fontSize: "0.8rem" }}>image unavailable</div>}
               {p.caption && (
-                <div style={{ padding: "0.5rem 0.75rem", fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                <div style={{ padding: "0.4rem 0.6rem", fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.4, background: "rgba(255,255,255,0.92)" }}>
                   {p.caption}
                 </div>
               )}
@@ -49,6 +56,13 @@ export default async function PhotosPage() {
           ))}
         </div>
       )}
+
+      {/* Mobile sticky upload CTA, hidden on desktop */}
+      <div className="ra-only-mobile ra-mobile-cta" style={{ marginTop: "1rem" }}>
+        <Link href="/portal/photos/new" className="ra-btn ra-btn-primary" style={{ textDecoration: "none" }}>
+          + Upload photo
+        </Link>
+      </div>
     </div>
   );
 }

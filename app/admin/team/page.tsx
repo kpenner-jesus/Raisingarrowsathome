@@ -57,7 +57,7 @@ export default async function TeamPage({ searchParams }: { searchParams?: { sort
       </section>
 
       <div className="ra-table-card" style={{ marginBottom: "1.5rem" }}>
-        <table className="ra-table">
+        <table className="ra-table ra-table-mobile">
           <thead>
             <tr>
               <SortHeader label="Email"   col="email"   currentSort={sortCol} currentDir={dir} basePath="/admin/team" />

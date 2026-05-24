@@ -50,10 +50,120 @@ export default async function PortalDashboard() {
   const daysLeft = deadline ? Math.ceil((deadline.getTime() - now.getTime()) / 86_400_000) : null;
   const deadlinePassed = deadline ? deadline < now : false;
 
+  // Mobile gradient-hero progress %: how much of the cap has been used (paid + scheduled/approved)
+  const approvedAmt = Number(recipient.approved_amount);
+  const usedPct = approvedAmt > 0
+    ? Math.min(100, Math.round((committedToDate / approvedAmt) * 100))
+    : 0;
+
+  const parentNames = recipient.applications.parent_names;
+  const firstName   = parentNames.split(/[&,]| and /i)[0].trim().split(" ")[0];
+  const recent      = (receipts || []).slice(0, 5);
+
   return (
     <div>
+      {/* ════════════ MOBILE-ONLY HERO + FAB + RECENT (≤768px) ════════════ */}
+      <div className="ra-portal-mobile-only">
+        <h1 className="ra-portal-hello">Hi, {firstName} 👋</h1>
+        <p className="ra-portal-hello-sub">
+          {deadlinePassed
+            ? "Your receipt window has closed."
+            : daysLeft != null && daysLeft >= 0
+              ? `${daysLeft} day${daysLeft === 1 ? "" : "s"} left to submit receipts.`
+              : "Welcome to your portal."}
+        </p>
+
+        {/* Gradient grant card */}
+        <div className="ra-grant-hero">
+          <div className="ra-grant-label">Your grant</div>
+          <div className="ra-grant-big">${paidToDate.toFixed(2)}</div>
+          <div className="ra-grant-of">of ${approvedAmt.toFixed(2)} paid out</div>
+          <div className="ra-grant-bar"><div className="ra-grant-fill" style={{ width: `${usedPct}%` }} /></div>
+          <div className="ra-grant-meta">
+            <span>${balance.remainingCap.toFixed(2)} remaining</span>
+            {deadline && !deadlinePassed && daysLeft != null && daysLeft >= 0 && (
+              <span>{daysLeft} day{daysLeft === 1 ? "" : "s"} left</span>
+            )}
+          </div>
+        </div>
+
+        {/* Next payout teaser, if any */}
+        {balance.eligibleForNextPayout > 0 && (
+          <div style={{
+            background: "#fff",
+            border: "1px solid rgba(0,0,0,0.08)",
+            borderRadius: 12,
+            padding: "0.8rem 1rem",
+            marginBottom: "1rem",
+            fontSize: "0.9rem",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}>
+            <span style={{ color: "var(--text-secondary)" }}>Next payout</span>
+            <strong style={{ color: "var(--accent-dark)", fontSize: "1.05rem" }}>${balance.eligibleForNextPayout.toFixed(2)}</strong>
+          </div>
+        )}
+
+        {/* FAB upload card */}
+        <Link href="/portal/receipts/new" className="ra-fab-card">
+          <span className="ra-fab-card-ic">+</span>
+          <span>
+            <div className="ra-fab-card-title">Upload a receipt</div>
+            <div className="ra-fab-card-sub">Snap with camera or pick from photos</div>
+          </span>
+        </Link>
+
+        {/* Recent receipts as cards */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0.2rem 0.6rem" }}>
+          <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 500, margin: 0 }}>Recent receipts</h3>
+          {(receipts || []).length > recent.length && (
+            <Link href="/portal/statement" style={{ color: "var(--accent-dark)", fontSize: "0.82rem", fontWeight: 600, textDecoration: "none" }}>See all →</Link>
+          )}
+        </div>
+        {recent.length === 0 ? (
+          <div style={{
+            background: "#fff", border: "1px dashed rgba(0,0,0,0.12)",
+            borderRadius: 12, padding: "1.5rem 1rem", textAlign: "center",
+            color: "var(--text-muted)", fontSize: "0.9rem",
+          }}>
+            No receipts uploaded yet. Tap the orange card above to add your first.
+          </div>
+        ) : (
+          <div className="ra-card-list">
+            {recent.map((r: any) => {
+              const pillCls =
+                r.status === "approved" ? "ra-pill-approved" :
+                r.status === "paid"     ? "ra-pill-paid"     :
+                r.status === "scheduled"? "ra-pill-scheduled":
+                r.status === "rejected" ? "ra-pill-rejected" :
+                r.status === "cancelled"? "ra-pill-cancelled":
+                                          "ra-pill-pending";
+              const dateLabel = r.purchase_date
+                ? new Date(r.purchase_date).toLocaleDateString("en-CA", { month: "short", day: "numeric" })
+                : new Date(r.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+              return (
+                <div key={r.id} className="ra-rc-row">
+                  <span className="ra-rc-thumb">📕</span>
+                  <span className="ra-rc-main">
+                    <span className="ra-rc-name">{r.description || "Receipt"}</span>
+                    <span className="ra-rc-meta">
+                      <span className={`ra-pill-status ${pillCls}`}>{r.status}</span>
+                      <span>· {dateLabel}</span>
+                    </span>
+                  </span>
+                  <span className="ra-rc-amt">${Number(r.amount).toFixed(2)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ════════════ DESKTOP LAYOUT (hidden on mobile via CSS) ════════════ */}
+      <div className="ra-portal-stat-grid-desktop">
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: "2rem", marginBottom: "0.5rem" }}>
-        Hello, {recipient.applications.parent_names}
+        Hello, {parentNames}
       </h1>
       <p style={{ color: "var(--text-secondary)", marginBottom: "1.25rem", lineHeight: 1.6 }}>
         Your approved grant is <strong>${Number(recipient.approved_amount).toFixed(2)}</strong> total.
@@ -157,6 +267,7 @@ export default async function PortalDashboard() {
           ))}
         </div>
       ) : <p style={{ color: "var(--text-muted)" }}>No payouts yet.</p>}
+      </div>{/* /.ra-portal-stat-grid-desktop */}
     </div>
   );
 }
