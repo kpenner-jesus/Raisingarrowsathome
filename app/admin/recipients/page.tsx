@@ -3,17 +3,53 @@ import { supabaseServer } from "@/app/lib/supabase/server";
 import { AvatarRow } from "../_components/Avatar";
 import { StatusBadge } from "../_components/StatusBadge";
 import { ProgressBar } from "../_components/ProgressBar";
+import { SortHeader } from "../_components/SortHeader";
 
 export const dynamic = "force-dynamic";
 
-export default async function RecipientsList({ searchParams }: { searchParams?: { cohort?: string; status?: string; show?: string } }) {
+type SortCol = "family" | "cap" | "status" | "approved" | "cohort";
+const VALID_SORTS: SortCol[] = ["family", "cap", "status", "approved", "cohort"];
+
+interface SearchParams {
+  cohort?: string;
+  status?: string;
+  show?: string;
+  q?: string;
+  sort?: string;
+  dir?: string;
+}
+
+function sanitizeSearch(raw: string): string {
+  return raw.slice(0, 100)
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_")
+    .replace(/,/g, "")
+    .replace(/[()*]/g, "")
+    .trim();
+}
+
+export default async function RecipientsList({ searchParams }: { searchParams?: SearchParams }) {
   const supabase = supabaseServer();
   const showArchived = searchParams?.show === "archived";
 
+  const sortRaw = (searchParams?.sort ?? "approved") as SortCol;
+  const sortCol: SortCol = VALID_SORTS.includes(sortRaw) ? sortRaw : "approved";
+  const dir: "asc" | "desc" = searchParams?.dir === "asc" ? "asc" : "desc";
+
+  // Map UI col → Supabase order target
+  const sortMap: Record<SortCol, { col: string; foreignTable?: string }> = {
+    family:   { col: "parent_names", foreignTable: "applications" },
+    cap:      { col: "approved_amount" },
+    status:   { col: "status" },
+    approved: { col: "created_at" },
+    cohort:   { col: "cohort_year" },
+  };
+  const sortTarget = sortMap[sortCol];
+
   let q = supabase
     .from("recipients")
-    .select("id, approved_amount, reimbursement_rate, status, created_at, cohort_year, archived_at, applications!inner(app_ref, parent_names, city, contact_email)")
-    .order("created_at", { ascending: false });
+    .select("id, approved_amount, reimbursement_rate, status, created_at, cohort_year, archived_at, applications!inner(app_ref, parent_names, city, contact_email)");
 
   // By default hide archived rows; show only when ?show=archived.
   if (showArchived) q = q.not("archived_at", "is", null);
@@ -25,6 +61,22 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
   if (searchParams?.status && ["active", "completed", "suspended"].includes(searchParams.status)) {
     q = q.eq("status", searchParams.status);
   }
+
+  // Sanitized free-text search across family / email / app_ref / city
+  const searchRaw = (searchParams?.q ?? "").trim();
+  const term = sanitizeSearch(searchRaw);
+  if (term) {
+    q = q.or(
+      `parent_names.ilike.%${term}%,contact_email.ilike.%${term}%,app_ref.ilike.%${term}%,city.ilike.%${term}%`,
+      { foreignTable: "applications" }
+    );
+  }
+
+  // Sort
+  q = sortTarget.foreignTable
+    ? q.order(sortTarget.col, { ascending: dir === "asc", referencedTable: sortTarget.foreignTable })
+    : q.order(sortTarget.col, { ascending: dir === "asc" });
+
   const { data: recipients } = await q;
 
   // Distinct cohort years for filter
@@ -44,6 +96,15 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
     });
   }
 
+  // For SortHeader: preserve other filter params when sort clicked
+  const extra: Record<string, string | undefined> = {
+    q:      searchRaw || undefined,
+    cohort: searchParams?.cohort,
+    status: searchParams?.status,
+    show:   showArchived ? "archived" : undefined,
+  };
+  const base = "/admin/recipients";
+
   return (
     <div>
       <header className="ra-page-header">
@@ -53,6 +114,11 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
           <p className="ra-quiet">Approved families currently receiving reimbursements.</p>
         </div>
         <form method="get" style={{ display: "flex", gap: "0.5rem", alignItems: "end", flexWrap: "wrap" }}>
+          <div>
+            <label className="ra-label">Search</label>
+            <input name="q" defaultValue={searchRaw} placeholder="name, email, ref, city…"
+              className="ra-input" style={{ minWidth: 220 }} />
+          </div>
           <div>
             <label className="ra-label">Cohort</label>
             <select name="cohort" defaultValue={searchParams?.cohort ?? ""} className="ra-input">
@@ -69,19 +135,33 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
               <option value="suspended">Suspended</option>
             </select>
           </div>
-          <button type="submit" className="ra-btn">Filter</button>
+          {/* Persist current sort so filter submit doesn't reset it */}
+          <input type="hidden" name="sort" value={sortCol} />
+          <input type="hidden" name="dir"  value={dir} />
+          {showArchived && <input type="hidden" name="show" value="archived" />}
+          <button type="submit" className="ra-btn">Apply</button>
+          {(term || searchParams?.cohort || searchParams?.status) && (
+            <Link href={base + (showArchived ? "?show=archived" : "")} className="ra-btn">Reset</Link>
+          )}
         </form>
       </header>
+
+      {term && (
+        <div className="ra-quiet" style={{ marginBottom: "0.75rem", fontSize: "0.88rem" }}>
+          Showing {recipients?.length ?? 0} match{(recipients?.length ?? 0) === 1 ? "" : "es"} for <strong>&ldquo;{searchRaw}&rdquo;</strong>
+        </div>
+      )}
 
       <div className="ra-table-card">
         <table className="ra-table">
           <thead>
             <tr>
-              <th>Family</th>
-              <th>Cap</th>
+              <SortHeader label="Family"   col="family"   currentSort={sortCol} currentDir={dir} basePath={base} extraParams={extra} />
+              <SortHeader label="Cap"      col="cap"      currentSort={sortCol} currentDir={dir} basePath={base} extraParams={extra} />
               <th style={{ minWidth: 220 }}>Progress</th>
-              <th>Status</th>
-              <th style={{ textAlign: "right" }}>Approved</th>
+              <SortHeader label="Status"   col="status"   currentSort={sortCol} currentDir={dir} basePath={base} extraParams={extra} />
+              <SortHeader label="Cohort"   col="cohort"   currentSort={sortCol} currentDir={dir} basePath={base} extraParams={extra} />
+              <SortHeader label="Approved" col="approved" currentSort={sortCol} currentDir={dir} basePath={base} extraParams={extra} align="right" />
             </tr>
           </thead>
           <tbody>
@@ -109,6 +189,7 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
                     </div>
                   </td>
                   <td><StatusBadge status={r.status} /></td>
+                  <td className="ra-tiny">{r.cohort_year ?? "—"}</td>
                   <td style={{ textAlign: "right" }} className="ra-tiny">
                     {new Date(r.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
                   </td>
@@ -117,11 +198,11 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
             })}
             {(!recipients || recipients.length === 0) && (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={6}>
                   <div className="ra-empty">
                     <div className="ra-empty-icon">❀</div>
-                    <div className="ra-empty-title">No recipients yet</div>
-                    <div>Approve an application to create one.</div>
+                    <div className="ra-empty-title">{term ? "No matches" : "No recipients yet"}</div>
+                    <div>{term ? <>Try a different search or <Link href={base} className="ra-link">reset filters</Link>.</> : <>Approve an application to create one.</>}</div>
                   </div>
                 </td>
               </tr>
