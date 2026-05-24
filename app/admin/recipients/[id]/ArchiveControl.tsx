@@ -15,8 +15,8 @@ export function ArchiveControl({ recipientId, archivedAt, archiveReason }: {
   const [err, setErr] = useState<string | null>(null);
 
   async function archive() {
-    if (!reason.trim()) { setErr("Reason required"); return; }
-    if (!confirm(`Archive this recipient? It will no longer appear in default lists.`)) return;
+    if (!reason.trim()) { setErr("Please tell us why first."); return; }
+    if (!confirm(`Move this family to the archive? They won't show up in your everyday list anymore (but the records are kept safe).`)) return;
     setBusy(true); setErr(null);
     try {
       const r = await fetch("/api/admin/archive", {
@@ -38,7 +38,7 @@ export function ArchiveControl({ recipientId, archivedAt, archiveReason }: {
   }
 
   async function restore() {
-    if (!confirm("Restore this recipient to active lists?")) return;
+    if (!confirm("Bring this family back into your everyday list?")) return;
     setBusy(true); setErr(null);
     try {
       const r = await fetch("/api/admin/archive", {
@@ -65,41 +65,42 @@ export function ArchiveControl({ recipientId, archivedAt, archiveReason }: {
       {isArchived ? (
         <>
           <div className="ra-alert-error" style={{ marginBottom: "0.75rem" }}>
-            <strong>Archived</strong> on {new Date(archivedAt!).toLocaleDateString()}.
-            {archiveReason && <div style={{ marginTop: "0.3rem", fontStyle: "italic" }}>Reason: {archiveReason}</div>}
+            <strong>In the archive</strong> as of {new Date(archivedAt!).toLocaleDateString()}.
+            {archiveReason && <div style={{ marginTop: "0.3rem", fontStyle: "italic" }}>Why: {archiveReason}</div>}
           </div>
           <button className="ra-btn ra-btn-primary" disabled={busy} onClick={restore}>
-            {busy ? "Restoring…" : "Restore to active"}
+            {busy ? "Working…" : "Bring back to my list"}
           </button>
         </>
       ) : showForm ? (
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
           <p className="ra-quiet" style={{ marginTop: 0 }}>
-            Archived recipients are hidden from default lists but their data is preserved for the CRA retention period.
+            Archived families don't show up in your everyday list, but all their info stays safe
+            (we have to keep it for the CRA records).
           </p>
           <textarea
             className="ra-input ra-textarea"
             rows={3}
             maxLength={500}
-            placeholder="Reason (e.g. family completed program, moved out of province)…"
+            placeholder="Example: family finished the program, or moved out of province"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
           {err && <div className="ra-alert-error">{err}</div>}
           <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
-            <button className="ra-btn" disabled={busy} onClick={() => setShowForm(false)}>Cancel</button>
+            <button className="ra-btn" disabled={busy} onClick={() => setShowForm(false)}>Never mind</button>
             <button className="ra-btn" disabled={busy || !reason.trim()} onClick={archive}
               style={{ background: "var(--ra-danger)", color: "white", borderColor: "var(--ra-danger)" }}>
-              {busy ? "Archiving…" : "Archive"}
+              {busy ? "Working…" : "Move to archive"}
             </button>
           </div>
         </div>
       ) : (
         <>
           <p className="ra-quiet" style={{ marginTop: 0, fontSize: "0.85rem" }}>
-            Soft-delete: hides from active lists, keeps all data. Reversible.
+            Tuck this family away in the archive. Their records stay safe and you can bring them back anytime.
           </p>
-          <button className="ra-btn" onClick={() => setShowForm(true)}>Archive recipient…</button>
+          <button className="ra-btn" onClick={() => setShowForm(true)}>Move to archive…</button>
         </>
       )}
     </section>

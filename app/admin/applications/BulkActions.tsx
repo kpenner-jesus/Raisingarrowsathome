@@ -68,7 +68,7 @@ export function ApplicationsTable({ rows, sort }: { rows: Row[]; sort?: SortInfo
     setSelected((curr) => curr.size === pendingIds.length ? new Set() : new Set(pendingIds));
   }
   async function bulkDeny() {
-    if (!reason.trim()) { setError("Reason required"); return; }
+    if (!reason.trim()) { setError("Please tell the families why first."); return; }
     setBusy(true); setError(null);
     try {
       const r = await fetch("/api/admin/applications/bulk-deny", {
@@ -82,8 +82,10 @@ export function ApplicationsTable({ rows, sort }: { rows: Row[]; sort?: SortInfo
       router.refresh();
       // Surface email outcome on the rendered toast (best-effort)
       if (typeof window !== "undefined") {
-        const emailNote = (j.emailed != null) ? ` (${j.emailed} emailed${j.failed ? `, ${j.failed} failed` : ""})` : "";
-        try { (window as any).alert(`Denied ${j.denied_count}${emailNote}`); } catch {}
+        const emailNote = (j.emailed != null)
+          ? ` ${j.emailed} got an email${j.failed ? `, ${j.failed} couldn't be reached` : ""}.`
+          : "";
+        try { (window as any).alert(`Done. Turned down ${j.denied_count} famil${j.denied_count === 1 ? "y" : "ies"}.${emailNote}`); } catch {}
       }
     } catch (e: any) {
       setError(e?.message || "Failed");
@@ -185,23 +187,27 @@ export function ApplicationsTable({ rows, sort }: { rows: Row[]; sort?: SortInfo
           }}>
           <div onClick={(e) => e.stopPropagation()}
             style={{ background: "#fff", borderRadius: 14, padding: "1.5rem", maxWidth: 480, width: "100%" }}>
-            <h3 className="ra-h2" style={{ marginBottom: "0.5rem" }}>Deny {selected.size} application{selected.size !== 1 ? "s" : ""}</h3>
+            <h3 className="ra-h2" style={{ marginBottom: "0.5rem" }}>
+              Turn down {selected.size} famil{selected.size !== 1 ? "ies" : "y"}?
+            </h3>
             <p className="ra-quiet" style={{ marginTop: 0 }}>
-              The reason below is recorded on each application and audit-logged. Be specific.
+              The message you write below will be emailed to each family.
+              Be kind — many of them are stretching just to apply.
             </p>
+            <label className="ra-label">Message to the families</label>
             <textarea
               className="ra-input ra-textarea"
               rows={4}
               maxLength={1000}
-              placeholder="Reason…"
+              placeholder="Example: We've received more applications than we can fund this round. We hope to see you back next year."
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
             {error && <div className="ra-alert-error" style={{ marginTop: "0.5rem" }}>{error}</div>}
             <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "1rem" }}>
-              <button className="ra-btn" disabled={busy} onClick={() => setDenyOpen(false)}>Cancel</button>
+              <button className="ra-btn" disabled={busy} onClick={() => setDenyOpen(false)}>Never mind</button>
               <button className="ra-btn ra-btn-primary" disabled={busy || !reason.trim()} onClick={bulkDeny}>
-                {busy ? "Denying…" : `Deny ${selected.size}`}
+                {busy ? "Sending…" : `Send to ${selected.size}`}
               </button>
             </div>
           </div>

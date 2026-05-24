@@ -10,8 +10,8 @@ export function ReverseButton({ payoutId, amount }: { payoutId: string; amount: 
   const [err, setErr] = useState<string | null>(null);
 
   async function go() {
-    if (!reason.trim()) { setErr("Reason required"); return; }
-    if (!confirm(`Mark this $${amount.toFixed(2)} payout as reversed? Logged + audited.`)) return;
+    if (!reason.trim()) { setErr("Please tell us why first."); return; }
+    if (!confirm(`Are you sure? This will flag the $${amount.toFixed(2)} that already went out as 'sent back'.`)) return;
     setBusy(true); setErr(null);
     try {
       const r = await fetch(`/api/admin/payouts/${payoutId}/reverse`, {
@@ -34,23 +34,27 @@ export function ReverseButton({ payoutId, amount }: { payoutId: string; amount: 
   return (
     <>
       <button className="ra-btn" onClick={() => setOpen(true)}
-        style={{ fontSize: "0.78rem", padding: "0.2rem 0.55rem" }}>Reverse…</button>
+        style={{ fontSize: "0.78rem", padding: "0.2rem 0.55rem" }}>Money came back…</button>
       {open && (
         <div onClick={() => !busy && setOpen(false)}
           style={{ position: "fixed", inset: 0, background: "rgba(20,16,12,0.55)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
           <div onClick={(e) => e.stopPropagation()}
             style={{ background: "#fff", borderRadius: 14, padding: "1.5rem", maxWidth: 460, width: "100%" }}>
-            <h3 className="ra-h2" style={{ marginBottom: "0.5rem" }}>Reverse payout</h3>
-            <p className="ra-quiet" style={{ marginTop: 0 }}>Use when an e-transfer bounced, was sent to the wrong address, or otherwise needs to be undone. The payout will be flagged but not deleted.</p>
+            <h3 className="ra-h2" style={{ marginBottom: "0.5rem" }}>Did this payment come back?</h3>
+            <p className="ra-quiet" style={{ marginTop: 0 }}>
+              Use this if an e-transfer bounced, went to the wrong email, or got cancelled.
+              The payment record stays in the books, just marked as sent back so totals are correct.
+            </p>
+            <label className="ra-label">What happened?</label>
             <textarea className="ra-input ra-textarea" rows={3} maxLength={500}
-              placeholder="Reason (e.g. e-transfer bounced — wrong email on file)…"
+              placeholder="Example: e-transfer bounced because the email on file was wrong"
               value={reason} onChange={(e) => setReason(e.target.value)} />
             {err && <div className="ra-alert-error" style={{ marginTop: "0.5rem" }}>{err}</div>}
             <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "1rem" }}>
-              <button className="ra-btn" disabled={busy} onClick={() => setOpen(false)}>Cancel</button>
+              <button className="ra-btn" disabled={busy} onClick={() => setOpen(false)}>Never mind</button>
               <button className="ra-btn" disabled={busy || !reason.trim()} onClick={go}
                 style={{ background: "var(--ra-danger)", color: "white", borderColor: "var(--ra-danger)" }}>
-                {busy ? "…" : "Confirm reverse"}
+                {busy ? "Saving…" : "Mark as sent back"}
               </button>
             </div>
           </div>

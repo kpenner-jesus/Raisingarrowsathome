@@ -82,11 +82,12 @@ export default async function PayoutsPage({ searchParams }: { searchParams?: { s
     <div>
       <header className="ra-page-header">
         <div className="ra-page-title-block">
-          <span className="ra-eyebrow">CEO Ministries handoff</span>
+          <span className="ra-eyebrow">Sending money to families</span>
           <h1 className="ra-h1">Payouts</h1>
           <p className="ra-quiet" style={{ maxWidth: 640, lineHeight: 1.6 }}>
-            Batches auto-generate on the 1st of each month. Download the CSV, send to CEO Ministries accounting,
-            then mark paid once e-transfers go out.
+            The site makes a payout list for you on the 1st and 15th of every month.
+            You can also make one anytime. Download the list, send it to CEO Ministries
+            so they can mail the e-transfers, then come back and mark it paid.
           </p>
         </div>
         <GenerateBatchButton />
@@ -101,21 +102,21 @@ export default async function PayoutsPage({ searchParams }: { searchParams?: { s
         <div className="ra-row-between" style={{ gap: "1rem" }}>
           <div>
             <div style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, color: "var(--ra-ink-quiet)", marginBottom: "0.3rem" }}>
-              If you generate a batch right now
+              If you make a payout list right now
             </div>
             {nothingToGenerate ? (
               <div style={{ fontSize: "0.95rem", lineHeight: 1.5 }}>
-                <strong>It would create an empty $0.00 batch.</strong>{" "}
+                <strong>You'd get an empty list ($0).</strong>{" "}
                 {preview.pendingReceipts > 0
-                  ? <>There are <strong>{preview.pendingReceipts}</strong> receipt{preview.pendingReceipts === 1 ? "" : "s"} waiting for admin review — approve them first, then generate.</>
+                  ? <>There {preview.pendingReceipts === 1 ? "is" : "are"} <strong>{preview.pendingReceipts}</strong> receipt{preview.pendingReceipts === 1 ? "" : "s"} waiting for you to look at. Say yes or no to those first, then come back here.</>
                   : preview.activeRecipients === 0
-                    ? <>No active recipients on file.</>
-                    : <>None of the {preview.activeRecipients} active recipients have approved-but-unpaid receipts. Wait for families to upload, then approve, then generate.</>}
+                    ? <>No families are signed up yet.</>
+                    : <>{preview.activeRecipients} famil{preview.activeRecipients === 1 ? "y is" : "ies are"} signed up, but none have approved receipts waiting to be paid out. Wait for them to upload receipts, then say yes to those, then come back here.</>}
               </div>
             ) : (
               <div style={{ fontSize: "0.95rem", lineHeight: 1.5 }}>
-                It would pay <strong>{preview.eligibleRecipients}</strong> recipient{preview.eligibleRecipients === 1 ? "" : "s"} a combined <strong>${preview.eligibleTotal.toFixed(2)}</strong>.
-                {preview.pendingReceipts > 0 && <> ({preview.pendingReceipts} pending receipt{preview.pendingReceipts === 1 ? "" : "s"} not yet decided — review first if you want those included.)</>}
+                You'd pay <strong>{preview.eligibleRecipients}</strong> famil{preview.eligibleRecipients === 1 ? "y" : "ies"}, totaling <strong>${preview.eligibleTotal.toFixed(2)}</strong>.
+                {preview.pendingReceipts > 0 && <> Heads up: {preview.pendingReceipts} receipt{preview.pendingReceipts === 1 ? "" : "s"} still need your decision. Review those first if you want them included.</>}
               </div>
             )}
           </div>
@@ -132,24 +133,24 @@ export default async function PayoutsPage({ searchParams }: { searchParams?: { s
 
       <div className="ra-stat-grid" style={{ marginBottom: "1.5rem" }}>
         <div className="ra-stat">
-          <span className="ra-stat-label">Drafts</span>
+          <span className="ra-stat-label">Lists in progress</span>
           <span className="ra-stat-value">{draftN}</span>
-          <span className="ra-stat-sub">awaiting CSV export</span>
+          <span className="ra-stat-sub">ready to download</span>
         </div>
         <div className="ra-stat">
-          <span className="ra-stat-label">Exported</span>
+          <span className="ra-stat-label">Sent to CEO</span>
           <span className="ra-stat-value">{exportedN}</span>
-          <span className="ra-stat-sub">waiting on CEO payment</span>
+          <span className="ra-stat-sub">waiting for CEO Ministries to send the money</span>
         </div>
         <div className="ra-stat">
-          <span className="ra-stat-label">Paid</span>
+          <span className="ra-stat-label">Done</span>
           <span className="ra-stat-value">{paidN}</span>
-          <span className="ra-stat-sub">completed batches</span>
+          <span className="ra-stat-sub">families paid</span>
         </div>
         <div className="ra-stat ra-stat-accent">
-          <span className="ra-stat-label">Total paid out</span>
+          <span className="ra-stat-label">Total ever paid</span>
           <span className="ra-stat-value">${totalPaid.toFixed(0)}</span>
-          <span className="ra-stat-sub">lifetime</span>
+          <span className="ra-stat-sub">since we started</span>
         </div>
       </div>
 
@@ -204,8 +205,8 @@ export default async function PayoutsPage({ searchParams }: { searchParams?: { s
                 <td colSpan={6}>
                   <div className="ra-empty">
                     <div className="ra-empty-icon">$</div>
-                    <div className="ra-empty-title">No batches yet</div>
-                    <div>Click <strong>Generate batch now</strong> or wait for the monthly cron.</div>
+                    <div className="ra-empty-title">No payout lists yet</div>
+                    <div>Click <strong>+ Make a payout list</strong> above, or wait for the next 1st or 15th.</div>
                   </div>
                 </td>
               </tr>

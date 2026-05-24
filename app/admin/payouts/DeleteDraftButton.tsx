@@ -13,12 +13,12 @@ export function DeleteDraftButton({ batchId, total, scheduledDate }: {
 
   async function go() {
     const ok = confirm(
-      `Delete this draft batch?\n\n` +
+      `Throw away this draft list?\n\n` +
       `Date: ${scheduledDate}\n` +
       `Total: $${total.toFixed(2)}\n\n` +
-      `Removes the batch row + every scheduled payout in it. ` +
-      `Approved receipts stay intact and will become eligible again ` +
-      `on the next generate. Action is audit-logged. No undo.`
+      `The list and the planned payouts inside it go away. ` +
+      `The approved receipts stay safe — you can make a new list anytime. ` +
+      `This action is saved in the records. You cannot undo it.`
     );
     if (!ok) return;
     setBusy(true); setErr(null);
@@ -42,10 +42,10 @@ export function DeleteDraftButton({ batchId, total, scheduledDate }: {
         className="ra-btn"
         onClick={go}
         disabled={busy}
-        title="Delete this draft batch and its scheduled payouts"
+        title="Throw away this draft list and start over"
         style={{ fontSize: "0.78rem", padding: "0.25rem 0.6rem", color: "var(--ra-danger)", borderColor: "var(--ra-danger)" }}
       >
-        {busy ? "…" : "Delete draft"}
+        {busy ? "…" : "Throw away"}
       </button>
       {err && <div className="ra-tiny" style={{ color: "var(--ra-danger)", marginTop: 4 }}>{err}</div>}
     </>

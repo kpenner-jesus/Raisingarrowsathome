@@ -43,7 +43,7 @@ export function ApplicationNotes({ applicationId, currentUserId, notes }: {
   }
 
   async function remove(nid: string) {
-    if (!confirm("Delete this note?")) return;
+    if (!confirm("Delete this note? You can't get it back.")) return;
     setBusy(true); setErr(null);
     try {
       const r = await fetch(`/api/admin/applications/${applicationId}/notes?nid=${nid}`, { method: "DELETE" });

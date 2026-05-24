@@ -31,13 +31,13 @@ export default function MarkPaidButton({ batchId, total }: { batchId: string; to
       body:    JSON.stringify({ ceo_reference: ref }),
     });
     setBusy(false);
-    if (!res.ok) { notify(`Failed: ${await res.text()}`, "error"); return; }
+    if (!res.ok) { notify(`Something went wrong: ${await res.text()}`, "error"); return; }
     const data = await res.json();
     setOpen(false);
     if (data.already_paid) {
-      notify("Batch was already paid — no emails sent");
+      notify("This payout was already marked paid — no new emails sent");
     } else {
-      notify(`Batch marked paid — ${data.recipients_notified ?? 0} recipient(s) notified`);
+      notify(`Done. ${data.recipients_notified ?? 0} famil${(data.recipients_notified ?? 0) === 1 ? "y was" : "ies were"} emailed.`);
     }
     router.refresh();
   };
@@ -45,29 +45,33 @@ export default function MarkPaidButton({ batchId, total }: { batchId: string; to
   return (
     <>
       <button onClick={() => setOpen(true)} disabled={busy} className="ra-btn ra-btn-success ra-btn-sm">
-        Mark paid
+        Mark as paid
       </button>
       {open && (
         <div className="ra-modal-backdrop" onClick={() => !busy && setOpen(false)}>
           <div className="ra-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <h2 className="ra-h2" style={{ marginBottom: "0.5rem" }}>Mark batch paid?</h2>
+            <h2 className="ra-h2" style={{ marginBottom: "0.5rem" }}>Tell families their money is on the way?</h2>
             <p className="ra-quiet" style={{ marginBottom: "1.25rem" }}>
-              Confirms that CEO Ministries has sent e-transfers totalling <strong>${total.toFixed(2)}</strong>.
-              Every recipient on this batch gets a &ldquo;payout sent&rdquo; email.
+              Click this once CEO Ministries has actually sent the e-transfers for this list
+              (<strong>${total.toFixed(2)}</strong> total). Every family on the list gets a friendly
+              email letting them know their money is coming.
             </p>
-            <label className="ra-label">CEO Ministries reference (optional)</label>
+            <label className="ra-label">Reference number (optional, for your records)</label>
             <input
               ref={inputRef}
               value={ref} onChange={(e) => setRef(e.target.value)}
-              placeholder="e.g. CEO-2026-05-MAY" className="ra-input"
+              placeholder="e.g. CEO-May-2026" className="ra-input"
               onKeyDown={(e) => { if (e.key === "Enter" && !busy) run(); }}
               maxLength={120}
               disabled={busy}
             />
+            <p className="ra-tiny" style={{ marginTop: "0.5rem" }}>
+              Use whatever helps you track it later — an e-transfer confirmation number works well.
+            </p>
             <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "1.25rem" }}>
-              <button className="ra-btn ra-btn-ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
+              <button className="ra-btn ra-btn-ghost" onClick={() => setOpen(false)} disabled={busy}>Not yet</button>
               <button className="ra-btn ra-btn-accent" onClick={run} disabled={busy}>
-                {busy ? "…" : "Confirm paid"}
+                {busy ? "Sending…" : "Yes, send emails"}
               </button>
             </div>
           </div>
