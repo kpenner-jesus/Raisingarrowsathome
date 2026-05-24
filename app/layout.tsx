@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { EnvBanner } from "./_components/EnvBanner";
 import "./globals.css";
 
 const SITE = "https://raisingarrowsathome.com";
@@ -63,6 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-title" content="Raising Arrows" />
       </head>
       <body>
+        <EnvBanner />
         {children}
         <Analytics />
         <SpeedInsights />
