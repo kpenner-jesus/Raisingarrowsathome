@@ -6,6 +6,7 @@ import { AdminProviders } from "./_components/AdminProviders";
 import { MobileNavShell } from "@/app/_components/MobileNav";
 import { AdminLogoutLink } from "./_components/AdminLogoutLink";
 import { ImpersonateButton } from "./_components/ImpersonateButton";
+import { getOrgContext, orgPath } from "@/app/lib/org-context";
 import "./admin.css";
 
 export const dynamic = "force-dynamic";
@@ -17,33 +18,58 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     redirect("/auth/login?next=%2Fadmin");
   }
 
-  // Role lookup via service role — avoids RLS edge cases.
-  const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    redirect("/portal");
+  // Resolve the tenant for this request (set by middleware via header).
+  const orgCtx = await getOrgContext();
+  if (!orgCtx) {
+    // No org resolved — bare admin URL on an unknown host. Send to signup
+    // which can either route to their org or create a new one.
+    redirect("/signup");
   }
-  const isSuper = profile?.role === "super_admin";
+
+  // Membership lookup for this user within this tenant.
+  const svc = supabaseService();
+  const { data: membership } = await svc
+    .from("org_members")
+    .select("role")
+    .eq("org_id", orgCtx.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const orgRole = membership?.role;
+  const isOwner = orgRole === "owner";
+  const isAdmin = isOwner || orgRole === "admin";
+
+  // Also let the user through if they're a platform super-admin (you, for support).
+  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const isPlatformSuper = profile?.role === "super_admin";
+
+  if (!isAdmin && !isPlatformSuper) {
+    redirect(orgPath(orgCtx, "/portal"));
+  }
+  const isSuper = isOwner || isPlatformSuper;
+
+  // Helper: wrap path with /o/<slug>/ prefix when accessed via path-routed host
+  const op = (p: string) => orgPath(orgCtx, p);
 
   // Drawer items: full nav (mirrors sidebar). Includes super-admin gated items.
   const drawerItems = [
-    { href: "/admin",                 label: "Dashboard",    glyph: "◇" },
-    { href: "/admin/search",          label: "Search",       glyph: "⌕" },
-    { href: "/admin/applications",    label: "Applications", glyph: "✎" },
-    { href: "/admin/recipients",      label: "Recipients",   glyph: "❀" },
-    { href: "/admin/payouts",         label: "Payouts",      glyph: "$" },
-    { href: "/admin/photos",          label: "Photos",       glyph: "▢" },
-    { href: "/admin/testimonials",    label: "Testimonials", glyph: "”" },
-    { href: "/admin/reports",         label: "Reports",      glyph: "≡" },
-    { href: "/admin/broadcasts",      label: "Broadcasts",   glyph: "✉" },
-    { href: "/admin/emails",          label: "Email log",    glyph: "⇄" },
-    { href: "/admin/email-templates", label: "Templates",    glyph: "◫" },
-    { href: "/admin/categories",      label: "Categories",   glyph: "⌗" },
-    { href: "/admin/audit-log",       label: "Audit log",    glyph: "⌖" },
-    { href: "/admin/settings",        label: "Settings",     glyph: "⚙" },
-    ...(isSuper ? [{ href: "/admin/team", label: "Team", glyph: "◉" }] : []),
-    { href: "/admin/mcp",             label: "AI / MCP",     glyph: "✦" },
-    { href: "/admin/help",            label: "Help",         glyph: "?" },
+    { href: op("/admin"),                 label: "Dashboard",    glyph: "◇" },
+    { href: op("/admin/search"),          label: "Search",       glyph: "⌕" },
+    { href: op("/admin/applications"),    label: "Applications", glyph: "✎" },
+    { href: op("/admin/recipients"),      label: "Recipients",   glyph: "❀" },
+    { href: op("/admin/payouts"),         label: "Payouts",      glyph: "$" },
+    { href: op("/admin/photos"),          label: "Photos",       glyph: "▢" },
+    { href: op("/admin/testimonials"),    label: "Testimonials", glyph: "”" },
+    { href: op("/admin/reports"),         label: "Reports",      glyph: "≡" },
+    { href: op("/admin/broadcasts"),      label: "Broadcasts",   glyph: "✉" },
+    { href: op("/admin/emails"),          label: "Email log",    glyph: "⇄" },
+    { href: op("/admin/email-templates"), label: "Templates",    glyph: "◫" },
+    { href: op("/admin/categories"),      label: "Categories",   glyph: "⌗" },
+    { href: op("/admin/audit-log"),       label: "Audit log",    glyph: "⌖" },
+    { href: op("/admin/settings"),        label: "Settings",     glyph: "⚙" },
+    ...(isSuper ? [{ href: op("/admin/team"), label: "Team", glyph: "◉" }] : []),
+    { href: op("/admin/mcp"),             label: "AI / MCP",     glyph: "✦" },
+    { href: op("/admin/help"),            label: "Help",         glyph: "?" },
   ];
 
   return (
@@ -51,7 +77,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       {/* Mobile chrome lives OUTSIDE the grid so its sticky/fixed children
           don't become grid items. Hidden on desktop via mobile.css. */}
       <MobileNavShell
-        brand="Raising Arrows"
+        brand={orgCtx.name}
         drawerTitle={isSuper ? "Super-admin" : "Admin"}
         drawerItems={drawerItems}
         drawerFooter={
@@ -61,10 +87,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </>
         }
         tabItems={[
-          { href: "/admin",              label: "Dashboard", icon: "home" },
-          { href: "/admin/applications", label: "Apps",      icon: "apps" },
-          { href: "/admin/recipients",   label: "Families",  icon: "users" },
-          { href: "/admin/payouts",      label: "Payouts",   icon: "cash" },
+          { href: op("/admin"),              label: "Dashboard", icon: "home" },
+          { href: op("/admin/applications"), label: "Apps",      icon: "apps" },
+          { href: op("/admin/recipients"),   label: "Families",  icon: "users" },
+          { href: op("/admin/payouts"),      label: "Payouts",   icon: "cash" },
         ]}
       />
 
@@ -72,7 +98,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <aside className="ra-admin-sidebar">
           <Link href="/" className="ra-admin-brand" title="Open public website">
             <div className="ra-admin-brand-name">
-              Raising <em style={{ color: "var(--ra-accent)" }}>Arrows</em>
+              {orgCtx.name}
             </div>
             <div className="ra-admin-brand-sub">
               {isSuper ? "Super-admin" : "Admin"} · view site →
@@ -80,23 +106,23 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </Link>
 
           <nav className="ra-admin-nav">
-            <NavLink href="/admin"                 label="Dashboard"    icon="◇" />
-            <NavLink href="/admin/search"          label="Search"       icon="⌕" />
-            <NavLink href="/admin/applications"    label="Applications" icon="✎" />
-            <NavLink href="/admin/recipients"      label="Recipients"   icon="❀" />
-            <NavLink href="/admin/payouts"         label="Payouts"      icon="$" />
-            <NavLink href="/admin/photos"          label="Photos"       icon="▢" />
-            <NavLink href="/admin/testimonials"    label="Testimonials" icon="”" />
-            <NavLink href="/admin/reports"         label="Reports"      icon="≡" />
-            <NavLink href="/admin/broadcasts"      label="Broadcasts"   icon="✉" />
-            <NavLink href="/admin/emails"          label="Email log"    icon="⇄" />
-            <NavLink href="/admin/email-templates" label="Templates"    icon="◫" />
-            <NavLink href="/admin/categories"      label="Categories"   icon="⌗" />
-            <NavLink href="/admin/audit-log"       label="Audit log"    icon="⌖" />
-            <NavLink href="/admin/settings"        label="Settings"     icon="⚙" />
-            {isSuper && <NavLink href="/admin/team" label="Team"        icon="◉" />}
-            <NavLink href="/admin/mcp"             label="AI / MCP"     icon="✦" />
-            <NavLink href="/admin/help"            label="Help"         icon="?" />
+            <NavLink href={op("/admin")}                 label="Dashboard"    icon="◇" />
+            <NavLink href={op("/admin/search")}          label="Search"       icon="⌕" />
+            <NavLink href={op("/admin/applications")}    label="Applications" icon="✎" />
+            <NavLink href={op("/admin/recipients")}      label="Recipients"   icon="❀" />
+            <NavLink href={op("/admin/payouts")}         label="Payouts"      icon="$" />
+            <NavLink href={op("/admin/photos")}          label="Photos"       icon="▢" />
+            <NavLink href={op("/admin/testimonials")}    label="Testimonials" icon="”" />
+            <NavLink href={op("/admin/reports")}         label="Reports"      icon="≡" />
+            <NavLink href={op("/admin/broadcasts")}      label="Broadcasts"   icon="✉" />
+            <NavLink href={op("/admin/emails")}          label="Email log"    icon="⇄" />
+            <NavLink href={op("/admin/email-templates")} label="Templates"    icon="◫" />
+            <NavLink href={op("/admin/categories")}      label="Categories"   icon="⌗" />
+            <NavLink href={op("/admin/audit-log")}       label="Audit log"    icon="⌖" />
+            <NavLink href={op("/admin/settings")}        label="Settings"     icon="⚙" />
+            {isSuper && <NavLink href={op("/admin/team")} label="Team"        icon="◉" />}
+            <NavLink href={op("/admin/mcp")}             label="AI / MCP"     icon="✦" />
+            <NavLink href={op("/admin/help")}            label="Help"         icon="?" />
           </nav>
 
           {/* Impersonation toggle for non-prod deploys */}

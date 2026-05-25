@@ -4,6 +4,7 @@ import { AvatarRow } from "./_components/Avatar";
 import { StatusBadge } from "./_components/StatusBadge";
 import { HelpHint } from "../_components/HelpHint";
 import { ImpersonateButton } from "./_components/ImpersonateButton";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
@@ -23,17 +24,21 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 export default async function AdminDashboard() {
+  const ctx = await requireOrgContext();
+  const orgId = ctx.id;
   const supabase = supabaseServer();
   const svc = supabaseService();
+  // Every query scoped to org_id. supabase (user role) is also RLS-scoped
+  // via is_org_admin(org_id) policies; the explicit filter is defence-in-depth.
   const [pendingApps, activeRecipients, pendingReceipts, draftBatches, latestApps, latestReceipts, recentAudit, appsLast6Mo] = await Promise.all([
-    supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "pending"),
-    supabase.from("recipients").select("*", { count: "exact", head: true }).eq("status", "active"),
-    supabase.from("receipts").select("*", { count: "exact", head: true }).eq("status", "pending"),
-    supabase.from("payout_batches").select("*", { count: "exact", head: true }).in("status", ["draft", "exported"]),
-    supabase.from("applications").select("id, app_ref, parent_names, city, status, created_at").order("created_at", { ascending: false }).limit(5),
-    supabase.from("receipts").select("id, amount, status, created_at, description, recipients!inner(applications!inner(parent_names))").eq("status", "pending").order("created_at", { ascending: false }).limit(5),
-    svc.from("audit_log").select("id, action, target_table, created_at, profiles:actor_id(email)").order("created_at", { ascending: false }).limit(10),
-    supabase.from("applications").select("created_at").gte("created_at", new Date(Date.now() - 1000 * 60 * 60 * 24 * 180).toISOString()),
+    supabase.from("applications").select("*", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "pending"),
+    supabase.from("recipients").select("*", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "active"),
+    supabase.from("receipts").select("*", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "pending"),
+    supabase.from("payout_batches").select("*", { count: "exact", head: true }).eq("org_id", orgId).in("status", ["draft", "exported"]),
+    supabase.from("applications").select("id, app_ref, parent_names, city, status, created_at").eq("org_id", orgId).order("created_at", { ascending: false }).limit(5),
+    supabase.from("receipts").select("id, amount, status, created_at, description, recipients!inner(applications!inner(parent_names))").eq("org_id", orgId).eq("status", "pending").order("created_at", { ascending: false }).limit(5),
+    svc.from("audit_log").select("id, action, target_table, created_at, profiles:actor_id(email)").eq("org_id", orgId).order("created_at", { ascending: false }).limit(10),
+    supabase.from("applications").select("created_at").eq("org_id", orgId).gte("created_at", new Date(Date.now() - 1000 * 60 * 60 * 24 * 180).toISOString()),
   ]);
 
   // Bucket apps by month over last 6 months
