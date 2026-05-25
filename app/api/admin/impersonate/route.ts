@@ -55,11 +55,22 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({} as any));
   const action: string = body?.action;
 
-  // ── STOP path: clear cookie + audit ──────────────────────
+  // ── STOP path: clear cookie + reset test app's contact_email + audit ──
   if (action === "stop") {
     const res = NextResponse.json({ ok: true, mode: "self" });
     res.cookies.set(IMPERSONATE_COOKIE, "", { path: "/", maxAge: 0 });
     const testId = await getTestRecipientId();
+    // Reset test app's contact_email so it doesn't keep the last admin's
+    // address bleeding across demo sessions. Best-effort; failures logged.
+    if (testId) {
+      const { data: rec } = await svc
+        .from("recipients").select("application_id").eq("id", testId).maybeSingle();
+      if (rec?.application_id) {
+        await svc.from("applications")
+          .update({ contact_email: "test@example.com" })
+          .eq("id", rec.application_id);
+      }
+    }
     await writeAudit({
       actorId:     user.id,
       action:      "impersonate_stop",
@@ -73,9 +84,12 @@ export async function POST(req: Request) {
   if (action === "start") {
     const testId = await getTestRecipientId();
     if (!testId) {
+      // Configuration gap, not a runtime crash. Return 503 so the UI can
+      // distinguish "feature not set up here" from "code broken".
       return NextResponse.json({
-        error: "test_recipient_id not configured in app_settings — seed it first",
-      }, { status: 500 });
+        error: "Impersonation isn't configured on this deploy. Seed app_settings.test_recipient_id with a recipient UUID first.",
+        code: "not_configured",
+      }, { status: 503 });
     }
 
     // Wipe transient data on the test recipient so the next session

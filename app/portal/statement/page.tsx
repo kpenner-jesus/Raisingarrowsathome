@@ -22,21 +22,21 @@ export default async function StatementPage({ searchParams }: { searchParams?: {
   // Impersonation-aware lookup. Returns the test recipient when an admin
   // is viewing as a test grantee, else the user's own profile-linked row.
   const ctx = await getEffectiveRecipient(user.id);
-  const recipient = ctx.recipient
-    ? await (async () => {
-        // Pull the same shape as the original query (with the wider
-        // applications projection) from the resolved recipient id.
-        const { data } = await svc.from("recipients")
-          .select(`
-            id, approved_amount, reimbursement_rate, status, created_at, cohort_year,
-            address_street, address_city, address_postal,
-            applications!inner(parent_names, contact_email, contact_phone, city, app_ref)
-          `)
-          .eq("id", ctx.recipient.id)
-          .maybeSingle();
-        return data;
-      })()
-    : null;
+
+  // Re-query with the wider projection (parent_names, app_ref, etc) this page needs.
+  async function loadStatementRecipient(recipientId: string) {
+    const { data } = await svc.from("recipients")
+      .select(`
+        id, approved_amount, reimbursement_rate, status, created_at, cohort_year,
+        address_street, address_city, address_postal,
+        applications!inner(parent_names, contact_email, contact_phone, city, app_ref)
+      `)
+      .eq("id", recipientId)
+      .maybeSingle();
+    return data;
+  }
+
+  const recipient = ctx.recipient ? await loadStatementRecipient(ctx.recipient.id) : null;
 
   if (!recipient) {
     return (

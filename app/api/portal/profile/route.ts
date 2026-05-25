@@ -59,7 +59,17 @@ export async function PATCH(req: Request) {
     }
   }
   if (!isOwner && !impersonationOk) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    // Distinguish the two reasons for clarity in logs/UI:
+    //  - Plain non-owner    → "forbidden"
+    //  - Impersonator trying to edit a non-test recipient → specific msg
+    const isImpersonatingButWrongRecipient =
+      isImpersonationAllowed() && cookies().get(IMPERSONATE_COOKIE)?.value
+      && recipientId !== (await getTestRecipientId());
+    return NextResponse.json({
+      error: isImpersonatingButWrongRecipient
+        ? "during impersonation you can only edit the test grantee row"
+        : "forbidden",
+    }, { status: 403 });
   }
 
   const recipientBefore = { address_street: own.address_street, address_city: own.address_city, address_postal: own.address_postal };

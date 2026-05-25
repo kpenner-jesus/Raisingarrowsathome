@@ -18,19 +18,21 @@ export default async function ProfilePage() {
   // admin's own (typically non-existent) profile-linked recipient.
   const ctx = await getEffectiveRecipient(user.id);
   const svc = supabaseService();
-  const recipient = ctx.recipient
-    ? await (async () => {
-        // Re-query with the wider projection the page needs.
-        const { data } = await svc.from("recipients")
-          .select(`
-            id, address_street, address_city, address_postal,
-            applications!inner(id, parent_names, contact_email, contact_phone, city)
-          `)
-          .eq("id", ctx.recipient.id)
-          .maybeSingle();
-        return data;
-      })()
-    : null;
+
+  // Re-query with the wider projection this page needs (parent_names etc).
+  // Returns null when no recipient resolves OR the row was concurrently deleted.
+  async function loadProfileRecipient(recipientId: string) {
+    const { data } = await svc.from("recipients")
+      .select(`
+        id, address_street, address_city, address_postal,
+        applications!inner(id, parent_names, contact_email, contact_phone, city)
+      `)
+      .eq("id", recipientId)
+      .maybeSingle();
+    return data;
+  }
+
+  const recipient = ctx.recipient ? await loadProfileRecipient(ctx.recipient.id) : null;
 
   if (!recipient) {
     return (
