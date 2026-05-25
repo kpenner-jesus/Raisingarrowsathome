@@ -28,20 +28,50 @@ interface SendOpts {
   to:      string;
   subject: string;
   html:    string;
+  /** Tenant id — when provided, the from-address falls back to the
+   *  tenant's verified sender (if any) before the env default. */
+  orgId?:  string | null;
 }
 
-async function send({ to, subject, html }: SendOpts) {
+/**
+ * Resolve the from-address for an outbound email.
+ *  1. If orgId given AND that tenant has sender_email + sender_verified=true
+ *     → use "<tenant.name> <tenant.sender_email>".
+ *  2. Else → RESEND_FROM env (platform shared sender).
+ *  3. Else → FROM_DEFAULT (Resend sandbox; should only hit in local dev).
+ */
+async function resolveFrom(orgId?: string | null): Promise<string> {
+  if (orgId) {
+    try {
+      const svc = supabaseService();
+      const { data } = await svc.from("tenants")
+        .select("name, sender_email, sender_verified")
+        .eq("id", orgId)
+        .maybeSingle();
+      if (data?.sender_verified && data.sender_email) {
+        // Resend allows "Display Name <email@domain>" syntax.
+        const safeName = String(data.name || "").replace(/[<>]/g, "").slice(0, 80);
+        return safeName ? `${safeName} <${data.sender_email}>` : data.sender_email;
+      }
+    } catch (e) {
+      console.warn("[notify] tenant sender lookup failed:", (e as any)?.message || e);
+    }
+  }
+  return process.env.RESEND_FROM || FROM_DEFAULT;
+}
+
+async function send({ to, subject, html, orgId }: SendOpts) {
   const client = resend();
   if (!client) {
     console.warn("[notify] RESEND_API_KEY missing — skipping", { to, subject });
     return;
   }
-  const from = process.env.RESEND_FROM || FROM_DEFAULT;
+  const from = await resolveFrom(orgId);
   try {
     const { error } = await client.emails.send({ from, to, subject, html });
-    if (error) console.error("[notify] Resend error", error, { to, subject });
+    if (error) console.error("[notify] Resend error", error, { to, subject, from });
   } catch (err: any) {
-    console.error("[notify] Resend exception", err?.message || err, { to, subject });
+    console.error("[notify] Resend exception", err?.message || err, { to, subject, from });
   }
 }
 
@@ -74,11 +104,14 @@ interface LoadedTemplate {
   body_text: string | null;
 }
 
-async function loadTemplate(key: string): Promise<LoadedTemplate | null> {
+async function loadTemplate(key: string, orgId?: string | null): Promise<LoadedTemplate | null> {
   try {
     const svc = supabaseService();
-    const { data, error } = await svc.from("email_templates")
-      .select("subject, body_html, body_text").eq("key", key).single();
+    // Scope to tenant when we know which one — email_templates now has
+    // a UNIQUE(org_id, key) constraint, so multiple rows could share a key.
+    let q = svc.from("email_templates").select("subject, body_html, body_text").eq("key", key);
+    if (orgId) q = q.eq("org_id", orgId);
+    const { data, error } = await q.maybeSingle();
     if (error || !data) return null;
     return { subject: data.subject, body_html: data.body_html, body_text: data.body_text };
   } catch {
@@ -104,26 +137,29 @@ function button(label: string, href: string): string {
 }
 
 /** Common dispatch:
- *   - Try to load `key` from email_templates.
+ *   - Try to load `key` from email_templates scoped to orgId.
  *   - Substitute vars (vars in `raw` are inserted unescaped).
  *   - If DB template missing, call the fallback closure.
- *   - Either way the inner body is wrapped in the brand chrome. */
+ *   - Either way the inner body is wrapped in the brand chrome.
+ *   - When orgId is supplied, the from-address is the tenant's verified
+ *     sender (if any); otherwise the platform shared sender. */
 async function sendTemplated(opts: {
   to: string;
   key: string;
   vars: Record<string, any>;
   raw?: Set<string>;
   fallback: () => { subject: string; html: string };
+  orgId?: string | null;
 }) {
-  const tpl = await loadTemplate(opts.key);
+  const tpl = await loadTemplate(opts.key, opts.orgId);
   if (tpl) {
     const subject = substitute(tpl.subject, opts.vars).trim();
     const innerHtml = substitute(tpl.body_html, opts.vars, opts.raw);
-    await send({ to: opts.to, subject: subject || "Raising Arrows", html: wrap(innerHtml) });
+    await send({ to: opts.to, subject: subject || "Raising Arrows", html: wrap(innerHtml), orgId: opts.orgId });
     return;
   }
   const fb = opts.fallback();
-  await send({ to: opts.to, subject: fb.subject, html: wrap(fb.html) });
+  await send({ to: opts.to, subject: fb.subject, html: wrap(fb.html), orgId: opts.orgId });
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -136,12 +172,14 @@ export async function notifyApplicationApproved(args: {
   approved_amount: number;
   rate: number;
   portal_url: string;
+  orgId?: string | null;
 }) {
   const amount = `$${args.approved_amount.toFixed(2)}`;
   const ratePct = `${(args.rate * 100).toFixed(0)}%`;
   await sendTemplated({
     to: args.to,
     key: "application_approved",
+    orgId: args.orgId,
     vars: {
       parent_names:    args.parent_names,
       approved_amount: amount,
@@ -170,9 +208,11 @@ export async function notifyApplicationReceived(args: {
   parent_names: string;
   app_ref: string;
   withdraw_url: string;
+  orgId?: string | null;
 }) {
   await send({
     to: args.to,
+    orgId: args.orgId,
     subject: "We received your Raising Arrows application",
     html: wrap(`
       <p>Hi ${esc(args.parent_names)},</p>
@@ -190,10 +230,12 @@ export async function notifyApplicationDenied(args: {
   to: string;
   parent_names: string;
   admin_notes: string;
+  orgId?: string | null;
 }) {
   await sendTemplated({
     to: args.to,
     key: "application_denied",
+    orgId: args.orgId,
     vars: {
       parent_names: args.parent_names,
       admin_notes:  args.admin_notes,
@@ -216,11 +258,13 @@ export async function notifyReceiptApproved(args: {
   amount: number;
   description: string;
   portal_url: string;
+  orgId?: string | null;
 }) {
   const amount = args.amount.toFixed(2);
   await sendTemplated({
     to: args.to,
     key: "receipt_approved",
+    orgId: args.orgId,
     vars: {
       parent_names: args.parent_names,
       amount,
@@ -246,11 +290,13 @@ export async function notifyReceiptRejected(args: {
   description: string;
   admin_notes: string;
   portal_url: string;
+  orgId?: string | null;
 }) {
   const amount = args.amount.toFixed(2);
   await sendTemplated({
     to: args.to,
     key: "receipt_rejected",
+    orgId: args.orgId,
     vars: {
       parent_names: args.parent_names,
       amount,
@@ -277,11 +323,13 @@ export async function notifyBatchPaid(args: {
   parent_names: string;
   amount: number;
   portal_url: string;
+  orgId?: string | null;
 }) {
   const amount = args.amount.toFixed(2);
   await sendTemplated({
     to: args.to,
     key: "batch_paid",
+    orgId: args.orgId,
     vars: {
       parent_names: args.parent_names,
       amount,
