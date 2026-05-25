@@ -20,6 +20,7 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { sendDueBroadcasts } from "@/app/lib/broadcasts";
 import { emailMonthlyBackup } from "@/app/lib/backup";
+import { processBillingReminders } from "@/app/lib/billing-reminders";
 
 function constantTimeEq(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -55,8 +56,12 @@ export async function GET(req: Request) {
   // of the date-specific jobs above.
   const broadcastResults = await sendDueBroadcasts().catch((e) => ({ error: e?.message ?? "failed" } as any));
 
+  // Platform-level billing reminders (trial-ending + past-due nudges).
+  // Runs every day; per-tenant logic decides whether anyone gets emailed.
+  const reminderResults = await processBillingReminders(now).catch((e) => ({ error: e?.message ?? "failed" } as any));
+
   if (fires.length === 0) {
-    return NextResponse.json({ ok: true, day, fired: [], broadcasts: broadcastResults, backup: backupResult, note: "no date-specific job scheduled" });
+    return NextResponse.json({ ok: true, day, fired: [], broadcasts: broadcastResults, billing_reminders: reminderResults, backup: backupResult, note: "no date-specific job scheduled" });
   }
 
   const results: any[] = [];
@@ -75,7 +80,7 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, day, fired: results, broadcasts: broadcastResults, backup: backupResult });
+  return NextResponse.json({ ok: true, day, fired: results, broadcasts: broadcastResults, billing_reminders: reminderResults, backup: backupResult });
 }
 
 function safeJson(s: string): any {

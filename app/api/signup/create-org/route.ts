@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { sendWelcomeToNewOrgOwner } from "@/app/lib/notify-platform";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
     plan: "basic",
     trial_ends_at: trialEnds,
     brand_color: "#e8793a",
-  }).select("id, slug").single();
+  }).select("id, slug, name").single();
 
   if (insErr) {
     if (insErr.code === "23505") {
@@ -87,6 +88,18 @@ export async function POST(req: Request) {
   // path is reserved for the original raising-arrows tenant (already excluded
   // via RESERVED_SLUGS).
   const redirect_url = `/o/${tenant.slug}/admin`;
+
+  // Fire-and-forget welcome email. Failures don't block signup.
+  const proto = req.headers.get("x-forwarded-proto") || "https";
+  const origin = `${proto}://${host}`;
+  const adminUrl = `${origin}${redirect_url}`;
+  void sendWelcomeToNewOrgOwner({
+    to: user.email ?? "",
+    orgName: tenant.name ?? name,
+    slug: tenant.slug,
+    adminUrl,
+    trialEndsAt: new Date(trialEnds),
+  }).catch((e) => console.warn("[signup] welcome email failed:", e?.message || e));
 
   return NextResponse.json({ ok: true, org_id: tenant.id, slug: tenant.slug, redirect_url });
 }
