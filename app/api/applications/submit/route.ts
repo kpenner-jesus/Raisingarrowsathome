@@ -18,6 +18,7 @@ import { sendAdminAlert } from "@/app/lib/alerts";
 import { notifyApplicationReceived } from "@/app/lib/notify";
 import { signToken } from "@/app/lib/hmac";
 import { getSettings } from "@/app/lib/settings";
+import { getOrgContext, orgPath } from "@/app/lib/org-context";
 import { randomBytes } from "crypto";
 
 const MAX_TEXT = 4000;
@@ -37,6 +38,13 @@ function generateAppRef(firstName: string): string {
 
 export async function POST(req: Request) {
   try {
+    // Resolve the tenant for this request. Path-routed (/o/<slug>/api/...)
+    // resolves via middleware-set header; legacy hosts resolve from Host.
+    const orgCtx = await getOrgContext();
+    if (!orgCtx) {
+      return new NextResponse("no tenant resolved for this host", { status: 400 });
+    }
+
     // Intake gate — closed = hard reject. waitlist = accept + flag.
     const settings = await getSettings();
     if (settings.intakeStatus === "closed") {
@@ -79,6 +87,7 @@ export async function POST(req: Request) {
     const { data, error } = await supabase
       .from("applications")
       .insert({
+        org_id:            orgCtx.id,
         app_ref,
         parent_names:      clip(parent_names, 200),
         city:              clip(city, 100),
@@ -103,16 +112,18 @@ export async function POST(req: Request) {
         to:           clip(contact_email, 200),
         parent_names: clip(parent_names, 100),
         app_ref:      data.app_ref,
-        withdraw_url: `${origin}/apply/withdraw?token=${encodeURIComponent(withdrawToken)}`,
+        withdraw_url: `${origin}${orgPath(orgCtx, `/apply/withdraw?token=${encodeURIComponent(withdrawToken)}`)}`,
+        orgId:        orgCtx.id,
       }).catch(() => { /* logged inside */ });
     } catch { /* signing failed (missing secret) — skip silently */ }
 
     // Fire-and-forget admin alert (Slack + email). Never blocks/fails the user.
     sendAdminAlert({
-      title: "New grant application",
+      title: `New grant application — ${orgCtx.name}`,
       summary: `${clip(parent_names, 60)} just submitted an application.`,
-      url: `${origin}/admin/applications/${data.id}`,
+      url: `${origin}${orgPath(orgCtx, `/admin/applications/${data.id}`)}`,
       fields: [
+        { label: "Org",      value: orgCtx.name },
         { label: "Family",   value: clip(parent_names, 100) },
         { label: "City",     value: clip(city, 100) || "—" },
         { label: "Email",    value: clip(contact_email, 200) },

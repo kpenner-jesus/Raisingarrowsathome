@@ -360,6 +360,7 @@ export async function notifySubmissionWindowSummary(args: {
   pending_for_review:       { name: string; amount: string; desc: string }[];
   approved_awaiting_payout: { name: string; reimbursable_cad: string; desc: string }[];
   admin_url: string;
+  orgId?:    string | null;
 }) {
   const pendingRows = args.pending_for_review.length === 0
     ? `<p style="color:#888;font-style:italic;">No receipts awaiting your review.</p>`
@@ -388,8 +389,9 @@ export async function notifySubmissionWindowSummary(args: {
       </table>`;
 
   await send({
-    to: args.to,
-    subject: `Raising Arrows — ${esc(args.bucket_label)} payout window`,
+    to:     args.to,
+    orgId:  args.orgId ?? null,
+    subject: `${esc(args.bucket_label)} payout window — summary`,
     html: wrap(`
       <p>Hi Tierza,</p>
       <p>The submission window for <strong>${esc(args.bucket_label)}</strong> is now closing. Payouts run on ${esc(args.pay_date_description)}.</p>

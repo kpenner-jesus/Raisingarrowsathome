@@ -1,8 +1,8 @@
 // ============================================================
 //  GET /api/cron/generate-payouts?bucket=mid|end
 //
-//  Vercel Cron entry point. Forwards to /api/admin/payouts/generate
-//  with the same bucket flag.
+//  Iterates every active tenant and generates a payout batch for each.
+//  Tenant statuses processed: active, trialing, free.
 //
 //  Auth: Authorization header must equal exactly `Bearer ${CRON_SECRET}`.
 //        timingSafeEqual comparison.
@@ -10,6 +10,7 @@
 
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
+import { generatePayoutsForOrg, listActiveTenants, type PayoutBucket } from "@/app/lib/payouts";
 
 function constantTimeEq(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
@@ -24,12 +25,22 @@ export async function GET(req: Request) {
     return new NextResponse("unauthorized", { status: 401 });
   }
 
-  const url    = new URL(req.url);
-  const bucket = url.searchParams.get("bucket") || "manual";
-  const res    = await fetch(`${url.origin}/api/admin/payouts/generate?bucket=${encodeURIComponent(bucket)}`, {
-    method:  "POST",
-    headers: { "x-cron-secret": secret },
-  });
-  const text = await res.text();
-  return new NextResponse(text, { status: res.status, headers: { "Content-Type": "application/json" } });
+  const url = new URL(req.url);
+  const reqBucket = url.searchParams.get("bucket");
+  const bucket: PayoutBucket = (reqBucket === "mid" || reqBucket === "end" ? reqBucket : "manual");
+
+  const tenants = await listActiveTenants();
+  const results = [];
+
+  for (const t of tenants) {
+    try {
+      const r = await generatePayoutsForOrg(t.id, bucket);
+      results.push({ slug: t.slug, ...r });
+    } catch (e: any) {
+      console.error(`[cron/generate-payouts] ${t.slug} failed:`, e?.message || e);
+      results.push({ slug: t.slug, org_id: t.id, error: e?.message || "failed" });
+    }
+  }
+
+  return NextResponse.json({ ok: true, bucket, tenants_processed: tenants.length, results });
 }

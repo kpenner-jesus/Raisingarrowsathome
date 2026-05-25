@@ -96,12 +96,24 @@ const fetchTenantBySlug = cache(async (slug: string) => {
 /**
  * Read org context from the request — for use in server components and
  * route handlers. Returns null when no org resolves (signup/marketing pages).
+ *
+ * Fallback: middleware sets x-ra-org-slug for paths it matches (/admin,
+ * /portal, /o/<slug>/*), but NOT for /api/* on legacy hosts. When the
+ * header is missing we resolve from the Host header directly so public
+ * API routes hit from the apply funnel still find their tenant.
  */
 export async function getOrgContext(): Promise<OrgContext | null> {
   const h = headers();
-  const slug = h.get("x-ra-org-slug");
+  let slug     = h.get("x-ra-org-slug");
+  let prefixed = h.get("x-ra-org-prefixed") === "1";
+
+  if (!slug) {
+    const host = h.get("host") || "";
+    // Path is unknown at this layer for header-less callers; resolve from host only.
+    slug = resolveOrgSlug(host, "/");
+    prefixed = false;
+  }
   if (!slug) return null;
-  const prefixed = h.get("x-ra-org-prefixed") === "1";
 
   const data = await fetchTenantBySlug(slug);
   return data ? { ...(data as any), prefixed } : null;
