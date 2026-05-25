@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { getEffectiveRecipient } from "@/app/lib/impersonation";
+import { requireOrgContext } from "@/app/lib/org-context";
 
 const MAX_RECEIPT_AMOUNT = 50_000;
 const ALLOWED_EXTS = ["jpg", "jpeg", "png", "webp", "heic", "heif", "pdf"];
@@ -21,8 +22,10 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
+  const orgCtx = await requireOrgContext();
+
   // Impersonation-aware recipient resolution.
-  const ctx = await getEffectiveRecipient(user.id);
+  const ctx = await getEffectiveRecipient(user.id, orgCtx.id);
   const recipient = ctx.recipient;
   if (!recipient) return new NextResponse("no recipient linked to this account", { status: 400 });
 

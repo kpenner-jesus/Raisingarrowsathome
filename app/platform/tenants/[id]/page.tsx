@@ -23,7 +23,7 @@ export default async function TenantDetail({ params }: { params: { id: string } 
       .select("user_id, role, created_at, profiles(email)")
       .eq("org_id", tenant.id)
       .order("created_at", { ascending: true }),
-    svc.rpc("platform_tenant_stats"),
+    svc.rpc("platform_tenant_stats", { p_org_id: params.id }),
     svc.from("applications")
       .select("id, parent_names, app_ref, status, created_at")
       .eq("org_id", tenant.id)

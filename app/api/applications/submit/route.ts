@@ -105,21 +105,25 @@ export async function POST(req: Request) {
       .single();
     if (error) return new NextResponse(error.message, { status: 500 });
 
-    // Fire-and-forget: confirmation email to family with self-withdraw link.
-    const origin = new URL(req.url).origin;
+    // Await notifications so a Vercel serverless teardown can't kill the
+    // Resend/Slack HTTPS call mid-flight (which silently drops the family's
+    // confirmation email + the admin Slack alert). Adds ~300ms to the
+    // response time — acceptable for a once-per-applicant action.
+    const origin = process.env.NEXT_PUBLIC_PLATFORM_URL || new URL(req.url).origin;
     try {
       const withdrawToken = signToken(`withdraw:${data.id}`, 60 * 60 * 24 * 30);  // 30 days
-      notifyApplicationReceived({
+      await notifyApplicationReceived({
         to:           clip(contact_email, 200),
         parent_names: clip(parent_names, 100),
         app_ref:      data.app_ref,
         withdraw_url: `${origin}${orgPath(orgCtx, `/apply/withdraw?token=${encodeURIComponent(withdrawToken)}`)}`,
         orgId:        orgCtx.id,
-      }).catch(() => { /* logged inside */ });
-    } catch { /* signing failed (missing secret) — skip silently */ }
+      }).catch((e: any) => console.warn("[submit] confirmation email failed:", e?.message || e));
+    } catch (e: any) {
+      console.warn("[submit] withdraw token signing failed:", e?.message || e);
+    }
 
-    // Fire-and-forget admin alert (Slack + email). Never blocks/fails the user.
-    sendAdminAlert({
+    await sendAdminAlert({
       title: `New grant application — ${orgCtx.name}`,
       summary: `${clip(parent_names, 60)} just submitted an application.`,
       url: `${origin}${orgPath(orgCtx, `/admin/applications/${data.id}`)}`,
@@ -131,7 +135,7 @@ export async function POST(req: Request) {
         { label: "Children", value: String(cleanChildren.length) },
         { label: "App ref",  value: data.app_ref },
       ],
-    }).catch(() => { /* logged inside */ });
+    }).catch((e: any) => console.warn("[submit] admin alert failed:", e?.message || e));
 
     return NextResponse.json({ id: data.id, app_ref: data.app_ref });
   } catch (e: any) {

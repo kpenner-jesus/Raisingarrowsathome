@@ -9,7 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
-import { stripe, stripeReady } from "@/app/lib/stripe";
+import { stripe, stripePortalReady } from "@/app/lib/stripe";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,9 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
 
-  const ready = stripeReady();
+  // Portal needs only STRIPE_SECRET_KEY — owners must always be able to
+  // self-serve update card / cancel even if WEBHOOK_SECRET isn't wired.
+  const ready = stripePortalReady();
   if (!ready.ready) return NextResponse.json({ error: `Billing not configured: ${ready.reason}` }, { status: 503 });
 
   const body = await req.json().catch(() => ({} as any));

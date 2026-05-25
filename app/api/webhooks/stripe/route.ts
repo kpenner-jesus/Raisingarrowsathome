@@ -1,19 +1,21 @@
 // POST /api/webhooks/stripe
 //
-// Stripe webhook handler. Verifies signature, dedupes by event_id, then
-// syncs subscription state into public.tenants:
-//   - customer.subscription.created/updated → tenants.status + plan + period_end
-//   - customer.subscription.deleted         → tenants.status = 'canceled'
-//   - invoice.payment_failed                → tenants.status = 'past_due'
-//   - checkout.session.completed            → links subscription_id
+// Stripe webhook handler. Verifies signature, then syncs subscription state
+// into public.tenants.
 //
-// Env required:
-//   STRIPE_WEBHOOK_SECRET  — set after creating the webhook in Stripe dashboard
+// Idempotency model:
+//   1. INSERT stripe_events { event_id, processed_at = null } — claims the event.
+//      ON CONFLICT 23505 → SELECT the existing row. If processed_at IS NOT NULL,
+//      we've already done the side effect → ack and exit. If processed_at IS
+//      NULL, a previous attempt crashed mid-flight → re-run the side effect.
+//   2. Run the side effect (tenants update).
+//   3. UPDATE stripe_events SET processed_at = now() — marks the event done.
 //
-// Idempotency: each event_id is recorded in public.stripe_events on first
-// receipt; a UNIQUE-violation on re-delivery returns early without applying
-// the side effect twice. DB-update errors throw out of the handler so the
-// response is 500 → Stripe retries the webhook automatically.
+// Why this order: doing the side effect FIRST then marking processed means a
+// crash between the two leaves processed_at=NULL → the retry re-runs the side
+// effect (which is idempotent — UPDATEs to tenants with same patch are no-ops).
+// The OLD order (insert row → run side effect) lost events on any handler
+// throw because the retry saw 23505 and acked without re-running.
 
 import { NextResponse } from "next/server";
 import { stripe } from "@/app/lib/stripe";
@@ -40,22 +42,30 @@ export async function POST(req: Request) {
 
   const svc = supabaseService();
 
-  // ── Idempotency: record the event_id, bail if we've seen it before. ──
-  // Stripe retries on 5xx, so without this any side effect (status flip,
-  // owner email) could fire multiple times for a single business event.
-  const { error: dupErr } = await svc.from("stripe_events").insert({
+  // ── Idempotency: claim the event_id (insert) or detect already-processed. ──
+  const { error: insErr } = await svc.from("stripe_events").insert({
     event_id:   event.id,
     event_type: event.type,
+    // processed_at left NULL — will set after side effect succeeds.
   });
-  if (dupErr) {
-    // 23505 = unique_violation → duplicate delivery → acknowledge & exit.
-    if ((dupErr as any).code === "23505") {
+
+  if (insErr) {
+    if ((insErr as any).code !== "23505") {
+      // Other DB error → return 500, Stripe retries.
+      console.error("[webhook] stripe_events insert failed", insErr);
+      return NextResponse.json({ error: insErr.message }, { status: 500 });
+    }
+    // 23505 = unique_violation: row already exists. Check if it's been processed.
+    const { data: existing } = await svc
+      .from("stripe_events")
+      .select("processed_at")
+      .eq("event_id", event.id)
+      .maybeSingle();
+    if (existing?.processed_at) {
       return NextResponse.json({ ok: true, duplicate: true, event: event.type });
     }
-    // Any other DB error means we couldn't persist the dedupe row; safer to
-    // return 500 so Stripe retries than to silently process the event.
-    console.error("[webhook] stripe_events insert failed", dupErr);
-    return NextResponse.json({ error: dupErr.message }, { status: 500 });
+    // Row exists but processed_at IS NULL → previous attempt crashed mid-flight.
+    // Fall through to re-run the side effect (idempotent UPDATEs make this safe).
   }
 
   async function findTenantBy(customerId?: string | null, subId?: string | null) {
@@ -70,7 +80,6 @@ export async function POST(req: Request) {
     return null;
   }
 
-  // Helper: do a tenants UPDATE and throw on error so we 500 (and Stripe retries).
   async function updateTenant(id: string, patch: Record<string, any>) {
     const { error } = await svc.from("tenants").update(patch).eq("id", id);
     if (error) {
@@ -100,8 +109,6 @@ export async function POST(req: Request) {
         const sub = event.data.object as Stripe.Subscription;
         const tenant = await findTenantBy(sub.customer as string, sub.id);
         if (tenant) {
-          // Stripe SDK shapes have shifted across versions; access these fields
-          // via `any` so the build doesn't break when the SDK upgrades.
           const anySub = sub as any;
           const periodEnd: number | null = anySub.current_period_end
             ?? anySub.items?.data?.[0]?.current_period_end
@@ -114,9 +121,16 @@ export async function POST(req: Request) {
             trial_ends_at:          trialEnd  ? new Date(trialEnd  * 1000).toISOString() : null,
             stripe_subscription_id: sub.id,
           };
-          // Status flipped OFF past_due → clear last-reminder so the next time
-          // billing breaks we'll send the first past_due nudge immediately.
-          if (tenant.status === "past_due" && sub.status !== "past_due") {
+          // Reset reminder state whenever we leave a reminder-applicable status.
+          // Covers:
+          //   trialing → active     (paid mid-trial; future re-trials should fire fresh reminders)
+          //   trialing → canceled   (user bailed; reset for clean slate if they resubscribe)
+          //   past_due → !past_due  (resolved card; next past_due fires nudge from scratch)
+          const wasTrialing = tenant.status === "trialing";
+          const isTrialing  = sub.status   === "trialing";
+          const wasPastDue  = tenant.status === "past_due";
+          const isPastDue   = sub.status   === "past_due";
+          if ((wasTrialing && !isTrialing) || (wasPastDue && !isPastDue)) {
             patch.last_reminder_kind    = null;
             patch.last_reminder_sent_at = null;
           }
@@ -129,7 +143,11 @@ export async function POST(req: Request) {
         const sub = event.data.object as Stripe.Subscription;
         const tenant = await findTenantBy(sub.customer as string, sub.id);
         if (tenant) {
-          await updateTenant(tenant.id, { status: "canceled" });
+          await updateTenant(tenant.id, {
+            status: "canceled",
+            last_reminder_kind:    null,
+            last_reminder_sent_at: null,
+          });
         }
         break;
       }
@@ -148,15 +166,18 @@ export async function POST(req: Request) {
       }
 
       default:
-        // Ignore everything else. We can extend later (refunds, disputes, etc.)
         break;
     }
   } catch (e: any) {
-    // Any update threw — return 500 so Stripe retries.
-    // The stripe_events row stays so the retry will dedupe and we won't
-    // double-process — fix the underlying error and reprocess manually.
+    // Side effect failed. Leave processed_at NULL so the next retry re-runs.
     return NextResponse.json({ error: e?.message || "handler failed" }, { status: 500 });
   }
+
+  // Side effect succeeded. Mark event processed so future retries ack as
+  // duplicate without re-running.
+  await svc.from("stripe_events")
+    .update({ processed_at: new Date().toISOString() })
+    .eq("event_id", event.id);
 
   return NextResponse.json({ ok: true, event: event.type });
 }

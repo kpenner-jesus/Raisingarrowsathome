@@ -4,11 +4,20 @@
 //  Auth is enforced at /api/mcp route (Bearer → admin profile).
 //  Each handler uses supabaseService() (RLS bypass) since the
 //  HTTP layer has already verified admin role.
+//
+//  Multi-tenant: every read/write on a tenant-scoped table MUST
+//  filter by ctx.org_id (read) or stamp org_id: ctx.org_id (insert).
+//  Tenant tables: applications, recipients, receipts, photos,
+//  payouts, payout_batches, testimonials, broadcasts,
+//  email_templates, app_settings, audit_log, email_events,
+//  email_optouts, api_tokens, application_notes, recipient_notes,
+//  admin_invites, receipt_categories.
 // ============================================================
 
 import { supabaseService } from "@/app/lib/supabase/server";
 import { calcBalance } from "@/app/lib/grant-calc";
 import { decideApplication as decideApp } from "@/app/lib/admin/decide-application";
+import { generatePayoutsForOrg } from "@/app/lib/payouts";
 import {
   notifyReceiptApproved,
   notifyReceiptRejected,
@@ -21,6 +30,20 @@ export interface ToolContext {
   /** Tenant the bearer token is scoped to — every DB read/write below must
    *  filter or stamp by this. */
   org_id:     string;
+  /** Tenant slug — used to build correct portal URLs in transactional emails
+   *  so path-routed tenants don't send links pointing at the host-default
+   *  tenant's portal. */
+  slug?:      string;
+}
+
+/**
+ * Build a portal URL that lands recipients on the RIGHT tenant's portal.
+ * Uses NEXT_PUBLIC_PLATFORM_URL (or the request origin) + /o/<slug>/portal
+ * when slug is known; else legacy bare /portal (raising-arrows fallback).
+ */
+function portalUrl(ctx: ToolContext): string {
+  const platform = process.env.NEXT_PUBLIC_PLATFORM_URL || ctx.origin;
+  return ctx.slug ? `${platform}/o/${ctx.slug}/portal` : `${platform}/portal`;
 }
 
 interface Tool {
@@ -44,10 +67,11 @@ const listApplications: Tool = {
       limit:  { type: "number", default: 50 },
     },
   },
-  handler: async ({ status, limit = 50 }) => {
+  handler: async ({ status, limit = 50 }, ctx) => {
     const supabase = supabaseService();
     let q = supabase.from("applications")
       .select("id, app_ref, parent_names, city, contact_email, status, created_at, children")
+      .eq("org_id", ctx.org_id)
       .order("created_at", { ascending: false })
       .limit(limit);
     if (status) q = q.eq("status", status);
@@ -65,9 +89,14 @@ const getApplication: Tool = {
     properties: { id: { type: "string" } },
     required: ["id"],
   },
-  handler: async ({ id }) => {
+  handler: async ({ id }, ctx) => {
     const supabase = supabaseService();
-    const { data, error } = await supabase.from("applications").select("*").eq("id", id).single();
+    const { data, error } = await supabase
+      .from("applications")
+      .select("*")
+      .eq("id", id)
+      .eq("org_id", ctx.org_id)
+      .single();
     if (error) throw new Error(error.message);
     return data;
   },
@@ -83,10 +112,11 @@ const listRecipients: Tool = {
       limit:  { type: "number", default: 100 },
     },
   },
-  handler: async ({ status, limit = 100 }) => {
+  handler: async ({ status, limit = 100 }, ctx) => {
     const supabase = supabaseService();
     let q = supabase.from("recipients")
       .select("id, approved_amount, reimbursement_rate, status, created_at, applications!inner(app_ref, parent_names, city, contact_email)")
+      .eq("org_id", ctx.org_id)
       .order("created_at", { ascending: false })
       .limit(limit);
     if (status) q = q.eq("status", status);
@@ -104,17 +134,27 @@ const getRecipient: Tool = {
     properties: { id: { type: "string" } },
     required: ["id"],
   },
-  handler: async ({ id }) => {
+  handler: async ({ id }, ctx) => {
     const supabase = supabaseService();
     const { data: recipient, error } = await supabase
       .from("recipients")
       .select("*, applications(*)")
       .eq("id", id)
+      .eq("org_id", ctx.org_id)
       .single();
     if (error) throw new Error(error.message);
 
-    const { data: receipts } = await supabase.from("receipts").select("id, amount, status, description, purchase_date, created_at").eq("recipient_id", id).order("created_at", { ascending: false });
-    const { data: payouts }  = await supabase.from("payouts").select("amount, status").eq("recipient_id", id);
+    const { data: receipts } = await supabase
+      .from("receipts")
+      .select("id, amount, status, description, purchase_date, created_at")
+      .eq("recipient_id", id)
+      .eq("org_id", ctx.org_id)
+      .order("created_at", { ascending: false });
+    const { data: payouts } = await supabase
+      .from("payouts")
+      .select("amount, status")
+      .eq("recipient_id", id)
+      .eq("org_id", ctx.org_id);
     const committedToDate = (payouts || []).filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + Number(p.amount), 0);
     const paidToDate      = (payouts || []).filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + Number(p.amount), 0);
 
@@ -141,9 +181,13 @@ const listReceipts: Tool = {
       limit:        { type: "number", default: 100 },
     },
   },
-  handler: async ({ recipient_id, status, limit = 100 }) => {
+  handler: async ({ recipient_id, status, limit = 100 }, ctx) => {
     const supabase = supabaseService();
-    let q = supabase.from("receipts").select("*").order("created_at", { ascending: false }).limit(limit);
+    let q = supabase.from("receipts")
+      .select("*")
+      .eq("org_id", ctx.org_id)
+      .order("created_at", { ascending: false })
+      .limit(limit);
     if (recipient_id) q = q.eq("recipient_id", recipient_id);
     if (status)       q = q.eq("status", status);
     const { data, error } = await q;
@@ -162,9 +206,13 @@ const listTestimonials: Tool = {
       limit:        { type: "number", default: 50 },
     },
   },
-  handler: async ({ recipient_id, limit = 50 }) => {
+  handler: async ({ recipient_id, limit = 50 }, ctx) => {
     const supabase = supabaseService();
-    let q = supabase.from("testimonials").select("*").order("created_at", { ascending: false }).limit(limit);
+    let q = supabase.from("testimonials")
+      .select("*")
+      .eq("org_id", ctx.org_id)
+      .order("created_at", { ascending: false })
+      .limit(limit);
     if (recipient_id) q = q.eq("recipient_id", recipient_id);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
@@ -180,9 +228,14 @@ const listPhotos: Tool = {
     properties: { recipient_id: { type: "string" } },
     required: ["recipient_id"],
   },
-  handler: async ({ recipient_id }) => {
+  handler: async ({ recipient_id }, ctx) => {
     const supabase = supabaseService();
-    const { data, error } = await supabase.from("photos").select("*").eq("recipient_id", recipient_id).order("created_at", { ascending: false });
+    const { data, error } = await supabase
+      .from("photos")
+      .select("*")
+      .eq("recipient_id", recipient_id)
+      .eq("org_id", ctx.org_id)
+      .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
     return data;
   },
@@ -198,9 +251,13 @@ const listPayoutBatches: Tool = {
       limit:  { type: "number", default: 24 },
     },
   },
-  handler: async ({ status, limit = 24 }) => {
+  handler: async ({ status, limit = 24 }, ctx) => {
     const supabase = supabaseService();
-    let q = supabase.from("payout_batches").select("*").order("scheduled_date", { ascending: false }).limit(limit);
+    let q = supabase.from("payout_batches")
+      .select("*")
+      .eq("org_id", ctx.org_id)
+      .order("scheduled_date", { ascending: false })
+      .limit(limit);
     if (status) q = q.eq("status", status);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
@@ -216,14 +273,20 @@ const getPayoutBatch: Tool = {
     properties: { id: { type: "string" } },
     required: ["id"],
   },
-  handler: async ({ id }) => {
+  handler: async ({ id }, ctx) => {
     const supabase = supabaseService();
-    const { data: batch, error: bErr } = await supabase.from("payout_batches").select("*").eq("id", id).single();
+    const { data: batch, error: bErr } = await supabase
+      .from("payout_batches")
+      .select("*")
+      .eq("id", id)
+      .eq("org_id", ctx.org_id)
+      .single();
     if (bErr) throw new Error(bErr.message);
     const { data: lines } = await supabase
       .from("payouts")
       .select("*, recipients!inner(approved_amount, applications!inner(parent_names, contact_email, city, app_ref))")
-      .eq("batch_id", id);
+      .eq("batch_id", id)
+      .eq("org_id", ctx.org_id);
     return { ...batch, lines: lines || [] };
   },
 };
@@ -239,10 +302,14 @@ const getReceiptImageUrl: Tool = {
     },
     required: ["receipt_id"],
   },
-  handler: async ({ receipt_id, ttl_secs = 300 }) => {
+  handler: async ({ receipt_id, ttl_secs = 300 }, ctx) => {
     const supabase = supabaseService();
     const { data: receipt, error: loadErr } = await supabase
-      .from("receipts").select("image_path").eq("id", receipt_id).single();
+      .from("receipts")
+      .select("image_path")
+      .eq("id", receipt_id)
+      .eq("org_id", ctx.org_id)
+      .single();
     if (loadErr || !receipt) throw new Error(loadErr?.message || "receipt not found");
     const { data, error } = await supabase.storage.from("receipts").createSignedUrl(receipt.image_path, ttl_secs);
     if (error) throw new Error(error.message);
@@ -261,10 +328,14 @@ const getPhotoImageUrl: Tool = {
     },
     required: ["photo_id"],
   },
-  handler: async ({ photo_id, ttl_secs = 300 }) => {
+  handler: async ({ photo_id, ttl_secs = 300 }, ctx) => {
     const supabase = supabaseService();
     const { data: photo, error: loadErr } = await supabase
-      .from("photos").select("image_path").eq("id", photo_id).single();
+      .from("photos")
+      .select("image_path")
+      .eq("id", photo_id)
+      .eq("org_id", ctx.org_id)
+      .single();
     if (loadErr || !photo) throw new Error(loadErr?.message || "photo not found");
     const { data, error } = await supabase.storage.from("photos").createSignedUrl(photo.image_path, ttl_secs);
     if (error) throw new Error(error.message);
@@ -322,6 +393,7 @@ const decideReceipt: Tool = {
       .from("receipts")
       .select("id, amount, description, status, recipients!inner(applications!inner(parent_names, contact_email))")
       .eq("id", id)
+      .eq("org_id", ctx.org_id)
       .single();
     if (loadErr || !receipt) throw new Error(loadErr?.message || "receipt not found");
     if (receipt.status !== "pending") throw new Error(`receipt already ${receipt.status}`);
@@ -335,6 +407,7 @@ const decideReceipt: Tool = {
         decided_by:  ctx.profile_id,
       })
       .eq("id", id)
+      .eq("org_id", ctx.org_id)
       .eq("status", "pending")
       .select("id")
       .maybeSingle();
@@ -347,7 +420,8 @@ const decideReceipt: Tool = {
       parent_names: application.parent_names,
       amount:       Number(receipt.amount),
       description:  receipt.description || "",
-      portal_url:   `${ctx.origin}/portal`,
+      portal_url:   portalUrl(ctx),
+      orgId:        ctx.org_id,
     };
     if (decision === "approved") await notifyReceiptApproved(notifyArgs);
     else                          await notifyReceiptRejected({ ...notifyArgs, admin_notes: notes || "" });
@@ -371,7 +445,7 @@ const modifyRecipient: Tool = {
     },
     required: ["id"],
   },
-  handler: async ({ id, approved_amount, reimbursement_rate, status }) => {
+  handler: async ({ id, approved_amount, reimbursement_rate, status }, ctx) => {
     const update: Record<string, any> = {};
     if (approved_amount !== undefined) {
       if (typeof approved_amount !== "number" || !Number.isFinite(approved_amount) || approved_amount < 0) {
@@ -392,7 +466,13 @@ const modifyRecipient: Tool = {
     if (Object.keys(update).length === 0) throw new Error("no fields to update");
 
     const supabase = supabaseService();
-    const { data, error } = await supabase.from("recipients").update(update).eq("id", id).select("*").single();
+    const { data, error } = await supabase
+      .from("recipients")
+      .update(update)
+      .eq("id", id)
+      .eq("org_id", ctx.org_id)
+      .select("*")
+      .single();
     if (error) throw new Error(error.message);
     return data;
   },
@@ -400,55 +480,14 @@ const modifyRecipient: Tool = {
 
 const generatePayoutBatch: Tool = {
   name:        "generate_payout_batch",
-  description: "Generate a payout batch from currently eligible recipients (same logic as the monthly cron). Atomic: scheduled/approved payouts already in flight count as committed, so a second call before the first batch is paid won't duplicate. Returns batch id and total.",
+  description: "Generate a payout batch from currently eligible recipients in this tenant (same logic as the monthly cron). Atomic: scheduled/approved payouts already in flight count as committed, so a second call before the first batch is paid won't duplicate. Returns batch id and total.",
   inputSchema: { type: "object", properties: {} },
-  handler: async (_args, _ctx) => {
-    const supabase = supabaseService();
-    const { data: recipients } = await supabase.from("recipients").select("*").eq("status", "active");
-    const today = new Date().toISOString().split("T")[0];
-    const { data: batch, error: batchErr } = await supabase
-      .from("payout_batches")
-      .insert({ scheduled_date: today, status: "draft", total: 0 })
-      .select("*")
-      .single();
-    if (batchErr) {
-      if (/duplicate key|unique/i.test(batchErr.message)) {
-        throw new Error("a draft batch for this date already exists");
-      }
-      throw new Error(batchErr.message);
+  handler: async (_args, ctx) => {
+    const result = await generatePayoutsForOrg(ctx.org_id, "manual");
+    if (result.skipped) {
+      throw new Error(result.skipped.reason);
     }
-
-    let batchTotal = 0;
-    let lines = 0;
-    for (const r of recipients || []) {
-      const { data: receipts } = await supabase.from("receipts").select("id, amount, status").eq("recipient_id", r.id);
-      const { data: payouts }  = await supabase.from("payouts").select("amount, status").eq("recipient_id", r.id);
-      const committedToDate = (payouts || []).filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + Number(p.amount), 0);
-      const paidToDate      = (payouts || []).filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + Number(p.amount), 0);
-      const balance = calcBalance({
-        receipts:        receipts || [],
-        rate:            Number(r.reimbursement_rate),
-        cap:             Number(r.approved_amount),
-        paidToDate,
-        committedToDate,
-      });
-      if (balance.eligibleForNextPayout > 0.01) {
-        const includedReceiptIds = (receipts || [])
-          .filter((x: any) => x.status === "approved")
-          .map((x: any) => x.id);
-        await supabase.from("payouts").insert({
-          batch_id:          batch.id,
-          recipient_id:      r.id,
-          amount:            Number(balance.eligibleForNextPayout.toFixed(2)),
-          receipts_included: includedReceiptIds,
-          status:            "scheduled",
-        });
-        batchTotal += balance.eligibleForNextPayout;
-        lines += 1;
-      }
-    }
-    await supabase.from("payout_batches").update({ total: Number(batchTotal.toFixed(2)) }).eq("id", batch.id);
-    return { batch_id: batch.id, total: batchTotal, lines };
+    return { batch_id: result.batch_id, total: result.total, lines: result.lines };
   },
 };
 
@@ -467,7 +506,11 @@ const markBatchPaid: Tool = {
     const supabase = supabaseService();
 
     const { data: batch, error: loadErr } = await supabase
-      .from("payout_batches").select("id, status, paid_at").eq("id", batch_id).single();
+      .from("payout_batches")
+      .select("id, status, paid_at")
+      .eq("id", batch_id)
+      .eq("org_id", ctx.org_id)
+      .single();
     if (loadErr || !batch) throw new Error(loadErr?.message || "batch not found");
     if (batch.status === "paid") {
       return { ok: true, already_paid: true, batch_id, paid_at: batch.paid_at, recipients_notified: 0 };
@@ -477,12 +520,14 @@ const markBatchPaid: Tool = {
       .from("payouts")
       .select("amount, recipients!inner(applications!inner(parent_names, contact_email))")
       .eq("batch_id", batch_id)
+      .eq("org_id", ctx.org_id)
       .in("status", ["scheduled", "approved"]);
 
     const now = new Date().toISOString();
     const updPayouts = await supabase.from("payouts")
       .update({ status: "paid", paid_at: now })
       .eq("batch_id", batch_id)
+      .eq("org_id", ctx.org_id)
       .in("status", ["scheduled", "approved"]);
     if (updPayouts.error) throw new Error(updPayouts.error.message);
 
@@ -490,7 +535,10 @@ const markBatchPaid: Tool = {
       status:        "paid",
       paid_at:       now,
       ceo_reference: ceo_reference || null,
-    }).eq("id", batch_id).neq("status", "paid");
+    })
+      .eq("id", batch_id)
+      .eq("org_id", ctx.org_id)
+      .neq("status", "paid");
     if (updBatch.error) throw new Error(updBatch.error.message);
 
     await Promise.all(((payouts as any[]) || []).map((p) =>
@@ -498,7 +546,8 @@ const markBatchPaid: Tool = {
         to:           p.recipients.applications.contact_email,
         parent_names: p.recipients.applications.parent_names,
         amount:       Number(p.amount),
-        portal_url:   `${ctx.origin}/portal`,
+        portal_url:   portalUrl(ctx),
+        orgId:        ctx.org_id,
       })
     ));
 
@@ -514,14 +563,20 @@ const exportBatchCsv: Tool = {
     properties: { batch_id: { type: "string" } },
     required: ["batch_id"],
   },
-  handler: async ({ batch_id }) => {
+  handler: async ({ batch_id }, ctx) => {
     const supabase = supabaseService();
-    const { data: batch } = await supabase.from("payout_batches").select("*").eq("id", batch_id).single();
+    const { data: batch } = await supabase
+      .from("payout_batches")
+      .select("*")
+      .eq("id", batch_id)
+      .eq("org_id", ctx.org_id)
+      .single();
     if (!batch) throw new Error("batch not found");
     const { data: payouts } = await supabase
       .from("payouts")
       .select("amount, status, receipts_included, recipients!inner(approved_amount, reimbursement_rate, applications!inner(parent_names, contact_email, contact_phone, city, app_ref))")
-      .eq("batch_id", batch_id);
+      .eq("batch_id", batch_id)
+      .eq("org_id", ctx.org_id);
 
     const rows: (string | number)[][] = [
       ["Raising Arrows — payout batch handoff"],
@@ -551,7 +606,11 @@ const exportBatchCsv: Tool = {
     }).join(",")).join("\n");
 
     if (batch.status === "draft") {
-      await supabase.from("payout_batches").update({ status: "exported", exported_at: new Date().toISOString() }).eq("id", batch.id);
+      await supabase
+        .from("payout_batches")
+        .update({ status: "exported", exported_at: new Date().toISOString() })
+        .eq("id", batch.id)
+        .eq("org_id", ctx.org_id);
     }
     return csv;
   },
@@ -591,7 +650,7 @@ const bulkCreateRecipients: Tool = {
     },
     required: ["rows"],
   },
-  handler: async ({ rows, grandfathered = true }, _ctx) => {
+  handler: async ({ rows, grandfathered = true }, ctx) => {
     if (!Array.isArray(rows) || rows.length === 0) throw new Error("rows must be a non-empty array");
     const supabase = supabaseService();
     const results: any[] = [];
@@ -608,6 +667,7 @@ const bulkCreateRecipients: Tool = {
         const app_ref = `RA-BULK-${firstName.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 12)}-${randSuffix}`;
 
         const { data: app, error: appErr } = await supabase.from("applications").insert({
+          org_id:            ctx.org_id,
           app_ref,
           parent_names:      r.parent_names,
           city:              r.address_city || "—",
@@ -624,6 +684,7 @@ const bulkCreateRecipients: Tool = {
         if (appErr) throw new Error(appErr.message);
 
         const { data: recipient, error: recErr } = await supabase.from("recipients").insert({
+          org_id:              ctx.org_id,
           application_id:      app.id,
           profile_id:          null,
           approved_amount:     Number(r.approved_amount),
@@ -640,6 +701,7 @@ const bulkCreateRecipients: Tool = {
         let legacy_payout_id: string | null = null;
         if (r.paid_to_date && Number(r.paid_to_date) > 0) {
           const { data: batch } = await supabase.from("payout_batches").insert({
+            org_id:         ctx.org_id,
             scheduled_date: todayDate,
             status:         "paid",
             total:          Number(r.paid_to_date),
@@ -650,6 +712,7 @@ const bulkCreateRecipients: Tool = {
           }).select("id").single();
           if (batch) {
             const { data: payout } = await supabase.from("payouts").insert({
+              org_id:            ctx.org_id,
               batch_id:          batch.id,
               recipient_id:      recipient.id,
               amount:            Number(r.paid_to_date),
@@ -679,43 +742,71 @@ const bulkCreateRecipients: Tool = {
 
 const setUserRole: Tool = {
   name:        "set_user_role",
-  description: "Promote/demote a team member. super_admin only — if called with a non-super-admin token, returns an error. Safety: won't demote the last super_admin.",
+  description: "Promote/demote a team member's role within THIS tenant. Caller must be the org owner OR a platform super_admin. Safety: won't demote the last owner of the org.",
   inputSchema: {
     type: "object",
     properties: {
       email: { type: "string" },
-      role:  { type: "string", enum: ["recipient", "admin", "super_admin"] },
+      role:  { type: "string", enum: ["recipient", "admin", "owner"] },
     },
     required: ["email", "role"],
   },
   handler: async ({ email, role }, ctx) => {
     const supabase = supabaseService();
 
-    // Verify the caller is a super_admin
-    const { data: actor } = await supabase.from("profiles").select("role").eq("id", ctx.profile_id).single();
-    if (actor?.role !== "super_admin") throw new Error("only super_admin can change roles");
-
-    const { data: target, error: loadErr } = await supabase.from("profiles").select("id, email, role").eq("email", email).single();
-    if (loadErr || !target) throw new Error("user not found");
-
-    if (target.role === "super_admin" && role !== "super_admin") {
-      const { count } = await supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "super_admin");
-      if ((count ?? 0) <= 1) throw new Error("cannot demote the last super_admin");
+    // Caller must be platform super_admin OR owner of THIS org.
+    const [{ data: actor }, { data: callerMembership }] = await Promise.all([
+      supabase.from("profiles").select("role").eq("id", ctx.profile_id).single(),
+      supabase.from("org_members").select("role").eq("org_id", ctx.org_id).eq("user_id", ctx.profile_id).maybeSingle(),
+    ]);
+    const isCallerPlatformSuper = actor?.role === "super_admin";
+    const isCallerOrgOwner      = callerMembership?.role === "owner";
+    if (!isCallerPlatformSuper && !isCallerOrgOwner) {
+      throw new Error("only platform super_admin or org owner can change roles");
     }
 
-    const { error } = await supabase.from("profiles").update({ role }).eq("id", target.id);
-    if (error) throw new Error(error.message);
+    const { data: targetProfile, error: loadErr } = await supabase.from("profiles").select("id, email").eq("email", email).single();
+    if (loadErr || !targetProfile) throw new Error("user not found");
+
+    const { data: targetMembership } = await supabase
+      .from("org_members").select("role")
+      .eq("org_id", ctx.org_id).eq("user_id", targetProfile.id)
+      .maybeSingle();
+    const fromRole = targetMembership?.role ?? "recipient";
+
+    // Refuse to leave the org without owners.
+    if (fromRole === "owner" && role !== "owner") {
+      const { count } = await supabase.from("org_members")
+        .select("*", { count: "exact", head: true })
+        .eq("org_id", ctx.org_id)
+        .eq("role", "owner");
+      if ((count ?? 0) <= 1) throw new Error("cannot demote the last owner");
+    }
+
+    if (role === "recipient") {
+      // Delete the org_members row (recipients have no membership row).
+      if (targetMembership) {
+        await supabase.from("org_members")
+          .delete()
+          .eq("org_id", ctx.org_id).eq("user_id", targetProfile.id);
+      }
+    } else {
+      await supabase.from("org_members").upsert(
+        { org_id: ctx.org_id, user_id: targetProfile.id, role },
+        { onConflict: "org_id,user_id" }
+      );
+    }
 
     await supabase.from("audit_log").insert({
       org_id:       ctx.org_id,
       actor_id:     ctx.profile_id,
       action:       "team.role_change",
-      target_table: "profiles",
-      target_id:    target.id,
-      details:      { email, from: target.role, to: role },
+      target_table: "org_members",
+      target_id:    targetProfile.id,
+      details:      { email, from: fromRole, to: role },
     });
 
-    return { ok: true, email, from: target.role, to: role };
+    return { ok: true, email, from: fromRole, to: role };
   },
 };
 

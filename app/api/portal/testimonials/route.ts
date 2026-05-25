@@ -3,13 +3,15 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { getEffectiveRecipient } from "@/app/lib/impersonation";
+import { requireOrgContext } from "@/app/lib/org-context";
 
 export async function POST(req: Request) {
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
-  const ctx = await getEffectiveRecipient(user.id);
+  const orgCtx = await requireOrgContext();
+  const ctx = await getEffectiveRecipient(user.id, orgCtx.id);
   const recipient = ctx.recipient;
   if (!recipient) return new NextResponse("no recipient", { status: 400 });
 

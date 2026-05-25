@@ -47,7 +47,21 @@ export async function authBearer(authHeader: string | null): Promise<AuthedToken
 
   const profile = (token as any).profiles;
   if (!profile) return null;
-  if (profile.role !== "admin" && profile.role !== "super_admin") return null;
+
+  // Auth model post-multi-tenant: tenant-admin status lives in org_members,
+  // NOT profiles.role. Accept token if EITHER:
+  //   (a) the token's profile is owner/admin in the token's org, OR
+  //   (b) profiles.role = 'super_admin' (platform support backdoor)
+  if (profile.role !== "super_admin") {
+    const { data: membership } = await supabase
+      .from("org_members")
+      .select("role")
+      .eq("org_id", token.org_id)
+      .eq("user_id", token.profile_id)
+      .maybeSingle();
+    if (!membership) return null;
+    if (membership.role !== "owner" && membership.role !== "admin") return null;
+  }
 
   // Fire-and-forget last_used update
   supabase.from("api_tokens").update({ last_used_at: new Date().toISOString() }).eq("id", token.id).then(() => {});

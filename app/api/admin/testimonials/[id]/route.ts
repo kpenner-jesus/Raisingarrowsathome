@@ -54,10 +54,15 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     .update(updates).eq("id", id).eq("org_id", orgCtx.id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const action = updates.status === "hidden" ? "hide_testimonial"
-              : updates.status === "approved" ? "approve_testimonial"
-              : updates.featured              ? "feature_testimonial"
-              : "approve_testimonial";
+  // Pick the most specific audit label that matches this PATCH. Falls back
+  // to a generic "update_testimonial" instead of mislabelling un-features
+  // and other partial edits as 'approve_testimonial'.
+  const action =
+    updates.status   === "hidden"      ? "hide_testimonial"   :
+    updates.status   === "approved"    ? "approve_testimonial":
+    updates.featured === true          ? "feature_testimonial":
+    updates.featured === false         ? "unfeature_testimonial":
+                                          "update_testimonial";
 
   await writeAudit({
     orgId: orgCtx.id,

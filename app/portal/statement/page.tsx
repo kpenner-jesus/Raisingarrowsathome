@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { getEffectiveRecipient } from "@/app/lib/impersonation";
+import { requireOrgContext } from "@/app/lib/org-context";
 import { PrintButton } from "./PrintButton";
 
 export const dynamic = "force-dynamic";
@@ -18,10 +19,11 @@ export default async function StatementPage({ searchParams }: { searchParams?: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login?next=%2Fportal%2Fstatement");
 
+  const orgCtx = await requireOrgContext();
   const svc = supabaseService();
   // Impersonation-aware lookup. Returns the test recipient when an admin
   // is viewing as a test grantee, else the user's own profile-linked row.
-  const ctx = await getEffectiveRecipient(user.id);
+  const ctx = await getEffectiveRecipient(user.id, orgCtx.id);
 
   // Re-query with the wider projection (parent_names, app_ref, etc) this page needs.
   async function loadStatementRecipient(recipientId: string) {

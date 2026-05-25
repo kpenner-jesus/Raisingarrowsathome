@@ -36,6 +36,15 @@ export interface AdminAuth {
 /**
  * Resolve tenant + signed-in user + admin-role check. Throws AdminAuthError
  * on any failure (caller maps to NextResponse with .status).
+ *
+ * Pass IS:
+ *  - org_members.role IN ('owner','admin') for ctx.id, OR
+ *  - profiles.role = 'super_admin' (platform support backdoor — matches
+ *    the DB-side is_platform_super() in our RLS policies)
+ *
+ * Pause enforcement: tenants in status='paused' or 'canceled' return 423
+ * (Locked) so admin actions stop working, but super_admin bypasses so
+ * Kevin can still poke at a misbehaving tenant from /platform.
  */
 export async function requireAdmin(): Promise<AdminAuth> {
   const ctx = await getOrgContext();
@@ -46,14 +55,22 @@ export async function requireAdmin(): Promise<AdminAuth> {
   if (!user) throw new AdminAuthError(401, "unauthorized");
 
   const svc = supabaseService();
-  const { data: membership } = await svc
-    .from("org_members")
-    .select("role")
-    .eq("org_id", ctx.id)
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (membership?.role !== "owner" && membership?.role !== "admin") {
+
+  // Two parallel checks: per-tenant org_members role + platform-wide super_admin.
+  const [{ data: membership }, { data: profile }] = await Promise.all([
+    svc.from("org_members").select("role").eq("org_id", ctx.id).eq("user_id", user.id).maybeSingle(),
+    svc.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+  ]);
+
+  const isOrgAdmin     = membership?.role === "owner" || membership?.role === "admin";
+  const isPlatformSuper = profile?.role === "super_admin";
+  if (!isOrgAdmin && !isPlatformSuper) {
     throw new AdminAuthError(403, "forbidden");
+  }
+
+  // Pause/cancel gate — super_admin bypass keeps support paths open.
+  if (!isPlatformSuper && (ctx.status === "paused" || ctx.status === "canceled")) {
+    throw new AdminAuthError(423, `tenant is ${ctx.status}`);
   }
 
   return { user, ctx };

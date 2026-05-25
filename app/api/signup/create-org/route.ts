@@ -8,17 +8,9 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { sendWelcomeToNewOrgOwner } from "@/app/lib/notify-platform";
+import { validateSlug } from "@/app/lib/signup-validation";
 
 export const dynamic = "force-dynamic";
-
-// Reserved slugs — anything that conflicts with a top-level Next.js route.
-const RESERVED_SLUGS = new Set<string>([
-  "admin", "portal", "apply", "auth", "signup", "platform",
-  "api", "_next", "static", "public", "o",
-  "raising-arrows", // reserve so existing tenant can't be impersonated by signup
-]);
-
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/;
 
 export async function POST(req: Request) {
   const supabase = supabaseServer();
@@ -27,12 +19,16 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({} as any));
   const name           = typeof body?.name === "string" ? body.name.trim().slice(0, 120) : "";
-  const slug           = typeof body?.slug === "string" ? body.slug.trim().toLowerCase() : "";
+  const slugRaw        = typeof body?.slug === "string" ? body.slug : "";
   const charity_number = typeof body?.charity_number === "string" ? body.charity_number.trim().slice(0, 40) : null;
 
-  if (!name)                  return NextResponse.json({ error: "Organization name is required." }, { status: 400 });
-  if (!SLUG_RE.test(slug))    return NextResponse.json({ error: "URL slug must be 3–64 lowercase letters/digits/hyphens, starting + ending alphanumeric." }, { status: 400 });
-  if (RESERVED_SLUGS.has(slug)) return NextResponse.json({ error: "That URL is reserved. Please pick another." }, { status: 400 });
+  if (!name) return NextResponse.json({ error: "Organization name is required." }, { status: 400 });
+
+  // Slug validation lives in app/lib/signup-validation.ts so create-org +
+  // check-slug + the unit tests all share one source of truth.
+  const v = validateSlug(slugRaw);
+  if (!v.ok) return NextResponse.json({ error: v.reason }, { status: 400 });
+  const slug = v.slug;
 
   const svc = supabaseService();
 
@@ -77,6 +73,32 @@ export async function POST(req: Request) {
   if (memberErr) {
     await svc.from("tenants").delete().eq("id", tenant.id);
     return NextResponse.json({ error: "Failed to set up org membership. Please try again." }, { status: 500 });
+  }
+
+  // Seed default email templates by copying from the canonical raising-arrows
+  // tenant. Best-effort: failures don't block signup since notify.ts has
+  // hardcoded HTML fallbacks. Onboarding checklist's 'Customize email
+  // templates' step now has rows to render + edit, instead of an empty page.
+  try {
+    const { data: ra } = await svc.from("tenants").select("id").eq("slug", "raising-arrows").maybeSingle();
+    if (ra?.id) {
+      const { data: defaults } = await svc.from("email_templates")
+        .select("key, subject, body_html, body_text")
+        .eq("org_id", ra.id);
+      if (defaults && defaults.length > 0) {
+        await svc.from("email_templates").insert(
+          defaults.map((t: any) => ({
+            org_id:    tenant.id,
+            key:       t.key,
+            subject:   t.subject,
+            body_html: t.body_html,
+            body_text: t.body_text,
+          })),
+        );
+      }
+    }
+  } catch (e: any) {
+    console.warn("[signup] email_templates seed failed (signup still succeeded):", e?.message || e);
   }
 
   // Brand-new tenants always get the /o/<slug>/admin URL. The legacy host

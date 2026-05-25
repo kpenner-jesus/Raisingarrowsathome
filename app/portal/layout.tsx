@@ -1,14 +1,41 @@
 import Link from "next/link";
-import { supabaseServer } from "@/app/lib/supabase/server";
+import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { MobileNavShell } from "@/app/_components/MobileNav";
 import { PortalLogoutLink } from "./_PortalLogoutLink";
 import { ImpersonationBanner } from "./_components/ImpersonationBanner";
+import { getOrgContext } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
+
+  // Tenant-status gate: paused/canceled tenants get a maintenance page
+  // unless the caller is a platform super_admin (for support work).
+  const orgCtx = await getOrgContext();
+  if (orgCtx && (orgCtx.status === "paused" || orgCtx.status === "canceled")) {
+    let isSuper = false;
+    if (user) {
+      const svc = supabaseService();
+      const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).maybeSingle();
+      isSuper = profile?.role === "super_admin";
+    }
+    if (!isSuper) {
+      return (
+        <div style={{ minHeight: "100vh", background: "var(--bg-gradient)", display: "grid", placeItems: "center", padding: "2rem 1.5rem", textAlign: "center" }}>
+          <div style={{ maxWidth: 480 }}>
+            <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.8rem", marginBottom: "0.75rem" }}>{orgCtx.name} is offline</h1>
+            <p style={{ color: "var(--text-secondary)", lineHeight: 1.7 }}>
+              This portal is temporarily paused. If you have questions about your grant, please email{" "}
+              <a href="mailto:register@raisingarrowsathome.com" style={{ color: "var(--accent)" }}>register@raisingarrowsathome.com</a>{" "}
+              and we'll point you at the right place.
+            </p>
+          </div>
+        </div>
+      );
+    }
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-gradient)" }}>

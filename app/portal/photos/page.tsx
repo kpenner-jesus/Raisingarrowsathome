@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { getEffectiveRecipient } from "@/app/lib/impersonation";
+import { requireOrgContext } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,8 @@ export default async function PhotosPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const ctx = await getEffectiveRecipient(user.id);
+  const orgCtx = await requireOrgContext();
+  const ctx = await getEffectiveRecipient(user.id, orgCtx.id);
   const recipient = ctx.recipient;
   if (!recipient) return <p style={{ color: "var(--text-secondary)" }}>Account not linked to a grant.</p>;
 

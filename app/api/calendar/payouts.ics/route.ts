@@ -23,15 +23,29 @@ function lastDayOfMonth(year: number, monthZero: number): number {
   return new Date(Date.UTC(year, monthZero + 1, 0)).getUTCDate();
 }
 
+/**
+ * Escape RFC 5545 §3.3.11 TEXT special chars. Without this, a tenant name
+ * like 'Hope House, Inc.; CRA 803...' would split the SUMMARY across
+ * parameter slots and break strict ICS clients (Apple Calendar).
+ */
+function escIcsText(s: string): string {
+  return String(s ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+
 function buildIcs(orgName: string, orgSlug: string): string {
   const now = new Date();
   const yearStart = now.getUTCFullYear();
+  const escName = escIcsText(orgName);
   const lines: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    `PRODID:-//${orgName}//Payout Calendar//EN`,
+    `PRODID:-//${escName}//Payout Calendar//EN`,
     "CALSCALE:GREGORIAN",
-    `X-WR-CALNAME:${orgName} payouts`,
+    `X-WR-CALNAME:${escName} payouts`,
     "X-WR-TIMEZONE:UTC",
   ];
 
@@ -50,7 +64,8 @@ function buildIcs(orgName: string, orgSlug: string): string {
         const start = new Date(Date.UTC(y, m, day, 12, 0, 0));
         const end   = new Date(Date.UTC(y, m, day, 12, 30, 0));
         // Per-tenant UID so subscribing to multiple orgs doesn't collide
-        // in the calendar client's de-dupe pass.
+        // in the calendar client's de-dupe pass. orgSlug is regex-restricted
+        // already so we don't need to escape it.
         const uid = `${orgSlug}-${y}${pad(m+1)}${pad(day)}-${e.name.replace(/\s+/g,"_")}@${orgSlug}.raisingarrowsathome.com`;
         lines.push(
           "BEGIN:VEVENT",
@@ -58,7 +73,7 @@ function buildIcs(orgName: string, orgSlug: string): string {
           `DTSTAMP:${dt(now)}`,
           `DTSTART:${dt(start)}`,
           `DTEND:${dt(end)}`,
-          `SUMMARY:${orgName} — ${e.name}`,
+          `SUMMARY:${escName} — ${escIcsText(e.name)}`,
           "DESCRIPTION:Automated cron job runs at noon UTC.",
           "END:VEVENT"
         );

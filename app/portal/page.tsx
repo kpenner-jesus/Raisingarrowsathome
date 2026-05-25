@@ -3,6 +3,7 @@ import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { calcBalance } from "@/app/lib/grant-calc";
 import { HelpHint } from "@/app/_components/HelpHint";
 import { getEffectiveRecipient } from "@/app/lib/impersonation";
+import { requireOrgContext } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +12,11 @@ export default async function PortalDashboard() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
+  const orgCtx = await requireOrgContext();
+
   // Use the impersonation-aware helper so admins viewing "as test grantee"
   // see the seeded test recipient instead of their own profile's recipient.
-  const ctx = await getEffectiveRecipient(user.id);
+  const ctx = await getEffectiveRecipient(user.id, orgCtx.id);
   const recipient = ctx.recipient;
   // Subsequent queries (receipts, payouts) need to run with service role
   // when impersonating, because the row isn't owned by the calling user

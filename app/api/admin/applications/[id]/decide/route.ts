@@ -16,15 +16,20 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!["approved", "denied"].includes(decision)) return new NextResponse("bad decision", { status: 400 });
 
   try {
+    // Use the trusted platform URL for invite redirects + portal links inside
+    // transactional emails so they land on THIS tenant's portal even when an
+    // admin is calling from a path-routed URL (where origin is the bare host).
+    const platformOrigin = process.env.NEXT_PUBLIC_PLATFORM_URL || new URL(req.url).origin;
     const result = await decideApplication({
       orgId:            ctx.id,
+      orgSlug:          ctx.slug,
       applicationId:    params.id,
       decision,
       approved_amount,
       rate,
       notes,
       deciderProfileId: user.id,
-      origin:           new URL(req.url).origin,
+      origin:           platformOrigin,
     });
     await writeAudit({
       orgId:       ctx.id,

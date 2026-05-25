@@ -91,14 +91,20 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     details:     { decision, reimbursable_amount: cleanReimbursable, currency: receipt.currency, notes: notes || null },
   });
 
-  const origin       = new URL(req.url).origin;
+  // Portal URL must point at THIS tenant's portal, not the host-default
+  // tenant — use platform URL + /o/<slug>/portal when prefixed.
+  const platformOrigin = process.env.NEXT_PUBLIC_PLATFORM_URL || new URL(req.url).origin;
+  const portalUrl = orgCtx.prefixed
+    ? `${platformOrigin}/o/${orgCtx.slug}/portal`
+    : `${platformOrigin}/portal`;
   const application  = (receipt as any).recipients.applications;
   const notifyArgs   = {
     to:           application.contact_email,
     parent_names: application.parent_names,
     amount:       Number(receipt.amount),
     description:  receipt.description || "",
-    portal_url:   `${origin}/portal`,
+    portal_url:   portalUrl,
+    orgId:        orgCtx.id,
   };
 
   if (decision === "approved") {

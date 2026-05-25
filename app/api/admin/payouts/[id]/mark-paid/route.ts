@@ -63,14 +63,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }).eq("id", params.id).eq("org_id", orgCtx.id).neq("status", "paid");
   if (updBatch.error) return new NextResponse(updBatch.error.message, { status: 500 });
 
-  const origin = new URL(req.url).origin;
+  const platformOrigin = process.env.NEXT_PUBLIC_PLATFORM_URL || new URL(req.url).origin;
+  const portalUrl = orgCtx.prefixed
+    ? `${platformOrigin}/o/${orgCtx.slug}/portal`
+    : `${platformOrigin}/portal`;
   const recipientsNotified = ((payouts as any[]) || []).length;
   await Promise.all(((payouts as any[]) || []).map((p) =>
     notifyBatchPaid({
       to:           p.recipients.applications.contact_email,
       parent_names: p.recipients.applications.parent_names,
       amount:       Number(p.amount),
-      portal_url:   `${origin}/portal`,
+      portal_url:   portalUrl,
+      orgId:        orgCtx.id,
     })
   ));
 

@@ -30,11 +30,13 @@ export async function generatePayoutsForOrg(
   bucket: PayoutBucket,
 ): Promise<GeneratePayoutsResult> {
   // For 'end' bucket only proceed when today actually IS the last day of the
-  // month — cron fires 28-31 to cover short months.
+  // month — cron fires 28-31 to cover short months. Use a UTC-anchored
+  // tomorrow so an admin clicking the button near UTC midnight still gets
+  // the right answer (24h-add then getUTCDate was timezone-fragile).
   if (bucket === "end") {
-    const today    = new Date();
-    const tomorrow = new Date(today.getTime() + 86_400_000);
-    if (tomorrow.getUTCDate() !== 1) {
+    const now = new Date();
+    const tomorrowUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    if (tomorrowUTC.getUTCDate() !== 1) {
       return { org_id: orgId, total: 0, lines: 0, skipped: { reason: "not last day of month" } };
     }
   }
@@ -64,7 +66,9 @@ export async function generatePayoutsForOrg(
     .select("*")
     .single();
   if (batchErr) {
-    if (/duplicate key|unique/i.test(batchErr.message)) {
+    // SQLSTATE 23505 = unique_violation. Use the code (API-stable) instead of
+    // a regex on the error message (which is localized + version-dependent).
+    if ((batchErr as any).code === "23505") {
       return { org_id: orgId, total: 0, lines: 0, skipped: { reason: "draft batch already exists for this date" } };
     }
     throw new Error(`payout_batches insert failed: ${batchErr.message}`);
@@ -131,12 +135,18 @@ export async function generatePayoutsForOrg(
   };
 }
 
-/** Tenants eligible for cron-driven payout generation. */
+/**
+ * Tenants eligible for cron-driven payout generation.
+ *
+ * Includes 'past_due' so a card-failure grace period doesn't silently stop a
+ * tenant's grant program. Excludes 'paused' and 'canceled' — those tenants
+ * have explicitly stopped (manual pause from /platform, or full cancellation).
+ */
 export async function listActiveTenants(): Promise<Array<{ id: string; slug: string; name: string }>> {
   const svc = supabaseService();
   const { data } = await svc
     .from("tenants")
     .select("id, slug, name")
-    .in("status", ["active", "trialing", "free"]);
+    .in("status", ["active", "trialing", "past_due"]);
   return (data || []) as any[];
 }

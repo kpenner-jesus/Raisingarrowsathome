@@ -55,6 +55,7 @@ export async function POST(req: Request) {
         to:           u.contact_email,
         parent_names: u.parent_names,
         admin_notes:  notes,
+        orgId:        orgCtx.id,
       });
       emailed++;
     } catch {

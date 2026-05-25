@@ -34,7 +34,7 @@ export {
   LEGACY_RAISING_ARROWS_HOSTS,
   isLegacyRaisingArrowsHost,
 } from "./org-routing";
-import { resolveOrgSlug as resolveOrgSlugPure } from "./org-routing";
+import { resolveOrgSlug as resolveOrgSlugPure, parseOrgPath } from "./org-routing";
 
 export type OrgContext = {
   id: string;
@@ -70,10 +70,20 @@ const fetchTenantBySlug = cache(async (slug: string) => {
  * Read org context from the request — for use in server components and
  * route handlers. Returns null when no org resolves (signup/marketing pages).
  *
- * Fallback: middleware sets x-ra-org-slug for paths it matches (/admin,
- * /portal, /o/<slug>/*), but NOT for /api/* on legacy hosts. When the
- * header is missing we resolve from the Host header directly so public
- * API routes hit from the apply funnel still find their tenant.
+ * Resolution order:
+ *  1. x-ra-org-slug header (set by middleware for /o/<slug>/* paths).
+ *  2. Referer URL path — for client fetches hitting /api/* the request has
+ *     no /o/ prefix but the Referer header carries the originating admin
+ *     page's URL, which DOES carry /o/<slug>/. This is what lets a path-
+ *     routed admin/portal page hit /api/admin/* and resolve back to its
+ *     own tenant without every fetch having to call orgPath() first.
+ *  3. Host header — legacy raisingarrowsathome.com hosts → raising-arrows.
+ *
+ * Note on Referer spoofing: a hostile client could lie about the Referer
+ * to address a different tenant, but the downstream auth gates
+ * (requireAdmin, RLS, etc.) verify org_members.role for the caller's
+ * user_id against the resolved org_id — so spoofing the Referer can only
+ * land the caller on a tenant they're ALREADY authorized for.
  */
 export async function getOrgContext(): Promise<OrgContext | null> {
   const h = headers();
@@ -81,8 +91,21 @@ export async function getOrgContext(): Promise<OrgContext | null> {
   let prefixed = h.get("x-ra-org-prefixed") === "1";
 
   if (!slug) {
+    const referer = h.get("referer");
+    if (referer) {
+      try {
+        const refUrl = new URL(referer);
+        const fromPath = parseOrgPath(refUrl.pathname);
+        if (fromPath) {
+          slug = fromPath.slug;
+          prefixed = true;
+        }
+      } catch { /* invalid Referer URL, fall through */ }
+    }
+  }
+
+  if (!slug) {
     const host = h.get("host") || "";
-    // Path is unknown at this layer for header-less callers; resolve from host only.
     slug = resolveOrgSlugPure(host, "/");
     prefixed = false;
   }

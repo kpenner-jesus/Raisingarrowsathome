@@ -26,10 +26,24 @@ export function stripe(): Stripe {
   return cached;
 }
 
-/** Is Stripe configured well enough to attempt a Checkout call? */
+/**
+ * Is Stripe configured well enough to attempt a Checkout call?
+ * Checkout requires the webhook secret too — without it, subscription
+ * status never syncs back into tenants.status.
+ */
 export function stripeReady(): { ready: boolean; reason?: string } {
   if (!process.env.STRIPE_SECRET_KEY)     return { ready: false, reason: "STRIPE_SECRET_KEY missing" };
   if (!process.env.STRIPE_PRICE_ID)       return { ready: false, reason: "STRIPE_PRICE_ID missing" };
   if (!process.env.STRIPE_WEBHOOK_SECRET) return { ready: false, reason: "STRIPE_WEBHOOK_SECRET missing" };
+  return { ready: true };
+}
+
+/**
+ * Lighter readiness check for the Customer Portal — only requires the
+ * secret key. Owners can update card / cancel even when webhook isn't
+ * wired (the webhook is only needed to KEEP tenants.status in sync).
+ */
+export function stripePortalReady(): { ready: boolean; reason?: string } {
+  if (!process.env.STRIPE_SECRET_KEY) return { ready: false, reason: "STRIPE_SECRET_KEY missing" };
   return { ready: true };
 }

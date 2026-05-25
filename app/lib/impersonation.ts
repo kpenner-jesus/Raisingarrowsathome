@@ -62,12 +62,24 @@ export async function getTestRecipientId(orgId?: string): Promise<string | null>
 }
 
 /**
- * Look up a user's role via service-role (no RLS surprises).
+ * Look up whether the user is an admin of a specific tenant via org_members.
+ * Post-multi-tenant refactor, tenant-admin status lives in org_members.role,
+ * not profiles.role. profiles.role is reserved for the platform super_admin
+ * support backdoor.
  */
-async function fetchRole(userId: string): Promise<string | null> {
+async function isTenantAdminOrSuper(userId: string, orgId: string): Promise<{ isAdmin: boolean; role: string }> {
   const svc = supabaseService();
-  const { data } = await svc.from("profiles").select("role").eq("id", userId).maybeSingle();
-  return data?.role ?? null;
+  const [{ data: membership }, { data: profile }] = await Promise.all([
+    svc.from("org_members").select("role").eq("org_id", orgId).eq("user_id", userId).maybeSingle(),
+    svc.from("profiles").select("role").eq("id", userId).maybeSingle(),
+  ]);
+  if (membership?.role === "owner" || membership?.role === "admin") {
+    return { isAdmin: true, role: membership.role };
+  }
+  if (profile?.role === "super_admin") {
+    return { isAdmin: true, role: "super_admin" };
+  }
+  return { isAdmin: false, role: profile?.role ?? "recipient" };
 }
 
 export type EffectiveContext =
@@ -77,11 +89,15 @@ export type EffectiveContext =
 /**
  * Resolve the recipient row to use for portal queries.
  *
- *  - If impersonating + all gates pass → the test recipient row.
- *  - Otherwise → the user's own profile-linked recipient (or null
- *    when the user has none, which is the normal case for admins).
+ *  - If impersonating + all gates pass → the test recipient row for the
+ *    current tenant.
+ *  - Otherwise → the user's own profile-linked recipient (or null when
+ *    the user has none, which is the normal case for admins).
+ *
+ *  `orgId` is required so we don't leak test_recipient_id lookups across
+ *  tenants (the legacy global lookup silently returned multi-row null).
  */
-export async function getEffectiveRecipient(userId: string): Promise<EffectiveContext> {
+export async function getEffectiveRecipient(userId: string, orgId: string): Promise<EffectiveContext> {
   const svc = supabaseService();
 
   // Cookie check (no-op fast path if disabled)
@@ -93,9 +109,8 @@ export async function getEffectiveRecipient(userId: string): Promise<EffectiveCo
   }
 
   if (impersonating) {
-    const role = await fetchRole(userId);
-    const isAdmin = role === "admin" || role === "super_admin";
-    const testId = await getTestRecipientId();
+    const { isAdmin, role } = await isTenantAdminOrSuper(userId, orgId);
+    const testId = await getTestRecipientId(orgId);
 
     // Defence-in-depth: all four conditions must hold.
     if (isAdmin && testId && cookieValue === testId) {
@@ -103,9 +118,10 @@ export async function getEffectiveRecipient(userId: string): Promise<EffectiveCo
         .from("recipients")
         .select("*, applications(*)")
         .eq("id", testId)
+        .eq("org_id", orgId)
         .maybeSingle();
       if (recipient) {
-        return { mode: "impersonating", recipient, viewerRole: role! };
+        return { mode: "impersonating", recipient, viewerRole: role };
       }
     }
     // If any gate failed, silently fall through to self-mode.
@@ -115,6 +131,7 @@ export async function getEffectiveRecipient(userId: string): Promise<EffectiveCo
     .from("recipients")
     .select("*, applications(*)")
     .eq("profile_id", userId)
+    .eq("org_id", orgId)
     .maybeSingle();
 
   return { mode: "self", recipient };

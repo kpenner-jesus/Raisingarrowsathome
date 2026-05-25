@@ -14,6 +14,7 @@
 import { NextResponse } from "next/server";
 import { authBearer } from "@/app/lib/mcp/auth";
 import { handleRpc, handleRpcBatch } from "@/app/lib/mcp/server";
+import { supabaseService } from "@/app/lib/supabase/server";
 import type { ToolContext } from "@/app/lib/mcp/tools";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,17 @@ export async function POST(req: Request) {
   }
 
   const origin = new URL(req.url).origin;
-  const ctx: ToolContext = { profile_id: token.profile_id, origin, org_id: token.org_id };
+
+  // Resolve the tenant slug from the token's org_id so MCP tool handlers
+  // can build portal URLs that land on the correct tenant.
+  const svc = supabaseService();
+  const { data: tenant } = await svc.from("tenants").select("slug").eq("id", token.org_id).maybeSingle();
+  const ctx: ToolContext = {
+    profile_id: token.profile_id,
+    origin,
+    org_id:     token.org_id,
+    slug:       tenant?.slug,
+  };
 
   let body: any;
   try { body = await req.json(); }

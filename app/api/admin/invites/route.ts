@@ -50,12 +50,25 @@ export async function POST(req: Request) {
   }).select("id").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const origin = new URL(req.url).origin;
-  const inviteUrl = `${origin}/admin/onboard?token=${encodeURIComponent(token)}`;
+  // Build the absolute invite URL from PLATFORM_URL + orgPath so the link
+  // lands the invitee at THIS tenant's /admin/onboard, not the host-default.
+  const platformOrigin = process.env.NEXT_PUBLIC_PLATFORM_URL || new URL(req.url).origin;
+  const orgPathPrefix  = orgCtx.prefixed ? `/o/${orgCtx.slug}` : "";
+  const inviteUrl = `${platformOrigin}${orgPathPrefix}/admin/onboard?token=${encodeURIComponent(token)}`;
 
-  // Email the invite (best-effort)
+  // Email the invite (best-effort). Use the tenant's verified sender when
+  // available so the email comes from "<charity name> <register@charity.org>"
+  // instead of the platform default.
   const RESEND_KEY = process.env.RESEND_API_KEY;
-  const FROM = process.env.RESEND_FROM || "Raising Arrows <register@raisingarrowsathome.com>";
+  let FROM = process.env.RESEND_FROM || "Raising Arrows Platform <onboarding@resend.dev>";
+  const { data: tenantSender } = await svc.from("tenants")
+    .select("name, sender_email, sender_verified")
+    .eq("id", orgCtx.id).maybeSingle();
+  if (tenantSender?.sender_verified && tenantSender.sender_email) {
+    const safeName = String(tenantSender.name || "").replace(/[<>]/g, "").slice(0, 80);
+    FROM = safeName ? `${safeName} <${tenantSender.sender_email}>` : tenantSender.sender_email;
+  }
+
   if (RESEND_KEY) {
     try {
       const client = new Resend(RESEND_KEY);

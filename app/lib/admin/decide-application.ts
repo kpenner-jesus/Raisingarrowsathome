@@ -30,6 +30,9 @@ import {
 export interface DecideArgs {
   /** Tenant org id — application + recipient lookups/writes are scoped to this. */
   orgId:           string;
+  /** Tenant slug — used to build the right per-tenant portal URL in emails.
+   *  When unset we fall back to bare /portal (legacy raising-arrows host). */
+  orgSlug?:        string;
   applicationId:   string;
   decision:        "approved" | "denied";
   approved_amount?: number;
@@ -94,6 +97,7 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
       to:           app.contact_email,
       parent_names: app.parent_names,
       admin_notes:  args.notes || "",
+      orgId:        args.orgId,
     });
 
     return { application: updated };
@@ -113,8 +117,11 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
     throw new Error("rate must be a finite number between 0 and 1");
   }
 
-  // 1. Invite or find existing user
-  const profileId = await inviteOrFindUser(app.contact_email, `${args.origin}/portal`);
+  // 1. Invite or find existing user. The invite-redirect lands them on the
+  //    tenant-specific portal URL so they don't end up in the wrong tenant.
+  const portalPath = args.orgSlug ? `/o/${args.orgSlug}/portal` : "/portal";
+  const portalAbsUrl = `${args.origin}${portalPath}`;
+  const profileId = await inviteOrFindUser(app.contact_email, portalAbsUrl);
 
   // 2. Upsert recipient (idempotent — safe to retry).
   // Default submission_deadline = 6 months from approval date.
@@ -164,7 +171,8 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
     parent_names:    app.parent_names,
     approved_amount: cap,
     rate,
-    portal_url:      `${args.origin}/portal`,
+    portal_url:      portalAbsUrl,
+    orgId:           args.orgId,
   });
 
   return { application: updated, recipient };

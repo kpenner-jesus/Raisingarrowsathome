@@ -47,16 +47,26 @@ export default async function OnboardPage({ searchParams }: { searchParams?: { t
       `You're signed in as ${user.email}, but this invite was sent to ${invite.email}. Sign out and sign back in with the invited address.`);
   }
 
-  // Promote — but never DOWNGRADE. If invitee is already super_admin and
-  // this invite is for plain admin, keep super_admin. Mark invite used
-  // BEFORE upsert so a partial failure can't leave a still-usable token.
+  // Promote — but never DOWNGRADE. Profile.role is platform-level only
+  // (super_admin etc.); tenant-admin status is recorded in org_members for
+  // THIS tenant. Mark invite used BEFORE the writes so a partial failure
+  // can't leave a still-usable token.
   const { data: existing } = await svc.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  const finalRole = existing?.role === "super_admin" ? "super_admin" : invite.role;
 
   await svc.from("admin_invites").update({ used_at: new Date().toISOString() }).eq("id", invite.id);
+
+  // Ensure profile row exists (no role change unless they have no role yet).
   await svc.from("profiles").upsert(
-    { id: user.id, email: user.email, role: finalRole },
-    { onConflict: "id" }
+    { id: user.id, email: user.email, role: existing?.role ?? "recipient" },
+    { onConflict: "id", ignoreDuplicates: !!existing }
+  );
+
+  // CRITICAL: stamp the org membership so requireAdmin will accept them.
+  // Coerce 'super_admin' (a platform role, not a tenant role) down to 'admin'.
+  const tenantRole = invite.role === "owner" || invite.role === "admin" ? invite.role : "admin";
+  await svc.from("org_members").upsert(
+    { org_id: ctx.id, user_id: user.id, role: tenantRole },
+    { onConflict: "org_id,user_id" }
   );
 
   redirect(orgPath(ctx, "/admin"));

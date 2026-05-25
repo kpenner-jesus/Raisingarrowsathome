@@ -4,6 +4,7 @@
 import { redirect } from "next/navigation";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { getEffectiveRecipient } from "@/app/lib/impersonation";
+import { requireOrgContext } from "@/app/lib/org-context";
 import { ProfileForm } from "./ProfileForm";
 
 export const dynamic = "force-dynamic";
@@ -13,10 +14,12 @@ export default async function ProfilePage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login?next=%2Fportal%2Fprofile");
 
+  const orgCtx = await requireOrgContext();
+
   // Impersonation-aware lookup. When an admin is viewing as the test
   // grantee the helper returns the test recipient row instead of the
   // admin's own (typically non-existent) profile-linked recipient.
-  const ctx = await getEffectiveRecipient(user.id);
+  const ctx = await getEffectiveRecipient(user.id, orgCtx.id);
   const svc = supabaseService();
 
   // Re-query with the wider projection this page needs (parent_names etc).
