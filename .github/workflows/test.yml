@@ -1,0 +1,37 @@
+name: tests
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+
+# Cancel any in-progress run when a new commit lands on the same ref.
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: vitest + typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        # Vercel already typechecks on deploy, but catching errors before
+        # PR merge is faster + cheaper than waiting for a failed Vercel build.
+        run: npx tsc --noEmit -p .
+
+      - name: Run unit tests
+        run: npm test
