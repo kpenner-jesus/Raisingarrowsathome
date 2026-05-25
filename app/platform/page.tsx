@@ -16,38 +16,29 @@ const PLAN_PRICE_USD: Record<string, number> = {
 export default async function PlatformDashboard() {
   const svc = supabaseService();
 
-  // Read every tenant + aggregate counts in parallel.
-  const tenantsQ = svc.from("tenants").select("*").order("created_at", { ascending: false });
-  const membersQ = svc.from("org_members").select("org_id, user_id");
-  const appsQ    = svc.from("applications").select("org_id");
-  const recsQ    = svc.from("recipients").select("org_id, status");
-  const receiptsQ = svc.from("receipts").select("org_id, status");
-  const payoutsQ  = svc.from("payouts").select("org_id, status, amount");
-
-  const [tenants, members, apps, recs, receipts, payouts] = await Promise.all([
-    tenantsQ, membersQ, appsQ, recsQ, receiptsQ, payoutsQ,
+  // Read tenants + per-tenant aggregates via the platform_tenant_stats RPC.
+  // The RPC computes exact counts in a single Postgres query (no PostgREST
+  // 1000-row cap) so the dashboard stays accurate at any scale.
+  const [tenantsRes, statsRes] = await Promise.all([
+    svc.from("tenants").select("*").order("created_at", { ascending: false }),
+    svc.rpc("platform_tenant_stats"),
   ]);
 
-  // Bucket counts by org_id.
-  const memberCount: Record<string, number>   = {};
-  const appCount:    Record<string, number>   = {};
+  const memberCount:         Record<string, number> = {};
+  const appCount:            Record<string, number> = {};
   const activeRecipientCount: Record<string, number> = {};
   const pendingReceiptCount:  Record<string, number> = {};
-  const totalPaid: Record<string, number>     = {};
+  const totalPaid:            Record<string, number> = {};
 
-  (members.data ?? []).forEach((m: any) => { memberCount[m.org_id] = (memberCount[m.org_id] || 0) + 1; });
-  (apps.data ?? []).forEach((a: any) =>    { appCount[a.org_id]    = (appCount[a.org_id]    || 0) + 1; });
-  (recs.data ?? []).forEach((r: any) => {
-    if (r.status === "active") activeRecipientCount[r.org_id] = (activeRecipientCount[r.org_id] || 0) + 1;
-  });
-  (receipts.data ?? []).forEach((r: any) => {
-    if (r.status === "pending") pendingReceiptCount[r.org_id] = (pendingReceiptCount[r.org_id] || 0) + 1;
-  });
-  (payouts.data ?? []).forEach((p: any) => {
-    if (p.status === "paid") totalPaid[p.org_id] = (totalPaid[p.org_id] || 0) + Number(p.amount || 0);
+  (statsRes.data ?? []).forEach((row: any) => {
+    memberCount[row.org_id]            = Number(row.member_count            ?? 0);
+    appCount[row.org_id]               = Number(row.app_count               ?? 0);
+    activeRecipientCount[row.org_id]   = Number(row.active_recipient_count  ?? 0);
+    pendingReceiptCount[row.org_id]    = Number(row.pending_receipt_count   ?? 0);
+    totalPaid[row.org_id]              = Number(row.total_paid              ?? 0);
   });
 
-  const tenantsList = (tenants.data ?? []) as any[];
+  const tenantsList = (tenantsRes.data ?? []) as any[];
 
   // Aggregates
   const totalTenants = tenantsList.length;

@@ -38,11 +38,13 @@ export async function POST(req: Request) {
 
   // Make sure profile row exists for this user — the auth trigger should
   // already have created it, but the FK on org_members.user_id targets profiles.id.
+  // CRITICAL: use ignoreDuplicates so we never overwrite an existing role
+  // (e.g. a super_admin signing up to test self-serve must not be demoted).
   await svc.from("profiles").upsert({
     id:    user.id,
     email: user.email,
     role:  "recipient",
-  }, { onConflict: "id" }).select();
+  }, { onConflict: "id", ignoreDuplicates: true });
 
   // Insert the tenant. Slug uniqueness errors caught + surfaced.
   const trialEnds = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
@@ -64,42 +66,45 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: insErr.message }, { status: 500 });
   }
 
-  // Add the user as owner of the new tenant.
-  await svc.from("org_members").insert({
+  // Add the user as owner of the new tenant. If this fails, the tenant row
+  // would be orphaned + the slug permanently burned — so we ROLL BACK by
+  // deleting the tenant when the member insert errors out.
+  const { error: memberErr } = await svc.from("org_members").insert({
     org_id:  tenant.id,
     user_id: user.id,
     role:    "owner",
   });
-
-  // Decide redirect URL based on the host that received the request.
-  // Custom-domain tenants don't exist yet at signup time, so the only two
-  // shapes are legacy raisingarrowsathome.com hosts (bare /admin) or path-routed.
-  const host = req.headers.get("host") || "";
-  const isLegacyRaisingHost = (() => {
-    const h = host.toLowerCase().split(":")[0];
-    return h === "raisingarrowsathome.com"
-      || h === "www.raisingarrowsathome.com"
-      || h === "staging.raisingarrowsathome.com"
-      || h === "raising.wildernessedge.biz"
-      || h === "raising-staging.wildernessedge.biz";
-  })();
+  if (memberErr) {
+    await svc.from("tenants").delete().eq("id", tenant.id);
+    return NextResponse.json({ error: "Failed to set up org membership. Please try again." }, { status: 500 });
+  }
 
   // Brand-new tenants always get the /o/<slug>/admin URL. The legacy host
   // path is reserved for the original raising-arrows tenant (already excluded
   // via RESERVED_SLUGS).
   const redirect_url = `/o/${tenant.slug}/admin`;
 
-  // Fire-and-forget welcome email. Failures don't block signup.
-  const proto = req.headers.get("x-forwarded-proto") || "https";
-  const origin = `${proto}://${host}`;
-  const adminUrl = `${origin}${redirect_url}`;
-  void sendWelcomeToNewOrgOwner({
-    to: user.email ?? "",
-    orgName: tenant.name ?? name,
-    slug: tenant.slug,
-    adminUrl,
-    trialEndsAt: new Date(trialEnds),
-  }).catch((e) => console.warn("[signup] welcome email failed:", e?.message || e));
+  // Build the welcome-email admin link from the trusted PLATFORM_URL env,
+  // NEVER from the request Host header (host-header injection vector — an
+  // attacker spoofing Host could put their own domain into a real welcome email).
+  const platformUrl = process.env.NEXT_PUBLIC_PLATFORM_URL || "https://raisingarrowsathome.com";
+  const adminUrl = `${platformUrl}${redirect_url}`;
+
+  // Await the welcome email so a serverless teardown can't kill it mid-flight.
+  // Resend round-trips in well under a second; signup latency cost is small.
+  try {
+    if (user.email) {
+      await sendWelcomeToNewOrgOwner({
+        to: user.email,
+        orgName: tenant.name ?? name,
+        slug: tenant.slug,
+        adminUrl,
+        trialEndsAt: new Date(trialEnds),
+      });
+    }
+  } catch (e: any) {
+    console.warn("[signup] welcome email failed (signup still succeeded):", e?.message || e);
+  }
 
   return NextResponse.json({ ok: true, org_id: tenant.id, slug: tenant.slug, redirect_url });
 }

@@ -64,7 +64,13 @@ export async function sendWelcomeToNewOrgOwner(args: {
   adminUrl: string;
   trialEndsAt: Date;
 }) {
-  const trialDate = args.trialEndsAt.toLocaleDateString("en-CA", { month: "long", day: "numeric", year: "numeric" });
+  // Format in Eastern (Raising Arrows' charity TZ) so the date in the email
+  // matches what an owner sees in their dashboard. Without an explicit
+  // timeZone, Vercel renders the date in UTC which can be one day off.
+  const trialDate = args.trialEndsAt.toLocaleDateString("en-CA", {
+    month: "long", day: "numeric", year: "numeric",
+    timeZone: "America/Toronto",
+  });
   await platformSend(
     args.to,
     `Welcome to the Raising Arrows Platform — ${args.orgName}`,
@@ -86,18 +92,24 @@ export async function sendWelcomeToNewOrgOwner(args: {
   );
 }
 
-/** Sent 3 days before trial_ends_at. */
+/** Sent 1–3 days before trial_ends_at. `daysLeft === 0` renders as "today". */
 export async function sendTrialEndingSoon(args: {
   to: string;
   orgName: string;
   daysLeft: number;
   billingUrl: string;
 }) {
+  const phrase  = args.daysLeft <= 0 ? "today"
+                : args.daysLeft === 1 ? "in 1 day"
+                : `in ${args.daysLeft} days`;
+  const subject = args.daysLeft <= 0
+    ? `${args.orgName} — your free trial ends today`
+    : `${args.orgName} — ${args.daysLeft} day${args.daysLeft === 1 ? "" : "s"} left in your trial`;
   await platformSend(
     args.to,
-    `${args.orgName} — ${args.daysLeft} day${args.daysLeft === 1 ? "" : "s"} left in your trial`,
+    subject,
     wrap(`
-      <p>Heads up — your free trial for <strong>${esc(args.orgName)}</strong> ends in <strong>${args.daysLeft} day${args.daysLeft === 1 ? "" : "s"}</strong>.</p>
+      <p>Heads up — your free trial for <strong>${esc(args.orgName)}</strong> ends <strong>${phrase}</strong>.</p>
       <p>Add a payment method now and keep everything running. $20 USD/month, all revenue to Raising Arrows.</p>
       ${button("Upgrade now", args.billingUrl)}
       <p>If you'd rather not continue, no action needed — your portal will pause automatically when the trial ends.</p>

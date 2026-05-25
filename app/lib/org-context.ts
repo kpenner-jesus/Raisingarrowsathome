@@ -12,10 +12,18 @@
 //  4. None of the above → null (marketing / signup pages render).
 //
 //  Middleware writes the resolved slug into an `x-ra-org-slug` header.
-//  Server components call getOrgContextFromHeaders() to read it.
+//  Server components call getOrgContext() to read it.
+//
+//  PER-REQUEST CACHING
+//  ─────────────────────────────────────
+//  Tenant lookups are deduped via React's cache() — same slug within the
+//  same RSC render returns the same Promise. cache() is scoped to a single
+//  request so warm Vercel lambdas don't serve stale data after an
+//  admin/branding update.
 // ============================================================
 
-import { headers, cookies } from "next/headers";
+import { cache } from "react";
+import { headers } from "next/headers";
 import { supabaseService } from "@/app/lib/supabase/server";
 
 // Hosts that always resolve to the raising-arrows tenant — preserves the
@@ -55,9 +63,6 @@ export function resolveOrgSlug(host: string, pathname: string): string | null {
   return null;
 }
 
-// Cache lookups within a single request to avoid repeat DB hits.
-const requestCache = new Map<string, any>();
-
 export type OrgContext = {
   id: string;
   slug: string;
@@ -75,6 +80,19 @@ export type OrgContext = {
   prefixed: boolean;
 };
 
+// Per-request DB lookup. React's cache() dedupes calls within a single RSC
+// render and is automatically scoped to the request — no cross-request leak
+// in serverless lambda warm-reuse, unlike a module-level Map.
+const fetchTenantBySlug = cache(async (slug: string) => {
+  const svc = supabaseService();
+  const { data } = await svc
+    .from("tenants")
+    .select("id, slug, name, status, plan, brand_color, logo_url, custom_domain, sender_email, sender_domain, sender_verified")
+    .eq("slug", slug)
+    .maybeSingle();
+  return data;
+});
+
 /**
  * Read org context from the request — for use in server components and
  * route handlers. Returns null when no org resolves (signup/marketing pages).
@@ -85,20 +103,7 @@ export async function getOrgContext(): Promise<OrgContext | null> {
   if (!slug) return null;
   const prefixed = h.get("x-ra-org-prefixed") === "1";
 
-  const cacheKey = `org:${slug}`;
-  if (requestCache.has(cacheKey)) {
-    const cached = requestCache.get(cacheKey);
-    return cached ? { ...cached, prefixed } : null;
-  }
-
-  const svc = supabaseService();
-  const { data } = await svc
-    .from("tenants")
-    .select("id, slug, name, status, plan, brand_color, logo_url, custom_domain, sender_email, sender_domain, sender_verified")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  requestCache.set(cacheKey, data ?? null);
+  const data = await fetchTenantBySlug(slug);
   return data ? { ...(data as any), prefixed } : null;
 }
 

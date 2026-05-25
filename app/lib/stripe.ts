@@ -28,7 +28,8 @@ export function stripe(): Stripe {
 
 /** Is Stripe configured well enough to attempt a Checkout call? */
 export function stripeReady(): { ready: boolean; reason?: string } {
-  if (!process.env.STRIPE_SECRET_KEY)  return { ready: false, reason: "STRIPE_SECRET_KEY missing" };
-  if (!process.env.STRIPE_PRICE_ID)    return { ready: false, reason: "STRIPE_PRICE_ID missing" };
+  if (!process.env.STRIPE_SECRET_KEY)     return { ready: false, reason: "STRIPE_SECRET_KEY missing" };
+  if (!process.env.STRIPE_PRICE_ID)       return { ready: false, reason: "STRIPE_PRICE_ID missing" };
+  if (!process.env.STRIPE_WEBHOOK_SECRET) return { ready: false, reason: "STRIPE_WEBHOOK_SECRET missing" };
   return { ready: true };
 }

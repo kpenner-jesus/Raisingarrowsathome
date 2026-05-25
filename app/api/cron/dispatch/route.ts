@@ -4,14 +4,20 @@
 //  Single Vercel cron entry. Routes by UTC date to the underlying
 //  job so we stay under Vercel Hobby's 2-cron-job limit.
 //
-//  Schedule (vercel.json): "0 12 1,15,17,28-31 * *"
-//   day 1   → summary-email   bucket=mid
-//   day 15  → generate-payouts bucket=mid
-//   day 17  → summary-email   bucket=end
-//   day 28..last-of-month → generate-payouts bucket=end
-//     (the underlying generator handles idempotency, so firing every
-//      day 28..31 is safe — only the last actual day of the month
-//      will produce work for short months.)
+//  Schedule (vercel.json): "0 12 * * *"   — daily at 12:00 UTC.
+//
+//  Date-routed jobs (only fire on specific days):
+//    day 1   → summary-email    bucket=mid + monthly-backup
+//    day 15  → generate-payouts bucket=mid
+//    day 17  → summary-email    bucket=end
+//    day 28..last-of-month → generate-payouts bucket=end
+//      (the underlying generator handles idempotency, so firing
+//       every day 28..31 is safe — only the last actual day of
+//       the month will produce work for short months.)
+//
+//  Every-day jobs (run on every dispatch):
+//    sendDueBroadcasts        — flushes any broadcasts whose send-time has come
+//    processBillingReminders  — platform-level trial + past-due nudges
 //
 //  Auth: Authorization: Bearer ${CRON_SECRET} via timingSafeEqual.
 // ============================================================
