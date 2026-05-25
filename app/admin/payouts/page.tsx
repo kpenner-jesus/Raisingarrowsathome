@@ -155,7 +155,7 @@ export default async function PayoutsPage({ searchParams }: { searchParams?: { s
       </div>
 
       <div className="ra-table-card">
-        <table className="ra-table">
+        <table className="ra-table ra-table-mobile">
           <thead>
             <tr>
               <SortHeader label="Scheduled" col="scheduled" currentSort={sortCol} currentDir={dir} basePath="/admin/payouts" />
@@ -169,24 +169,24 @@ export default async function PayoutsPage({ searchParams }: { searchParams?: { s
           <tbody>
             {(batches || []).map((b: any) => (
               <tr key={b.id}>
-                <td>
+                <td data-label="Scheduled">
                   <span style={{ fontWeight: 500 }}>
                     {new Date(b.scheduled_date).toLocaleDateString("en-CA", { month: "long", day: "numeric", year: "numeric" })}
                   </span>
                 </td>
-                <td>
+                <td data-label="Total">
                   <span style={{ fontFamily: "var(--font-display)", fontSize: "1.05rem" }}>
                     ${Number(b.total).toFixed(2)}
                   </span>
                 </td>
-                <td><StatusBadge status={b.status} /></td>
-                <td className="ra-tiny" style={{ fontFamily: "ui-monospace, monospace" }}>{b.ceo_reference || "—"}</td>
-                <td>
+                <td data-label="Status"><StatusBadge status={b.status} /></td>
+                <td data-label="CEO ref" className="ra-tiny" style={{ fontFamily: "ui-monospace, monospace" }}>{b.ceo_reference || "—"}</td>
+                <td data-label="CSV">
                   <a href={`/api/admin/payouts/${b.id}/export`} className="ra-link" style={{ fontSize: "0.85rem" }}>
                     Download
                   </a>
                 </td>
-                <td style={{ textAlign: "right" }}>
+                <td data-label="Action" style={{ textAlign: "right" }}>
                   <div style={{ display: "inline-flex", gap: "0.4rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     {b.status !== "paid" && <MarkPaidButton batchId={b.id} total={Number(b.total)} />}
                     {b.status === "draft" && (

@@ -113,7 +113,7 @@ export function ApplicationsTable({ rows, sort }: { rows: Row[]; sort?: SortInfo
       )}
 
       <div className="ra-table-card" style={{ marginTop: pendingIds.length === 0 ? "1rem" : 0 }}>
-        <table className="ra-table">
+        <table className="ra-table ra-table-mobile">
           <thead>
             <tr>
               {pendingIds.length > 0 && (
@@ -138,27 +138,27 @@ export function ApplicationsTable({ rows, sort }: { rows: Row[]; sort?: SortInfo
               return (
                 <tr key={a.id}>
                   {pendingIds.length > 0 && (
-                    <td>
+                    <td data-label="Select">
                       {canSelect ? (
                         <input type="checkbox" checked={selected.has(a.id)} onChange={() => toggle(a.id)} />
                       ) : null}
                     </td>
                   )}
-                  <td>
+                  <td data-label="Family">
                     <Link href={`/admin/applications/${a.id}`}>
                       <AvatarRow name={a.parent_names} secondary={a.city + " · " + a.contact_email} />
                     </Link>
                   </td>
-                  <td className="ra-tiny" style={{ fontFamily: "ui-monospace, monospace" }}>{a.app_ref}</td>
-                  <td>
+                  <td data-label="Ref" className="ra-tiny" style={{ fontFamily: "ui-monospace, monospace" }}>{a.app_ref}</td>
+                  <td data-label="Kids">
                     {kids.length > 0 ? (
                       <span className="ra-quiet">
                         {kids.length} · ages {kids.map((c: any) => c.age).join(", ")}
                       </span>
                     ) : <span className="ra-quiet">—</span>}
                   </td>
-                  <td><StatusBadge status={a.status} /></td>
-                  <td style={{ textAlign: "right" }} className="ra-tiny">
+                  <td data-label="Status"><StatusBadge status={a.status} /></td>
+                  <td data-label="Submitted" style={{ textAlign: "right" }} className="ra-tiny">
                     {new Date(a.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
                   </td>
                 </tr>

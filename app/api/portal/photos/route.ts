@@ -1,8 +1,11 @@
 // POST /api/portal/photos — recipient submits a photo record after upload.
 //
 // Security: image_path MUST be inside the caller's own auth.uid() folder.
+// Impersonation: when an admin is viewing as the test grantee, the photo
+// is attached to the test recipient via service-role.
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/app/lib/supabase/server";
+import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { getEffectiveRecipient } from "@/app/lib/impersonation";
 
 const ALLOWED_EXTS = ["jpg", "jpeg", "png", "webp", "heic", "heif"];
 
@@ -11,8 +14,8 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
-  const { data: recipient } = await supabase
-    .from("recipients").select("id").eq("profile_id", user.id).maybeSingle();
+  const ctx = await getEffectiveRecipient(user.id);
+  const recipient = ctx.recipient;
   if (!recipient) return new NextResponse("no recipient", { status: 400 });
 
   const { image_path, caption } = await req.json().catch(() => ({} as any));
@@ -30,7 +33,8 @@ export async function POST(req: Request) {
     return new NextResponse(`extension not allowed (must be one of ${ALLOWED_EXTS.join(", ")})`, { status: 400 });
   }
 
-  const { error } = await supabase.from("photos").insert({
+  const writeClient = ctx.mode === "impersonating" ? supabaseService() : supabase;
+  const { error } = await writeClient.from("photos").insert({
     recipient_id: recipient.id,
     image_path,
     caption: typeof caption === "string" ? caption.slice(0, 300).trim() || null : null,

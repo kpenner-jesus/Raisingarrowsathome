@@ -61,6 +61,10 @@ function eventTint(ev: string): string {
 export default async function EmailsPage() {
   const [{ data, error, restricted }, events] = await Promise.all([fetchEmails(), fetchWebhookEvents()]);
 
+  // Webhook is configured at the deploy level — assume reachable. Empty state
+  // is "nothing yet" not "set up the webhook".
+  const webhookConfigured = !!process.env.RESEND_WEBHOOK_SECRET;
+
   return (
     <div>
       <header className="ra-page-header">
@@ -68,8 +72,8 @@ export default async function EmailsPage() {
           <span className="ra-eyebrow">Outbound mail</span>
           <h1 className="ra-h1">Email log</h1>
           <p className="ra-quiet" style={{ marginTop: "0.15rem" }}>
-            Delivery + bounce events come from Resend's webhook into <code>email_events</code>.
-            The live API list below requires a full-access Resend key and is optional.
+            Every email this site sends — magic links, payout notifications, broadcasts — is tracked here.
+            See who opened, who bounced, who clicked.
           </p>
         </div>
       </header>
@@ -78,25 +82,35 @@ export default async function EmailsPage() {
       <section className="ra-card" style={{ marginBottom: "1.25rem" }}>
         <h2 className="ra-section-title">Delivery events ({events.length})</h2>
         {events.length === 0 ? (
-          <div className="ra-empty">
-            <div className="ra-empty-icon">⇄</div>
-            <div className="ra-empty-title">No webhook events yet</div>
-            <div>
-              Add the webhook in Resend dashboard → Webhooks → Add endpoint:<br />
-              <code>https://raisingarrowsathome.com/api/webhooks/resend</code><br />
-              Set the signing secret to env <code>RESEND_WEBHOOK_SECRET</code>.
+          webhookConfigured ? (
+            <div className="ra-empty">
+              <div className="ra-empty-icon">✉</div>
+              <div className="ra-empty-title">No events to show yet</div>
+              <div style={{ fontSize: "0.9rem", color: "var(--text-secondary)", marginTop: "0.4rem" }}>
+                Send a test email (broadcast, decide an application, mark a payout paid)
+                and delivery events will appear here within seconds — opens, clicks, bounces, the works.
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="ra-empty">
+              <div className="ra-empty-icon">⚙</div>
+              <div className="ra-empty-title">Webhook isn't wired up on this deploy</div>
+              <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                Set <code>RESEND_WEBHOOK_SECRET</code> in this deploy's env vars +
+                add the endpoint <code>/api/webhooks/resend</code> in the Resend dashboard.
+              </div>
+            </div>
+          )
         ) : (
-          <table className="ra-table">
+          <table className="ra-table ra-table-mobile">
             <thead><tr><th>When</th><th>Event</th><th>To</th><th>Subject</th></tr></thead>
             <tbody>
               {events.map((e: any) => (
                 <tr key={e.id}>
-                  <td style={{ whiteSpace: "nowrap" }}>{new Date(e.created_at).toLocaleString()}</td>
-                  <td><span style={{ color: eventTint(e.event_type), fontWeight: 500 }}>{e.event_type}</span></td>
-                  <td>{e.recipient_email}</td>
-                  <td>{e.subject || "—"}</td>
+                  <td data-label="When"    style={{ whiteSpace: "nowrap" }}>{new Date(e.created_at).toLocaleString()}</td>
+                  <td data-label="Event"><span style={{ color: eventTint(e.event_type), fontWeight: 500 }}>{e.event_type}</span></td>
+                  <td data-label="To">{e.recipient_email}</td>
+                  <td data-label="Subject">{e.subject || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -108,25 +122,29 @@ export default async function EmailsPage() {
       <section className="ra-card">
         <h2 className="ra-section-title">Recent sends (Resend API)</h2>
         {restricted ? (
-          <div className="ra-quiet" style={{ fontSize: "0.9rem" }}>
-            Your current <code>RESEND_API_KEY</code> is restricted to sending only — it can&apos;t list emails. To enable this section, create a full-access key in Resend dashboard → API Keys → Create API Key → permission &quot;Full access&quot;, then replace the Vercel env var. Webhook events above are unaffected.
+          <div className="ra-empty">
+            <div className="ra-empty-icon">🔑</div>
+            <div className="ra-empty-title">This list needs a full-access Resend key</div>
+            <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+              The send-only key in use right now can&apos;t list emails. Webhook events above still flow normally.
+            </div>
           </div>
         ) : error ? (
           <div className="ra-alert-error">{error}</div>
         ) : data.length === 0 ? (
-          <div className="ra-quiet">No sends returned by Resend.</div>
+          <div className="ra-quiet">No sends in the last 100 messages.</div>
         ) : (
-          <table className="ra-table">
+          <table className="ra-table ra-table-mobile">
             <thead>
               <tr><th>When</th><th>To</th><th>Subject</th><th>Status</th></tr>
             </thead>
             <tbody>
               {data.map((e) => (
                 <tr key={e.id}>
-                  <td style={{ whiteSpace: "nowrap" }}>{new Date(e.created_at).toLocaleString()}</td>
-                  <td>{(e.to ?? []).join(", ")}</td>
-                  <td>{e.subject}</td>
-                  <td><span style={{ color: eventTint(e.last_event), fontWeight: 500 }}>{e.last_event}</span></td>
+                  <td data-label="When"    style={{ whiteSpace: "nowrap" }}>{new Date(e.created_at).toLocaleString()}</td>
+                  <td data-label="To">{(e.to ?? []).join(", ")}</td>
+                  <td data-label="Subject">{e.subject}</td>
+                  <td data-label="Status"><span style={{ color: eventTint(e.last_event), fontWeight: 500 }}>{e.last_event}</span></td>
                 </tr>
               ))}
             </tbody>

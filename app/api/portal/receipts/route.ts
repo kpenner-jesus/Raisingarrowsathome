@@ -5,8 +5,12 @@
 //   - amount validated (Number.isFinite + upper cap)
 //   - currency limited to CAD/USD
 //   - submission_deadline enforced: rejected if past deadline
+//   - When an admin is impersonating the test grantee (cookie set + env != prod),
+//     the recipient_id is swapped to the test recipient via the helper and the
+//     insert uses service-role so RLS doesn't block (admin isn't profile-linked).
 import { NextResponse } from "next/server";
-import { supabaseServer } from "@/app/lib/supabase/server";
+import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { getEffectiveRecipient } from "@/app/lib/impersonation";
 
 const MAX_RECEIPT_AMOUNT = 50_000;
 const ALLOWED_EXTS = ["jpg", "jpeg", "png", "webp", "heic", "heif", "pdf"];
@@ -17,11 +21,9 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
-  const { data: recipient } = await supabase
-    .from("recipients")
-    .select("id, status, submission_deadline")
-    .eq("profile_id", user.id)
-    .maybeSingle();
+  // Impersonation-aware recipient resolution.
+  const ctx = await getEffectiveRecipient(user.id);
+  const recipient = ctx.recipient;
   if (!recipient) return new NextResponse("no recipient linked to this account", { status: 400 });
 
   // Status guard
@@ -68,7 +70,10 @@ export async function POST(req: Request) {
 
   const cleanCurrency = ALLOWED_CURRENCIES.includes(currency) ? currency : "CAD";
 
-  const { data, error } = await supabase
+  // Use service-role when impersonating so RLS doesn't reject the insert
+  // (the admin isn't profile-linked to the test recipient).
+  const writeClient = ctx.mode === "impersonating" ? supabaseService() : supabase;
+  const { data, error } = await writeClient
     .from("receipts")
     .insert({
       recipient_id:        recipient.id,

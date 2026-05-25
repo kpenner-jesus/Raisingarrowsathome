@@ -91,7 +91,7 @@ export default function TokenManager({ initialTokens }: { initialTokens: Token[]
             <div>Name one above and click <strong>Mint token</strong>.</div>
           </div>
         ) : (
-          <table className="ra-table">
+          <table className="ra-table ra-table-mobile">
             <thead>
               <tr>
                 <th>Name</th>

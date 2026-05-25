@@ -1,0 +1,640 @@
+/* ============================================================
+ *  mobile.css — mobile-first overrides + native patterns
+ *  Loaded after globals.css and admin.css. Desktop styles are
+ *  untouched; @media (max-width: 768px) rewrites the experience.
+ * ============================================================ */
+
+/* ─────────────────────────────────────────────────────────────
+   1. Show / hide utilities — work at any breakpoint
+   ───────────────────────────────────────────────────────────── */
+.ra-only-mobile  { display: none !important; }
+.ra-only-desktop { display: initial; }
+
+@media (max-width: 768px) {
+  .ra-only-mobile  { display: initial !important; }
+  .ra-only-desktop { display: none    !important; }
+  /* Flex/grid variants — use these when the element needs a non-block layout */
+  .ra-only-mobile.ra-flex { display: flex  !important; }
+  .ra-only-mobile.ra-grid { display: grid  !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   2. Force body to be the scroll container.
+      If any descendant grabs overflow:auto, position:fixed
+      bars stop tracking viewport. Explicit overflow on html+body
+      guarantees the bar pinning works.
+   ───────────────────────────────────────────────────────────── */
+html { overflow-x: hidden; overflow-y: auto; height: auto; }
+body { overflow-x: hidden; overflow-y: auto; min-height: 100dvh; }
+
+/* ─────────────────────────────────────────────────────────────
+   3. Mobile-wide form defaults: prevent iOS zoom on focus,
+      grow tap targets to 48px (WCAG AAA + Apple HIG)
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+  .ra-input, .tf-input-box, .ra-btn {
+    min-height: 48px;
+  }
+  .ra-btn { padding: 0.85rem 1.1rem; }
+  button, a.ra-btn { -webkit-tap-highlight-color: transparent; }
+  /* slightly bigger primary buttons on mobile */
+  .ra-btn-primary, .tf-ok { min-height: 52px; font-size: 1rem; }
+  /* Make tf-ok full-width on mobile so it doesn't look orphaned */
+  .tf-ok {
+    width: 100%;
+    justify-content: center;
+    padding: 0.95rem 1.5rem;
+  }
+  /* Tf-input-box: ensure 16px font + full width */
+  .tf-input-box { width: 100%; font-size: 16px !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   3. Mobile-only primitives (reusable building blocks)
+   ───────────────────────────────────────────────────────────── */
+
+/* sticky bottom CTA bar — frosted-glass safe-area-aware */
+.ra-mobile-cta {
+  position: sticky;
+  bottom: 0;
+  left: 0; right: 0;
+  z-index: 30;
+  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  background: rgba(255,255,255,0.94);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+.ra-mobile-cta .ra-btn { width: 100%; }
+
+/* bottom-sheet modal — for upload/confirm flows */
+.ra-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20,16,12,0.55);
+  z-index: 90;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.ra-sheet {
+  background: #fff;
+  border-radius: 18px 18px 0 0;
+  padding: 1.1rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom, 0px));
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 -12px 30px rgba(0,0,0,0.18);
+}
+.ra-sheet-handle {
+  width: 36px; height: 4px;
+  background: rgba(0,0,0,0.18);
+  border-radius: 2px;
+  margin: 0 auto 0.9rem;
+}
+
+/* gradient grant hero card */
+.ra-grant-hero {
+  padding: 1.4rem 1.25rem;
+  background: linear-gradient(135deg, var(--accent) 0%, #c45f20 100%);
+  border-radius: 18px;
+  color: #fff;
+  box-shadow: 0 8px 24px rgba(232,121,58,0.30);
+  margin-bottom: 1rem;
+}
+.ra-grant-hero .ra-grant-label {
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em;
+  opacity: 0.85; margin-bottom: 0.4rem;
+}
+.ra-grant-hero .ra-grant-big {
+  font-family: var(--font-display); font-size: 2.2rem; font-weight: 500;
+  line-height: 1; margin-bottom: 0.25rem;
+}
+.ra-grant-hero .ra-grant-of {
+  font-size: 0.9rem; opacity: 0.92;
+}
+.ra-grant-hero .ra-grant-bar {
+  margin-top: 0.9rem; height: 6px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 3px; overflow: hidden;
+}
+.ra-grant-hero .ra-grant-fill {
+  height: 100%; background: #fff; border-radius: 3px;
+  transition: width 0.6s ease;
+}
+.ra-grant-hero .ra-grant-meta {
+  display: flex; justify-content: space-between;
+  margin-top: 0.7rem; font-size: 0.78rem; opacity: 0.95;
+  flex-wrap: wrap; gap: 0.3rem;
+}
+
+/* dashed FAB-style upload card */
+.ra-fab-card {
+  display: flex; align-items: center; gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  background: #fff;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  color: var(--text-primary);
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgba(20,16,12,0.06);
+  margin-bottom: 1rem;
+}
+.ra-fab-card-ic {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  display: grid; place-items: center; flex-shrink: 0;
+  font-size: 1.4rem; font-weight: 300;
+}
+.ra-fab-card-title { font-weight: 600; font-size: 1rem; }
+.ra-fab-card-sub   { color: var(--text-muted); font-size: 0.82rem; margin-top: 0.15rem; }
+
+/* receipt-card row (replaces table on mobile) */
+.ra-rc-row {
+  display: flex; align-items: center; gap: 0.85rem;
+  background: #fff;
+  padding: 0.75rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(20,16,12,0.06);
+  text-decoration: none;
+  color: inherit;
+}
+.ra-rc-thumb {
+  width: 48px; height: 48px; border-radius: 10px; flex-shrink: 0;
+  background: linear-gradient(135deg, #f5e6d3, #e6d2b8);
+  display: grid; place-items: center;
+  color: var(--accent-dark); font-size: 1.3rem;
+}
+.ra-rc-main { flex: 1; min-width: 0; }
+.ra-rc-name {
+  font-weight: 600; font-size: 0.92rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ra-rc-meta {
+  font-size: 0.78rem; color: var(--text-muted);
+  margin-top: 0.18rem;
+  display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;
+}
+.ra-rc-amt { font-weight: 600; font-size: 0.95rem; }
+
+/* pill (mobile-shared) */
+.ra-pill-status {
+  display: inline-flex; align-items: center;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ra-pill-pending  { background: #fef3e6; color: #b75d20; }
+.ra-pill-approved { background: #e8f5ec; color: #2c7a3f; }
+.ra-pill-paid     { background: #eaf2ff; color: #2456a8; }
+.ra-pill-rejected { background: #fce8e8; color: #a83232; }
+.ra-pill-cancelled{ background: #f0f0f0; color: #666;    }
+.ra-pill-scheduled{ background: #fff5e0; color: #8a5a00; }
+
+/* month-group + txn-row (for statement mobile view) */
+.ra-month-group  { margin-bottom: 1.2rem; }
+.ra-month-label {
+  font-size: 0.78rem; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 0.2rem 0.4rem 0.5rem;
+}
+.ra-txn-rows {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(20,16,12,0.06);
+  overflow: hidden;
+}
+.ra-txn-row {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+.ra-txn-row:last-child { border-bottom: none; }
+.ra-txn-ic {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 0.9rem; flex-shrink: 0;
+}
+.ra-txn-ic.in  { background: #e8f5ec; color: #2c7a3f; }
+.ra-txn-ic.out { background: rgba(232,121,58,0.15); color: var(--accent-dark); }
+.ra-txn-main { flex: 1; min-width: 0; }
+.ra-txn-title { font-weight: 500; font-size: 0.92rem; }
+.ra-txn-sub   { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.18rem; }
+.ra-txn-amt   { font-weight: 600; font-size: 0.95rem; flex-shrink: 0; }
+.ra-txn-amt.pos { color: #2c7a3f; }
+
+/* 3-col summary strip */
+.ra-summary-strip {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  background: #fff; border-radius: 14px;
+  padding: 1rem; margin-bottom: 1rem;
+  box-shadow: 0 2px 8px rgba(20,16,12,0.06);
+  text-align: center;
+}
+.ra-summary-col + .ra-summary-col {
+  border-left: 1px solid rgba(0,0,0,0.06);
+}
+.ra-summary-num {
+  font-family: var(--font-display); font-weight: 500;
+  font-size: 1.25rem;
+}
+.ra-summary-lbl {
+  font-size: 0.68rem; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+  margin-top: 0.2rem;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   4. Mobile TAB BAR (bottom fixed) — desktop hides
+   ───────────────────────────────────────────────────────────── */
+.ra-tabbar {
+  display: none;
+}
+@media (max-width: 768px) {
+  .ra-tabbar {
+    display: grid;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    z-index: 50;
+    grid-template-columns: repeat(var(--tab-count, 4), 1fr);
+    background: #fff;
+    border-top: 1px solid rgba(0,0,0,0.08);
+    box-shadow: 0 -1px 0 rgba(0,0,0,0.02);
+    padding: 0.45rem 0 calc(0.45rem + env(safe-area-inset-bottom, 0px));
+  }
+  .ra-tabbar a {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 2px; text-decoration: none;
+    color: var(--text-muted);
+    padding: 0.25rem 0;
+    font-size: 0.7rem; font-weight: 500;
+    min-height: 48px; justify-content: center;
+  }
+  .ra-tabbar a svg { width: 24px; height: 24px; }
+  .ra-tabbar a.is-active { color: var(--accent); }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   5. Mobile TOP APP BAR (replaces wide horizontal nav)
+   ───────────────────────────────────────────────────────────── */
+.ra-appbar {
+  display: none;
+}
+@media (max-width: 768px) {
+  .ra-appbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.7rem 1rem;
+    /* Solid background (no backdrop-filter): blur on fixed elements has
+       Chrome rendering quirks that cause the bar to disappear when other
+       fixed/transformed elements paint over the same area. */
+    background: #fff;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.02);
+    position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+    height: 56px;
+  }
+  .ra-appbar-brand {
+    font-family: var(--font-display); font-style: italic;
+    font-size: 1.15rem; color: var(--text-primary);
+    text-decoration: none;
+  }
+  .ra-appbar-icon {
+    width: 42px; height: 42px; border-radius: 50%;
+    border: none; background: transparent;
+    display: grid; place-items: center; cursor: pointer;
+    color: var(--text-primary);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ra-appbar-icon:active { background: rgba(0,0,0,0.05); }
+  .ra-appbar-icon svg { width: 22px; height: 22px; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   6. Mobile DRAWER (slide-in from right for full nav)
+   ───────────────────────────────────────────────────────────── */
+.ra-drawer-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(20,16,12,0.45);
+  z-index: 95;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.22s;
+}
+.ra-drawer-backdrop.is-open { opacity: 1; pointer-events: auto; }
+.ra-drawer {
+  position: fixed; top: 0; right: 0;
+  height: 100dvh; width: 84%; max-width: 320px;
+  background: #fff;
+  z-index: 96;
+  transform: translateX(100%);
+  transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+  padding: 1rem 0 calc(1rem + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  box-shadow: -8px 0 30px rgba(0,0,0,0.18);
+  display: flex; flex-direction: column;
+}
+.ra-drawer.is-open { transform: translateX(0); }
+.ra-drawer-head {
+  padding: 0.4rem 1.1rem 0.8rem;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.ra-drawer-head-name {
+  font-family: var(--font-display); font-style: italic;
+  font-size: 1.15rem;
+}
+.ra-drawer-nav {
+  display: flex; flex-direction: column;
+  padding: 0.6rem 0;
+  flex: 1;
+}
+.ra-drawer-nav a {
+  display: flex; align-items: center; gap: 0.8rem;
+  padding: 0.85rem 1.2rem;
+  color: var(--text-primary); text-decoration: none;
+  font-size: 0.95rem; font-weight: 500;
+  border-left: 3px solid transparent;
+}
+.ra-drawer-nav a:active { background: rgba(0,0,0,0.04); }
+.ra-drawer-nav a.is-active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: rgba(232,121,58,0.05);
+}
+.ra-drawer-nav a .ic {
+  width: 22px; text-align: center; opacity: 0.7; font-size: 1rem;
+}
+.ra-drawer-foot {
+  margin-top: auto; padding: 1rem 1.2rem;
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+.ra-drawer-foot .em { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.4rem; }
+
+/* ─────────────────────────────────────────────────────────────
+   7. PORTAL LAYOUT overrides on mobile
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Original portal <header> has class via inline, target by data attr */
+  .ra-portal-header { display: none !important; }
+
+  /* main padding-top = 56px (appbar) + small gap;
+     padding-bottom = tabbar (~64px) + safe-area */
+  .ra-portal-main {
+    padding: 68px 0 calc(84px + env(safe-area-inset-bottom, 0px)) !important;
+    max-width: none !important;
+  }
+  .ra-portal-main > * { padding-left: 1rem; padding-right: 1rem; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   8. ADMIN LAYOUT overrides on mobile (collapse sidebar)
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .ra-admin-shell {
+    grid-template-columns: 1fr !important;
+  }
+  .ra-admin-sidebar { display: none !important; }
+  .ra-admin-main {
+    /* 68px top = 56px appbar + 12px gap. 84px bottom = ~64px tabbar + room. */
+    padding: 68px 1rem calc(84px + env(safe-area-inset-bottom, 0px)) !important;
+    max-width: 100vw !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   9. ADMIN TABLES — convert to card stack on mobile
+       Tables that opt-in by adding .ra-table-mobile class will
+       restructure to per-row cards using data-label attrs.
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .ra-table-card { border-radius: 0 !important; box-shadow: none !important; }
+  .ra-table.ra-table-mobile,
+  .ra-table.ra-table-mobile thead,
+  .ra-table.ra-table-mobile tbody,
+  .ra-table.ra-table-mobile tr,
+  .ra-table.ra-table-mobile th,
+  .ra-table.ra-table-mobile td {
+    display: block;
+  }
+  .ra-table.ra-table-mobile thead {
+    /* Visually hide but keep accessible */
+    position: absolute; clip: rect(0 0 0 0); width: 1px; height: 1px; overflow: hidden;
+  }
+  .ra-table.ra-table-mobile tr {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(20,16,12,0.06);
+    padding: 0.75rem 0.9rem;
+    margin-bottom: 0.6rem;
+  }
+  .ra-table.ra-table-mobile td {
+    padding: 0.3rem 0;
+    border: none;
+    text-align: left !important;
+    font-size: 0.92rem;
+  }
+  .ra-table.ra-table-mobile td[data-label]::before {
+    content: attr(data-label);
+    display: inline-block;
+    min-width: 90px;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 0.5rem;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+  10. PORTAL HOME mobile hero overrides
+       (works regardless of inline styles on the page — wrappers
+        use ra-portal-home-* classes added in the page rewrite)
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  /* Hide the desktop 4-up Card grid; show gradient hero instead */
+  .ra-portal-stat-grid-desktop { display: none !important; }
+  .ra-portal-hello {
+    font-family: var(--font-display);
+    font-size: 1.65rem;
+    font-weight: 500;
+    margin: 1rem 0 0.25rem;
+  }
+  .ra-portal-hello-sub {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin: 0 0 0.85rem;
+  }
+}
+@media (min-width: 769px) {
+  .ra-portal-mobile-only { display: none !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+  11. LANDING mobile overrides
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .ra-landing-cta-sticky {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    z-index: 40;
+    padding: 0.8rem 1rem calc(0.8rem + env(safe-area-inset-bottom, 0px));
+    background: rgba(255,255,255,0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(0,0,0,0.08);
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+  }
+  .ra-landing-cta-sticky .ra-btn,
+  .ra-landing-cta-sticky button {
+    width: 100%;
+    min-height: 52px;
+  }
+  /* Add bottom padding to body content when sticky CTA visible */
+  .ra-landing-with-cta-pad { padding-bottom: 90px; }
+}
+@media (min-width: 769px) {
+  .ra-landing-cta-sticky { display: none !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+  12. STATEMENT mobile overrides (overlay onto print version)
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .ra-statement .ra-stmt-mobile  { display: block; }
+  .ra-statement .ra-stmt-desktop { display: none; }
+  .ra-statement .ra-stmt-head {
+    flex-direction: column; align-items: stretch !important;
+    text-align: left !important;
+    border-bottom-width: 1px !important;
+    padding-bottom: 0.75rem;
+  }
+  .ra-statement .ra-stmt-toolbar {
+    flex-wrap: wrap; gap: 0.5rem !important;
+  }
+}
+.ra-statement .ra-stmt-mobile  { display: none; }
+.ra-statement .ra-stmt-desktop { display: block; }
+
+/* Always show desktop version in print, no matter the screen */
+@media print {
+  .ra-statement .ra-stmt-mobile  { display: none !important; }
+  .ra-statement .ra-stmt-desktop { display: block !important; }
+  .ra-tabbar, .ra-appbar, .ra-mobile-cta, .ra-landing-cta-sticky { display: none !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+  13. PHOTOS grid + tile (desktop default; mobile overrides cols)
+   ───────────────────────────────────────────────────────────── */
+.ra-photo-grid-mobile {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+.ra-photo-tile {
+  aspect-ratio: 1; border-radius: 12px; overflow: hidden;
+  background: #eee; display: block;
+}
+.ra-photo-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ra-photo-add {
+  display: grid !important; place-items: center;
+  background: #fff;
+  border: 2px dashed rgba(232,121,58,0.45);
+  color: var(--accent);
+  font-size: 2rem; font-weight: 300;
+  text-decoration: none;
+}
+
+@media (max-width: 768px) {
+  .ra-photo-grid-mobile {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+  14. UPLOAD page mobile camera-first preview area
+   ───────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .ra-upload-cam {
+    aspect-ratio: 4/3;
+    margin: 1rem 0;
+    background: linear-gradient(180deg, #2a221b, #1b1612);
+    border-radius: 14px;
+    display: grid; place-items: center;
+    color: #fff;
+    position: relative; overflow: hidden;
+  }
+  .ra-upload-cam .glyph {
+    text-align: center; padding: 1rem;
+  }
+  .ra-upload-cam .glyph .lbl {
+    font-size: 0.9rem; opacity: 0.85; margin-top: 0.5rem;
+  }
+  .ra-upload-actions-mobile {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+  15. Misc helpers
+   ───────────────────────────────────────────────────────────── */
+
+/* Card-list (replaces table) */
+.ra-card-list { display: flex; flex-direction: column; gap: 0.6rem; }
+
+/* Helpful global resets on mobile to remove crammed feel */
+@media (max-width: 768px) {
+  h1.ra-h1 { font-size: 1.5rem !important; }
+  h2.ra-h2 { font-size: 1.2rem !important; }
+  .ra-page-pad { padding: 0.75rem 0 !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+  16. EMAIL TEMPLATES editor (/admin/email-templates)
+       Desktop: 220px sidebar | 1fr editor.
+       Mobile : dropdown picker on top, stacked editor, sticky save bar
+                (positioned above the admin bottom tab bar).
+   ───────────────────────────────────────────────────────────── */
+.ra-tpl-cols {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 1.25rem;
+  min-width: 0;
+}
+.ra-tpl-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.ra-tpl-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+.ra-tpl-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  width: 100%;
+}
+.ra-tpl-preview > summary::-webkit-details-marker { display: none; }
+.ra-tpl-plaintext > summary::-webkit-details-marker { display: none; }
+.ra-tpl-plaintext > summary::after { content: " +"; color: var(--accent); font-weight: 600; }
+.ra-tpl-plaintext[open] > summary::after { content: " −"; }
+
+@media (max-width: 768px) {
+  .ra-tpl-cols {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .ra-tpl-textarea {
+    font-size: 16px;        /* prevent iOS zoom */
+    line-height: 1.45;
+  }
+  /* Extra bottom padding so the sticky save bar + tab bar don't cover content */
+  .ra-tpl-editor { padding-bottom: 130px; }
+}

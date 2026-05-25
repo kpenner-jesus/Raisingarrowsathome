@@ -1,9 +1,17 @@
 // PATCH /api/portal/profile — recipient self-edit of phone + address.
-// Server enforces: caller must own the recipient row (recipient.profile_id = auth.uid).
+// Server enforces: caller must own the recipient row (recipient.profile_id = auth.uid)
+// OR the caller is an admin currently impersonating the test grantee (cookie
+// matches app_settings.test_recipient_id, env != production, role check passes).
 // Email + parent_names are intentionally NOT writable here.
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
+import {
+  isImpersonationAllowed,
+  getTestRecipientId,
+  IMPERSONATE_COOKIE,
+} from "@/app/lib/impersonation";
+import { cookies } from "next/headers";
 
 const CAD_POSTAL = /^[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z][ -]?\d[ABCEGHJ-NPRSTV-Z]\d$/i;
 
@@ -28,14 +36,41 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "postal code must be Canadian format A1A 1A1" }, { status: 400 });
   }
 
-  // Verify ownership: this recipient row must be tied to this user's profile.
+  // Verify ownership: this recipient row must be tied to this user's profile,
+  // OR the user is an admin currently impersonating the test grantee.
   const svc = supabaseService();
   const { data: own } = await svc.from("recipients")
     .select("id, profile_id, application_id, address_street, address_city, address_postal")
     .eq("id", recipientId).maybeSingle();
-  if (!own)                                 return NextResponse.json({ error: "not found" },     { status: 404 });
-  if (own.profile_id !== user.id)           return NextResponse.json({ error: "forbidden" },    { status: 403 });
-  if (own.application_id !== applicationId) return NextResponse.json({ error: "id mismatch" },  { status: 400 });
+  if (!own)                                 return NextResponse.json({ error: "not found" },    { status: 404 });
+  if (own.application_id !== applicationId) return NextResponse.json({ error: "id mismatch" }, { status: 400 });
+
+  // Permitted if direct owner OR (impersonation enabled + cookie matches +
+  // resolved recipient IS the configured test recipient + caller is admin).
+  const isOwner = own.profile_id === user.id;
+  let impersonationOk = false;
+  if (!isOwner && isImpersonationAllowed()) {
+    const cookieValue = cookies().get(IMPERSONATE_COOKIE)?.value ?? null;
+    const testId = await getTestRecipientId();
+    if (cookieValue && testId && cookieValue === testId && recipientId === testId) {
+      const { data: profile } = await svc
+        .from("profiles").select("role").eq("id", user.id).maybeSingle();
+      impersonationOk = profile?.role === "admin" || profile?.role === "super_admin";
+    }
+  }
+  if (!isOwner && !impersonationOk) {
+    // Distinguish the two reasons for clarity in logs/UI:
+    //  - Plain non-owner    → "forbidden"
+    //  - Impersonator trying to edit a non-test recipient → specific msg
+    const isImpersonatingButWrongRecipient =
+      isImpersonationAllowed() && cookies().get(IMPERSONATE_COOKIE)?.value
+      && recipientId !== (await getTestRecipientId());
+    return NextResponse.json({
+      error: isImpersonatingButWrongRecipient
+        ? "during impersonation you can only edit the test grantee row"
+        : "forbidden",
+    }, { status: 403 });
+  }
 
   const recipientBefore = { address_street: own.address_street, address_city: own.address_city, address_postal: own.address_postal };
   const recipientAfter  = { address_street, address_city, address_postal };

@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/app/lib/supabase/browser";
 import { compressImage } from "@/app/portal/_lib/compressImage";
@@ -40,12 +40,33 @@ function NewReceiptInner() {
   const replacingId = params.get("replacing");
 
   const [file, setFile]               = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl]   = useState<string | null>(null);
   const [amount, setAmount]           = useState(preAmount);
   const [currency, setCurrency]       = useState<"CAD" | "USD">(preCurr === "USD" ? "USD" : "CAD");
   const [date, setDate]               = useState(preDate);
   const [description, setDescription] = useState(preDesc);
   const [busy, setBusy]               = useState(false);
   const [error, setError]             = useState("");
+
+  // Two hidden inputs: camera (capture=environment), library (no capture)
+  const cameraRef  = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLInputElement>(null);
+
+  // Object URL preview lifecycle
+  useEffect(() => {
+    if (!file) { setPreviewUrl(null); return; }
+    if (file.type === "application/pdf") { setPreviewUrl(null); return; }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const isPdf = file?.type === "application/pdf";
+
+  const onFile = (f: File | null) => {
+    setError("");
+    setFile(f);
+  };
 
   const upload = async () => {
     if (!file) { setError("Please attach a photo or PDF of the receipt."); return; }
@@ -114,36 +135,100 @@ function NewReceiptInner() {
       <div style={{
         background: "rgba(232,121,58,0.08)",
         border: "1px solid rgba(232,121,58,0.25)",
-        borderRadius: 10, padding: "0.85rem 1.1rem", marginBottom: "1.5rem",
+        borderRadius: 10, padding: "0.85rem 1.1rem", marginBottom: "1.25rem",
         fontSize: "0.88rem", lineHeight: 1.55, color: "var(--text-primary)",
       }}>
         <strong>What we reimburse:</strong> curriculum, workbooks, and educational books.{" "}
         <em>Not</em> field trips, supplies, or extracurricular fees.
       </div>
 
-      <p style={{ color: "var(--text-secondary)", marginBottom: "2rem", lineHeight: 1.6 }}>
+      <p className="ra-only-desktop" style={{ color: "var(--text-secondary)", marginBottom: "2rem", lineHeight: 1.6 }}>
         Snap a photo of your receipt, enter the amount in the original currency, and submit. Once approved, the eligible portion is added to your next monthly payout (15th or end of month — submit at least 2 weeks in advance to make a payout window).
       </p>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-        <div>
-          <label style={lbl}>Receipt photo or PDF</label>
-          <input
-            type="file"
-            accept="image/*,application/pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            style={{ display: "block", fontSize: "0.9rem" }}
-          />
-          <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.35rem", lineHeight: 1.5 }}>
-            📷 On your phone, tap to <strong>take a photo</strong> or pick one from your library.
-          </div>
-          {file && <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.35rem" }}>{file.name} · {(file.size/1024).toFixed(0)} KB</div>}
+      {/* Hidden file inputs — triggered by buttons below */}
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+        style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+      />
+      <input
+        ref={libraryRef}
+        type="file"
+        accept="image/*,application/pdf"
+        onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+        style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+      />
+
+      {/* ────── MOBILE camera-first preview area ────── */}
+      <div className="ra-only-mobile">
+        <div
+          className="ra-upload-cam"
+          onClick={() => (file ? libraryRef.current?.click() : cameraRef.current?.click())}
+          role="button"
+          tabIndex={0}
+          aria-label={file ? "Replace receipt photo" : "Take a photo or upload"}
+        >
+          {previewUrl ? (
+            <img src={previewUrl} alt="Receipt preview" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          ) : isPdf ? (
+            <div className="glyph">
+              <div style={{ fontSize: "2.5rem" }}>📄</div>
+              <div className="lbl">{file?.name}</div>
+            </div>
+          ) : (
+            <div className="glyph">
+              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                <rect x="3" y="6" width="18" height="14" rx="2" />
+                <circle cx="12" cy="13" r="4" />
+                <path d="M9 6l1.5-2h3L15 6" />
+              </svg>
+              <div className="lbl">Tap to take a photo or upload</div>
+            </div>
+          )}
         </div>
 
+        <div className="ra-upload-actions-mobile">
+          <button type="button" className="ra-btn" onClick={() => cameraRef.current?.click()}>📷 Camera</button>
+          <button type="button" className="ra-btn" onClick={() => libraryRef.current?.click()}>🖼️ Photos</button>
+        </div>
+        {file && (
+          <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.85rem" }}>
+            {file.name} · {(file.size/1024).toFixed(0)} KB
+            <button
+              type="button"
+              onClick={() => onFile(null)}
+              style={{ background: "none", border: "none", color: "var(--accent-dark)", marginLeft: "0.6rem", fontSize: "0.78rem", cursor: "pointer", textDecoration: "underline" }}
+            >
+              remove
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ────── DESKTOP plain file input ────── */}
+      <div className="ra-only-desktop" style={{ marginBottom: "1.25rem" }}>
+        <label style={lbl}>Receipt photo or PDF</label>
+        <input
+          type="file"
+          accept="image/*,application/pdf"
+          onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+          style={{ display: "block", fontSize: "0.9rem" }}
+        />
+        <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.35rem", lineHeight: 1.5 }}>
+          📷 On your phone, tap to <strong>take a photo</strong> or pick one from your library.
+        </div>
+        {file && <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.35rem" }}>{file.name} · {(file.size/1024).toFixed(0)} KB</div>}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: "0.75rem" }}>
           <div>
             <label style={lbl}>Amount</label>
-            <input type="number" step="0.01" min="0" max={MAX_AMOUNT} value={amount} onChange={(e) => setAmount(e.target.value)} className="tf-input-box" placeholder="e.g. 124.99" />
+            <input type="number" inputMode="decimal" step="0.01" min="0" max={MAX_AMOUNT} value={amount} onChange={(e) => setAmount(e.target.value)} className="tf-input-box" placeholder="e.g. 124.99" />
           </div>
           <div>
             <label style={lbl}>Currency</label>
@@ -168,7 +253,7 @@ function NewReceiptInner() {
           <input value={description} onChange={(e) => setDescription(e.target.value)} className="tf-input-box" placeholder="e.g. Sonlight Core A package — Amazon.ca" maxLength={500} />
         </div>
         {error && <div className="tf-alert-error">{error}</div>}
-        <button className="tf-ok" disabled={busy} onClick={upload} style={{ marginTop: "0.5rem", alignSelf: "flex-start" }}>
+        <button className="tf-ok" disabled={busy} onClick={upload} style={{ marginTop: "0.5rem" }}>
           {busy ? "Uploading…" : "Submit receipt"}
         </button>
       </div>

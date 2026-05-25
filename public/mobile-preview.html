@@ -1,0 +1,963 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Mobile preview — Raising Arrows</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,500;1,400&display=swap" rel="stylesheet" />
+<style>
+  /* ───────── design tokens (matches real site) ───────── */
+  :root {
+    --accent: #e8793a;
+    --accent-deep: #c45f20;
+    --ink: #1b1612;
+    --ink-soft: #4a3f37;
+    --quiet: #8a7b6f;
+    --line: rgba(0,0,0,0.08);
+    --line-soft: rgba(0,0,0,0.04);
+    --bg: #fbf6ef;
+    --bg-soft: #fff;
+    --bg-tinted: rgba(232,121,58,0.06);
+    --shadow-card: 0 2px 8px rgba(20,16,12,0.06);
+    --shadow-pop: 0 10px 30px rgba(20,16,12,0.18);
+    --radius-card: 14px;
+    --radius-pill: 999px;
+    --font-body: 'Outfit', system-ui, -apple-system, sans-serif;
+    --font-display: 'Playfair Display', Georgia, serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: #2a221b; font-family: var(--font-body); color: var(--ink); }
+
+  /* ───────── desktop page chrome (devices side-by-side) ───────── */
+  .page {
+    max-width: 1400px; margin: 0 auto; padding: 2rem 1rem 4rem;
+    color: #fff;
+  }
+  .page-head { text-align: center; margin-bottom: 2rem; }
+  .page-head h1 { font-family: var(--font-display); font-size: 2rem; margin: 0 0 0.3rem; }
+  .page-head p { opacity: 0.7; margin: 0; font-size: 0.95rem; }
+  .jump {
+    display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: center;
+    margin: 1rem 0 2rem; padding: 0.6rem; background: rgba(255,255,255,0.05);
+    border-radius: 12px;
+  }
+  .jump a {
+    color: #fff; text-decoration: none; padding: 0.45rem 0.8rem;
+    border-radius: var(--radius-pill); font-size: 0.82rem; font-weight: 500;
+    background: rgba(255,255,255,0.08); transition: background 0.15s;
+  }
+  .jump a:hover { background: var(--accent); }
+  .row {
+    display: flex; gap: 2rem; flex-wrap: wrap; justify-content: center;
+  }
+  .device {
+    width: 380px; flex-shrink: 0;
+    border-radius: 38px; padding: 14px;
+    background: linear-gradient(180deg, #16110d, #2a221b);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.08);
+    position: relative;
+  }
+  .device::before {
+    content: ""; position: absolute; top: 24px; left: 50%; transform: translateX(-50%);
+    width: 110px; height: 28px; background: #000; border-radius: 14px; z-index: 10;
+  }
+  .device-label {
+    text-align: center; color: rgba(255,255,255,0.7); font-size: 0.78rem;
+    text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.6rem;
+    font-weight: 600;
+  }
+  .screen {
+    width: 100%; height: 760px; overflow-y: auto;
+    background: var(--bg); border-radius: 26px; position: relative;
+    scroll-behavior: smooth;
+  }
+  .screen::-webkit-scrollbar { width: 0; }
+
+  /* on actual mobile devices: drop the frame */
+  @media (max-width: 480px) {
+    .page { padding: 0; }
+    .page-head, .jump { padding-left: 1rem; padding-right: 1rem; }
+    .row { gap: 0; }
+    .device {
+      width: 100%; border-radius: 0; padding: 0; background: var(--bg);
+      box-shadow: none;
+    }
+    .device::before { display: none; }
+    .device-label { display: none; }
+    .screen { height: 100vh; border-radius: 0; }
+  }
+
+  /* ───────── shared screen primitives ───────── */
+  .status-bar {
+    height: 44px; padding: 0 1.2rem;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.78rem; font-weight: 600; color: var(--ink);
+    background: var(--bg);
+  }
+  .status-bar .right { display: flex; gap: 0.4rem; align-items: center; }
+  .status-icon { width: 16px; height: 10px; background: var(--ink); border-radius: 2px; opacity: 0.7; }
+  .status-batt { width: 22px; height: 11px; border: 1px solid var(--ink); border-radius: 3px; padding: 1px; opacity: 0.7; }
+  .status-batt::after { content: ""; display: block; width: 60%; height: 100%; background: var(--ink); border-radius: 1px; }
+
+  /* top app bar */
+  .appbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.7rem 1.2rem; background: var(--bg);
+    border-bottom: 1px solid var(--line-soft);
+    position: sticky; top: 0; z-index: 20;
+  }
+  .appbar .brand {
+    font-family: var(--font-display); font-size: 1.15rem; font-weight: 500;
+    color: var(--ink);
+  }
+  .appbar .icon-btn {
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    background: transparent; display: grid; place-items: center; cursor: pointer;
+    color: var(--ink);
+  }
+  .appbar .icon-btn svg { width: 22px; height: 22px; }
+  .appbar .icon-btn:active { background: var(--line); }
+
+  /* bottom tab nav */
+  .tabbar {
+    position: sticky; bottom: 0; left: 0; right: 0;
+    background: rgba(255,255,255,0.94); backdrop-filter: blur(20px);
+    border-top: 1px solid var(--line);
+    padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom, 0px));
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    z-index: 30;
+  }
+  .tabbar a {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    text-decoration: none; color: var(--quiet); padding: 0.3rem 0;
+    font-size: 0.7rem; font-weight: 500;
+  }
+  .tabbar a svg { width: 24px; height: 24px; }
+  .tabbar a.active { color: var(--accent); }
+
+  /* cards / containers */
+  .content { padding: 1rem 1rem 6rem; }
+  .card {
+    background: var(--bg-soft); border-radius: var(--radius-card);
+    padding: 1rem; box-shadow: var(--shadow-card); margin-bottom: 1rem;
+  }
+  .card-tight { padding: 0.85rem; }
+
+  /* buttons */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    padding: 0.9rem 1.2rem; border-radius: var(--radius-pill);
+    font-family: var(--font-body); font-size: 0.95rem; font-weight: 600;
+    border: 1px solid var(--line); background: var(--bg-soft); color: var(--ink);
+    cursor: pointer; text-decoration: none; min-height: 48px;
+    transition: transform 0.05s;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary {
+    background: linear-gradient(180deg, var(--accent), var(--accent-deep));
+    color: #fff; border: none;
+    box-shadow: 0 4px 12px rgba(232,121,58,0.35);
+  }
+  .btn-block { width: 100%; }
+  .btn-lg { padding: 1.1rem 1.4rem; font-size: 1rem; min-height: 56px; }
+
+  /* pills */
+  .pill {
+    display: inline-flex; align-items: center; padding: 0.2rem 0.65rem;
+    border-radius: var(--radius-pill); font-size: 0.72rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .pill-pending { background: #fef3e6; color: #b75d20; }
+  .pill-approved { background: #e8f5ec; color: #2c7a3f; }
+  .pill-paid { background: #eaf2ff; color: #2456a8; }
+  .pill-rejected { background: #fce8e8; color: #a83232; }
+
+  /* sticky bottom cta (landing) */
+  .sticky-cta {
+    position: sticky; bottom: 0; padding: 0.8rem 1rem calc(0.8rem + env(safe-area-inset-bottom, 0px));
+    background: rgba(255,255,255,0.94); backdrop-filter: blur(20px);
+    border-top: 1px solid var(--line); z-index: 30;
+  }
+
+  /* ────────────── 1. LANDING ────────────── */
+  .hero {
+    padding: 2rem 1.4rem 2.5rem; text-align: center;
+    background: radial-gradient(circle at 50% 0%, rgba(232,121,58,0.15), transparent 70%);
+  }
+  .hero .badge {
+    display: inline-block; padding: 0.3rem 0.8rem; background: rgba(232,121,58,0.12);
+    color: var(--accent-deep); border-radius: var(--radius-pill);
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; margin-bottom: 1rem;
+  }
+  .hero h1 {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: 2.1rem; line-height: 1.1; margin: 0 0 0.8rem;
+    color: var(--ink);
+  }
+  .hero h1 em { color: var(--accent-deep); font-style: italic; }
+  .hero p {
+    font-size: 1.02rem; color: var(--ink-soft); margin: 0 0 1.5rem;
+    line-height: 1.5;
+  }
+  .hero .meta {
+    display: flex; justify-content: center; gap: 1rem; font-size: 0.78rem;
+    color: var(--quiet); margin-top: 1rem;
+  }
+  .hero .meta span { display: flex; align-items: center; gap: 0.3rem; }
+
+  .section { padding: 2rem 1.2rem 1rem; }
+  .section h2 {
+    font-family: var(--font-display); font-size: 1.5rem; margin: 0 0 0.3rem;
+    font-weight: 500;
+  }
+  .section .lede { color: var(--quiet); font-size: 0.92rem; margin: 0 0 1.2rem; }
+
+  .caps-list { display: flex; flex-direction: column; gap: 0.6rem; }
+  .cap-row {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--bg-soft); padding: 0.9rem 1rem; border-radius: var(--radius-card);
+    border: 1px solid var(--line-soft);
+  }
+  .cap-row .age {
+    font-family: var(--font-display); font-size: 1rem; color: var(--ink); font-weight: 500;
+  }
+  .cap-row .amt {
+    font-family: var(--font-display); font-size: 1.3rem; color: var(--accent-deep);
+    font-weight: 500;
+  }
+  .cap-row .amt small { font-size: 0.7rem; color: var(--quiet); font-weight: 400; display: block; }
+
+  .accord { background: var(--bg-soft); border-radius: var(--radius-card); overflow: hidden; }
+  .accord details { border-bottom: 1px solid var(--line-soft); }
+  .accord details:last-child { border-bottom: none; }
+  .accord summary {
+    list-style: none; cursor: pointer; padding: 1rem 1.1rem;
+    display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+    font-weight: 500; font-size: 0.95rem; color: var(--ink);
+  }
+  .accord summary::-webkit-details-marker { display: none; }
+  .accord summary::after {
+    content: "+"; font-size: 1.3rem; color: var(--accent); font-weight: 400;
+    transition: transform 0.2s;
+  }
+  .accord details[open] summary::after { content: "−"; }
+  .accord p {
+    margin: 0; padding: 0 1.1rem 1rem; color: var(--ink-soft);
+    font-size: 0.92rem; line-height: 1.55;
+  }
+
+  .trust {
+    text-align: center; padding: 1.5rem 1.2rem 2.5rem;
+    color: var(--quiet); font-size: 0.82rem;
+  }
+  .trust .sponsor {
+    margin-top: 0.6rem; font-weight: 600; color: var(--ink-soft); font-size: 0.85rem;
+  }
+
+  /* ────────────── 2. SIGN IN ────────────── */
+  .signin {
+    padding: 3rem 1.5rem 2rem; min-height: 100%; display: flex; flex-direction: column;
+  }
+  .signin .brand {
+    text-align: center; font-family: var(--font-display); font-size: 1.8rem;
+    color: var(--ink); margin-bottom: 0.3rem;
+  }
+  .signin .sub {
+    text-align: center; color: var(--quiet); margin-bottom: 2.5rem; font-size: 0.92rem;
+  }
+  .signin h2 {
+    font-family: var(--font-display); font-size: 1.6rem; font-weight: 500;
+    margin: 0 0 0.4rem; color: var(--ink);
+  }
+  .signin .help { color: var(--quiet); font-size: 0.9rem; margin: 0 0 1.5rem; line-height: 1.4; }
+  .field { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }
+  .field label { font-size: 0.82rem; font-weight: 600; color: var(--ink-soft); }
+  .input {
+    width: 100%; padding: 1rem 1rem; font-size: 16px; /* prevent iOS zoom */
+    border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft);
+    font-family: var(--font-body); color: var(--ink);
+    -webkit-appearance: none; appearance: none;
+  }
+  .input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .signin .alt {
+    text-align: center; margin-top: auto; padding-top: 1.5rem;
+    color: var(--quiet); font-size: 0.85rem;
+  }
+  .signin .alt a { color: var(--accent-deep); font-weight: 600; text-decoration: none; }
+
+  /* ────────────── 3. PORTAL HOME ────────────── */
+  .greet {
+    padding: 1.2rem 1.2rem 0.5rem;
+  }
+  .greet .hello {
+    font-family: var(--font-display); font-size: 1.6rem; font-weight: 500;
+    margin: 0; color: var(--ink);
+  }
+  .greet .hello span { color: var(--accent-deep); }
+  .greet .sub { color: var(--quiet); font-size: 0.88rem; margin: 0.2rem 0 0; }
+
+  .grant-card {
+    margin: 1rem 1.2rem; padding: 1.4rem 1.2rem;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+    border-radius: 18px; color: #fff;
+    box-shadow: 0 8px 24px rgba(232,121,58,0.3);
+  }
+  .grant-card .label {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em;
+    opacity: 0.85; margin-bottom: 0.5rem;
+  }
+  .grant-card .big {
+    font-family: var(--font-display); font-size: 2.4rem; font-weight: 500;
+    line-height: 1; margin-bottom: 0.3rem;
+  }
+  .grant-card .of {
+    font-size: 0.9rem; opacity: 0.9;
+  }
+  .grant-card .bar {
+    margin-top: 1rem; height: 6px; background: rgba(255,255,255,0.25);
+    border-radius: 3px; overflow: hidden;
+  }
+  .grant-card .bar-fill {
+    height: 100%; width: 65%; background: #fff; border-radius: 3px;
+  }
+  .grant-card .meta {
+    display: flex; justify-content: space-between; margin-top: 0.8rem;
+    font-size: 0.78rem; opacity: 0.95;
+  }
+
+  .fab-upload {
+    margin: 0 1.2rem 1rem;
+    display: flex; align-items: center; gap: 0.9rem;
+    padding: 1.1rem 1.2rem;
+    background: var(--bg-soft); border: 2px dashed var(--accent);
+    border-radius: var(--radius-card);
+    color: var(--ink); text-decoration: none;
+    box-shadow: var(--shadow-card);
+  }
+  .fab-upload .ic {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    display: grid; place-items: center; flex-shrink: 0;
+  }
+  .fab-upload .ic svg { width: 24px; height: 24px; }
+  .fab-upload .title { font-weight: 600; font-size: 1rem; }
+  .fab-upload .sub { color: var(--quiet); font-size: 0.82rem; margin-top: 0.15rem; }
+
+  .section-head {
+    padding: 0.5rem 1.2rem 0.5rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .section-head h3 {
+    font-family: var(--font-display); font-size: 1.05rem; font-weight: 500;
+    margin: 0; color: var(--ink);
+  }
+  .section-head a { color: var(--accent-deep); font-size: 0.82rem; font-weight: 600; text-decoration: none; }
+
+  .receipt-list { padding: 0 1.2rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .receipt-row {
+    display: flex; align-items: center; gap: 0.85rem;
+    background: var(--bg-soft); padding: 0.75rem; border-radius: 12px;
+    box-shadow: var(--shadow-card);
+  }
+  .receipt-thumb {
+    width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0;
+    background: linear-gradient(135deg, #f5e6d3, #e6d2b8);
+    display: grid; place-items: center; color: var(--accent-deep);
+    font-size: 1.4rem;
+  }
+  .receipt-main { flex: 1; min-width: 0; }
+  .receipt-name {
+    font-weight: 600; font-size: 0.95rem; color: var(--ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .receipt-meta {
+    font-size: 0.78rem; color: var(--quiet); margin-top: 0.15rem;
+    display: flex; gap: 0.5rem; align-items: center;
+  }
+  .receipt-right { text-align: right; flex-shrink: 0; }
+  .receipt-amt { font-weight: 600; font-size: 0.95rem; color: var(--ink); }
+
+  .empty-hint {
+    text-align: center; padding: 1.5rem; color: var(--quiet); font-size: 0.85rem;
+  }
+
+  /* ────────────── 4. UPLOAD RECEIPT ────────────── */
+  .upload-cam {
+    margin: 1rem 1.2rem;
+    aspect-ratio: 4/3;
+    background: linear-gradient(180deg, #2a221b, #1b1612);
+    border-radius: var(--radius-card);
+    display: grid; place-items: center; color: #fff;
+    position: relative; overflow: hidden;
+  }
+  .upload-cam .glyph {
+    text-align: center;
+  }
+  .upload-cam .glyph svg {
+    width: 56px; height: 56px; opacity: 0.85; margin-bottom: 0.5rem;
+  }
+  .upload-cam .glyph .lbl {
+    font-size: 0.88rem; opacity: 0.85;
+  }
+  .upload-cam .corner {
+    position: absolute; width: 24px; height: 24px;
+    border-color: rgba(255,255,255,0.45); border-style: solid; border-width: 0;
+  }
+  .upload-cam .corner.tl { top: 16px; left: 16px; border-top-width: 2px; border-left-width: 2px; border-top-left-radius: 6px; }
+  .upload-cam .corner.tr { top: 16px; right: 16px; border-top-width: 2px; border-right-width: 2px; border-top-right-radius: 6px; }
+  .upload-cam .corner.bl { bottom: 16px; left: 16px; border-bottom-width: 2px; border-left-width: 2px; border-bottom-left-radius: 6px; }
+  .upload-cam .corner.br { bottom: 16px; right: 16px; border-bottom-width: 2px; border-right-width: 2px; border-bottom-right-radius: 6px; }
+
+  .upload-actions {
+    margin: 0 1.2rem 1.2rem;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;
+  }
+  .upload-form { padding: 0 1.2rem 1.2rem; display: flex; flex-direction: column; gap: 0.9rem; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+
+  /* ────────────── 5. STATEMENT ────────────── */
+  .summary-strip {
+    margin: 1rem 1.2rem; padding: 1rem;
+    background: var(--bg-soft); border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;
+    text-align: center;
+  }
+  .summary-strip .col + .col { border-left: 1px solid var(--line-soft); }
+  .summary-strip .num {
+    font-family: var(--font-display); font-size: 1.3rem; color: var(--ink);
+    font-weight: 500;
+  }
+  .summary-strip .lbl {
+    font-size: 0.7rem; color: var(--quiet); text-transform: uppercase;
+    letter-spacing: 0.05em; margin-top: 0.2rem;
+  }
+  .txn-list { padding: 0 1.2rem; }
+  .txn-group { margin-bottom: 1.2rem; }
+  .txn-month {
+    font-size: 0.78rem; font-weight: 600; color: var(--quiet);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 0.2rem 0.4rem 0.6rem;
+  }
+  .txn-rows {
+    background: var(--bg-soft); border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card); overflow: hidden;
+  }
+  .txn-row {
+    display: flex; align-items: center; gap: 0.8rem;
+    padding: 0.85rem 1rem; border-bottom: 1px solid var(--line-soft);
+  }
+  .txn-row:last-child { border-bottom: none; }
+  .txn-ic {
+    width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 0.9rem;
+  }
+  .txn-ic.in { background: #e8f5ec; color: #2c7a3f; }
+  .txn-ic.out { background: rgba(232,121,58,0.15); color: var(--accent-deep); }
+  .txn-main { flex: 1; min-width: 0; }
+  .txn-title { font-weight: 500; font-size: 0.93rem; color: var(--ink); }
+  .txn-sub { font-size: 0.78rem; color: var(--quiet); margin-top: 0.15rem; }
+  .txn-amt { font-weight: 600; font-size: 0.95rem; color: var(--ink); }
+  .txn-amt.pos { color: #2c7a3f; }
+
+  /* ────────────── 6. PHOTOS ────────────── */
+  .photo-grid {
+    padding: 1rem 1.2rem;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;
+  }
+  .photo-tile {
+    aspect-ratio: 1; border-radius: 12px; overflow: hidden;
+    background: linear-gradient(135deg, #d9c5a8, #8e6c4a);
+    position: relative; display: grid; place-items: end;
+    padding: 0.6rem; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    font-size: 0.78rem; font-weight: 600;
+  }
+  .photo-tile:nth-child(2) { background: linear-gradient(135deg, #c8d4b8, #6b8254); }
+  .photo-tile:nth-child(3) { background: linear-gradient(135deg, #e8d3c5, #b07650); }
+  .photo-tile:nth-child(4) { background: linear-gradient(135deg, #d4c0d8, #7a5985); }
+  .photo-tile:nth-child(5) { background: linear-gradient(135deg, #c5d8d4, #547a72); }
+  .photo-tile:nth-child(6) { background: linear-gradient(135deg, #e0d4b8, #a08660); }
+
+  .photo-add {
+    display: grid; place-items: center; padding: 0;
+    background: var(--bg-soft); border: 2px dashed var(--line);
+    color: var(--accent); font-size: 2rem; font-weight: 300;
+  }
+
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="page-head">
+    <h1>Mobile preview — Raising Arrows</h1>
+    <p>Mobile-first redesign mockup · scroll any screen independently · view on phone for full-bleed</p>
+  </div>
+
+  <div class="jump">
+    <a href="#s-landing">1. Landing</a>
+    <a href="#s-signin">2. Sign in</a>
+    <a href="#s-portal">3. Portal home</a>
+    <a href="#s-upload">4. Upload receipt</a>
+    <a href="#s-statement">5. Statement</a>
+    <a href="#s-photos">6. Photos</a>
+  </div>
+
+  <div class="row">
+
+  <!-- ═══════════════════ 1. LANDING ═══════════════════ -->
+  <div id="s-landing">
+    <div class="device-label">1. Public landing</div>
+    <div class="device">
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:41</span>
+          <span class="right"><span class="status-icon"></span><span class="status-batt"></span></span>
+        </div>
+        <div class="appbar">
+          <span class="brand">Raising Arrows</span>
+          <button class="icon-btn" aria-label="Menu">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+        </div>
+
+        <section class="hero">
+          <span class="badge">Manitoba · First-year grant</span>
+          <h1>Begin homeschooling <em>without</em> the financial worry.</h1>
+          <p>We reimburse 75% of curriculum costs for Christian families launching their first year of homeschooling.</p>
+          <a href="#s-signin" class="btn btn-primary btn-lg btn-block">Apply for the grant</a>
+          <div class="meta">
+            <span>✓ 30 days to hear back</span>
+            <span>✓ No fees</span>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>How much you'll receive</h2>
+          <p class="lede">Based on your child's age.</p>
+          <div class="caps-list">
+            <div class="cap-row">
+              <span class="age">Ages 5–8</span>
+              <span class="amt">$375<small>up to $500 spent</small></span>
+            </div>
+            <div class="cap-row">
+              <span class="age">Ages 8–12</span>
+              <span class="amt">$500<small>up to $667 spent</small></span>
+            </div>
+            <div class="cap-row">
+              <span class="age">Ages 12–15</span>
+              <span class="amt">$650<small>up to $867 spent</small></span>
+            </div>
+            <div class="cap-row">
+              <span class="age">Ages 15–18</span>
+              <span class="amt">$750<small>up to $1000 spent</small></span>
+            </div>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Common questions</h2>
+          <div class="accord">
+            <details>
+              <summary>How long until I hear back?</summary>
+              <p>Within 30 days of submitting your written questionnaire and short video interview.</p>
+            </details>
+            <details>
+              <summary>What's eligible for reimbursement?</summary>
+              <p>Curriculum, workbooks, and educational books only. We don't cover field trips, school supplies, or extracurricular fees.</p>
+            </details>
+            <details>
+              <summary>How does payment work?</summary>
+              <p>Two payouts per month — on the 15th and the last day — via e-transfer from CEO Ministries.</p>
+            </details>
+            <details>
+              <summary>Who qualifies?</summary>
+              <p>Christian families considering homeschool for the first time who have never previously registered with the government.</p>
+            </details>
+          </div>
+        </section>
+
+        <div class="trust">
+          A ministry of CEO Ministries — a registered Canadian charity.
+          <div class="sponsor">CEO Ministries · BN 803489451 RR0001</div>
+        </div>
+
+        <div class="sticky-cta">
+          <a href="#s-signin" class="btn btn-primary btn-block btn-lg">Apply now →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ 2. SIGN IN ═══════════════════ -->
+  <div id="s-signin">
+    <div class="device-label">2. Sign in</div>
+    <div class="device">
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:41</span>
+          <span class="right"><span class="status-icon"></span><span class="status-batt"></span></span>
+        </div>
+        <div class="signin">
+          <div class="brand">Raising Arrows</div>
+          <div class="sub">Sign in to your portal</div>
+
+          <h2>Welcome back.</h2>
+          <p class="help">Enter the email you applied with. We'll send you a magic link — no password needed.</p>
+
+          <div class="field">
+            <label for="em">Your email</label>
+            <input class="input" id="em" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" />
+          </div>
+
+          <button class="btn btn-primary btn-block btn-lg" style="margin-top:0.5rem;">Send my magic link</button>
+
+          <div class="alt">
+            New here? <a href="#s-landing">Apply for the grant</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ 3. PORTAL HOME ═══════════════════ -->
+  <div id="s-portal">
+    <div class="device-label">3. Portal home (recipient)</div>
+    <div class="device">
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:41</span>
+          <span class="right"><span class="status-icon"></span><span class="status-batt"></span></span>
+        </div>
+        <div class="appbar">
+          <span class="brand">Raising Arrows</span>
+          <button class="icon-btn" aria-label="Profile">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>
+          </button>
+        </div>
+
+        <div class="greet">
+          <h1 class="hello">Hi <span>Sarah</span> 👋</h1>
+          <p class="sub">You're 6 weeks into your first homeschool year.</p>
+        </div>
+
+        <div class="grant-card">
+          <div class="label">Your grant</div>
+          <div class="big">$1,275</div>
+          <div class="of">of $1,950 used so far</div>
+          <div class="bar"><div class="bar-fill"></div></div>
+          <div class="meta">
+            <span>$675 remaining</span>
+            <span>134 days left to submit</span>
+          </div>
+        </div>
+
+        <a href="#s-upload" class="fab-upload">
+          <span class="ic">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </span>
+          <span>
+            <div class="title">Upload a receipt</div>
+            <div class="sub">Snap with camera or pick from photos</div>
+          </span>
+        </a>
+
+        <div class="section-head">
+          <h3>Recent receipts</h3>
+          <a href="#s-statement">See all →</a>
+        </div>
+
+        <div class="receipt-list">
+          <div class="receipt-row">
+            <div class="receipt-thumb">📕</div>
+            <div class="receipt-main">
+              <div class="receipt-name">The Good and the Beautiful — Level 2</div>
+              <div class="receipt-meta"><span class="pill pill-approved">Approved</span> · Apr 12</div>
+            </div>
+            <div class="receipt-right"><div class="receipt-amt">$87.50</div></div>
+          </div>
+          <div class="receipt-row">
+            <div class="receipt-thumb">📗</div>
+            <div class="receipt-main">
+              <div class="receipt-name">Saxon Math K — Workbook set</div>
+              <div class="receipt-meta"><span class="pill pill-pending">Reviewing</span> · Apr 10</div>
+            </div>
+            <div class="receipt-right"><div class="receipt-amt">$124.00</div></div>
+          </div>
+          <div class="receipt-row">
+            <div class="receipt-thumb">📘</div>
+            <div class="receipt-main">
+              <div class="receipt-name">Apologia Science — Astronomy</div>
+              <div class="receipt-meta"><span class="pill pill-paid">Paid</span> · Mar 28</div>
+            </div>
+            <div class="receipt-right"><div class="receipt-amt">$64.95</div></div>
+          </div>
+        </div>
+
+        <div class="tabbar">
+          <a href="#s-portal" class="active">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+            Home
+          </a>
+          <a href="#s-statement">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5h6M9 9h6M9 13h4M5 3h14v18H5z"/></svg>
+            Statement
+          </a>
+          <a href="#s-photos">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+            Photos
+          </a>
+          <a href="#">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 4M12 17h.01"/></svg>
+            Help
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ 4. UPLOAD RECEIPT ═══════════════════ -->
+  <div id="s-upload">
+    <div class="device-label">4. Upload receipt</div>
+    <div class="device">
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:41</span>
+          <span class="right"><span class="status-icon"></span><span class="status-batt"></span></span>
+        </div>
+        <div class="appbar">
+          <button class="icon-btn" aria-label="Back" style="margin-left:-0.5rem;">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <span class="brand" style="flex:1;text-align:center;font-size:1rem;">New receipt</span>
+          <button class="icon-btn" aria-label="Close" style="visibility:hidden;"></button>
+        </div>
+
+        <div class="upload-cam">
+          <span class="corner tl"></span><span class="corner tr"></span>
+          <span class="corner bl"></span><span class="corner br"></span>
+          <div class="glyph">
+            <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="4"/><path d="M9 6l1.5-2h3L15 6"/></svg>
+            <div class="lbl">Tap to take a photo or upload</div>
+          </div>
+        </div>
+
+        <div class="upload-actions">
+          <button class="btn"><span>📷</span> Camera</button>
+          <button class="btn"><span>🖼️</span> Photos</button>
+        </div>
+
+        <div class="upload-form">
+          <div class="field">
+            <label>Store</label>
+            <input class="input" placeholder="e.g. Indigo, MACHS, Sonlight" value="Christianbook.com" />
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>Amount</label>
+              <input class="input" inputmode="decimal" value="$87.50" />
+            </div>
+            <div class="field">
+              <label>Currency</label>
+              <select class="input">
+                <option>CAD</option><option>USD</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label>What did you buy?</label>
+            <input class="input" placeholder="The Good and the Beautiful Lv 2" />
+          </div>
+          <div class="field">
+            <label>Category</label>
+            <select class="input">
+              <option>Curriculum</option>
+              <option>Workbooks</option>
+              <option>Educational books</option>
+            </select>
+          </div>
+
+          <button class="btn btn-primary btn-block btn-lg" style="margin-top:0.5rem;">Submit for review</button>
+          <button class="btn btn-block" style="background:transparent;border:none;color:var(--quiet);">Save and add another</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ 5. STATEMENT ═══════════════════ -->
+  <div id="s-statement">
+    <div class="device-label">5. Statement</div>
+    <div class="device">
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:41</span>
+          <span class="right"><span class="status-icon"></span><span class="status-batt"></span></span>
+        </div>
+        <div class="appbar">
+          <span class="brand">Statement</span>
+          <button class="icon-btn" aria-label="Download">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 4v12M6 10l6 6 6-6M4 20h16"/></svg>
+          </button>
+        </div>
+
+        <div class="summary-strip">
+          <div class="col">
+            <div class="num">$1,275</div>
+            <div class="lbl">Approved</div>
+          </div>
+          <div class="col">
+            <div class="num">$211</div>
+            <div class="lbl">Pending</div>
+          </div>
+          <div class="col">
+            <div class="num">$675</div>
+            <div class="lbl">Left</div>
+          </div>
+        </div>
+
+        <div class="txn-list">
+          <div class="txn-group">
+            <div class="txn-month">April 2026</div>
+            <div class="txn-rows">
+              <div class="txn-row">
+                <div class="txn-ic in">↓</div>
+                <div class="txn-main">
+                  <div class="txn-title">Payout · April 30</div>
+                  <div class="txn-sub">E-transfer · sarah@…</div>
+                </div>
+                <div class="txn-amt pos">+$152.45</div>
+              </div>
+              <div class="txn-row">
+                <div class="txn-ic out">📕</div>
+                <div class="txn-main">
+                  <div class="txn-title">The Good and the Beautiful Lv 2</div>
+                  <div class="txn-sub">Christianbook.com · <span class="pill pill-approved">Approved</span></div>
+                </div>
+                <div class="txn-amt">$87.50</div>
+              </div>
+              <div class="txn-row">
+                <div class="txn-ic out">📗</div>
+                <div class="txn-main">
+                  <div class="txn-title">Saxon Math K — Workbook set</div>
+                  <div class="txn-sub">Sonlight · <span class="pill pill-pending">Reviewing</span></div>
+                </div>
+                <div class="txn-amt">$124.00</div>
+              </div>
+            </div>
+          </div>
+          <div class="txn-group">
+            <div class="txn-month">March 2026</div>
+            <div class="txn-rows">
+              <div class="txn-row">
+                <div class="txn-ic in">↓</div>
+                <div class="txn-main">
+                  <div class="txn-title">Payout · March 31</div>
+                  <div class="txn-sub">E-transfer · sarah@…</div>
+                </div>
+                <div class="txn-amt pos">+$94.20</div>
+              </div>
+              <div class="txn-row">
+                <div class="txn-ic out">📘</div>
+                <div class="txn-main">
+                  <div class="txn-title">Apologia Science — Astronomy</div>
+                  <div class="txn-sub">MACHS booth · <span class="pill pill-paid">Paid</span></div>
+                </div>
+                <div class="txn-amt">$64.95</div>
+              </div>
+              <div class="txn-row">
+                <div class="txn-ic out">📓</div>
+                <div class="txn-main">
+                  <div class="txn-title">Handwriting Without Tears</div>
+                  <div class="txn-sub">Indigo · <span class="pill pill-paid">Paid</span></div>
+                </div>
+                <div class="txn-amt">$32.99</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tabbar">
+          <a href="#s-portal">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+            Home
+          </a>
+          <a href="#s-statement" class="active">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5h6M9 9h6M9 13h4M5 3h14v18H5z"/></svg>
+            Statement
+          </a>
+          <a href="#s-photos">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+            Photos
+          </a>
+          <a href="#">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 4M12 17h.01"/></svg>
+            Help
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════ 6. PHOTOS ═══════════════════ -->
+  <div id="s-photos">
+    <div class="device-label">6. Photos</div>
+    <div class="device">
+      <div class="screen">
+        <div class="status-bar">
+          <span>9:41</span>
+          <span class="right"><span class="status-icon"></span><span class="status-batt"></span></span>
+        </div>
+        <div class="appbar">
+          <span class="brand">Photos</span>
+          <button class="icon-btn" aria-label="Add">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+
+        <div style="padding: 1rem 1.2rem 0;">
+          <p style="margin:0;color:var(--quiet);font-size:0.88rem;line-height:1.5;">
+            Share photos of your homeschool journey. We may feature them on our site to encourage other families.
+          </p>
+        </div>
+
+        <div class="photo-grid">
+          <div class="photo-tile">Math at the kitchen table</div>
+          <div class="photo-tile">First nature walk</div>
+          <div class="photo-tile">Reading time</div>
+          <div class="photo-tile">Science experiment</div>
+          <div class="photo-tile">Family devotions</div>
+          <div class="photo-tile photo-add" style="color:var(--accent);font-size:2rem;">+</div>
+        </div>
+
+        <div class="tabbar">
+          <a href="#s-portal">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>
+            Home
+          </a>
+          <a href="#s-statement">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5h6M9 9h6M9 13h4M5 3h14v18H5z"/></svg>
+            Statement
+          </a>
+          <a href="#s-photos" class="active">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+            Photos
+          </a>
+          <a href="#">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 4M12 17h.01"/></svg>
+            Help
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /.row -->
+</div>
+
+</body>
+</html>

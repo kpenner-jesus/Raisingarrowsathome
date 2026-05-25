@@ -1,11 +1,17 @@
-// /portal/statement?year=YYYY — printable annual statement for a recipient.
-// Family hits Print (Ctrl+P / browser menu) → Save as PDF.
+// /portal/statement?year=YYYY — annual statement for a recipient.
+// Family hits Print (Ctrl+P / browser menu) → Save as PDF. Print + desktop
+// share the same table-style layout. Mobile gets a card timeline view.
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { getEffectiveRecipient } from "@/app/lib/impersonation";
 import { PrintButton } from "./PrintButton";
 
 export const dynamic = "force-dynamic";
+
+type TxnItem =
+  | { kind: "receipt"; id: string; date: string; title: string; sub: string; amount: number; status: string }
+  | { kind: "payout";  id: string; date: string; title: string; sub: string; amount: number; status: string };
 
 export default async function StatementPage({ searchParams }: { searchParams?: { year?: string } }) {
   const supabase = supabaseServer();
@@ -13,14 +19,24 @@ export default async function StatementPage({ searchParams }: { searchParams?: {
   if (!user) redirect("/auth/login?next=%2Fportal%2Fstatement");
 
   const svc = supabaseService();
-  const { data: recipient } = await svc.from("recipients")
-    .select(`
-      id, approved_amount, reimbursement_rate, status, created_at, cohort_year,
-      address_street, address_city, address_postal,
-      applications!inner(parent_names, contact_email, contact_phone, city, app_ref)
-    `)
-    .eq("profile_id", user.id)
-    .maybeSingle();
+  // Impersonation-aware lookup. Returns the test recipient when an admin
+  // is viewing as a test grantee, else the user's own profile-linked row.
+  const ctx = await getEffectiveRecipient(user.id);
+
+  // Re-query with the wider projection (parent_names, app_ref, etc) this page needs.
+  async function loadStatementRecipient(recipientId: string) {
+    const { data } = await svc.from("recipients")
+      .select(`
+        id, approved_amount, reimbursement_rate, status, created_at, cohort_year,
+        address_street, address_city, address_postal,
+        applications!inner(parent_names, contact_email, contact_phone, city, app_ref)
+      `)
+      .eq("id", recipientId)
+      .maybeSingle();
+    return data;
+  }
+
+  const recipient = ctx.recipient ? await loadStatementRecipient(ctx.recipient.id) : null;
 
   if (!recipient) {
     return (
@@ -65,6 +81,41 @@ export default async function StatementPage({ searchParams }: { searchParams?: {
 
   const app = (recipient as any).applications;
 
+  // ── Combined month-grouped timeline for mobile view ──
+  const items: TxnItem[] = [
+    ...receipts.map((r): TxnItem => ({
+      kind: "receipt",
+      id: r.id,
+      date: r.purchase_date || (r.created_at?.slice(0, 10) ?? ""),
+      title: r.description || "Receipt",
+      sub: `${r.currency || "CAD"} · ${r.status}`,
+      amount: Number(r.amount || 0),
+      status: r.status,
+    })),
+    ...paidPayouts.map((p): TxnItem => ({
+      kind: "payout",
+      id: p.id,
+      date: p.paid_at?.slice(0, 10) ?? p.created_at?.slice(0, 10) ?? "",
+      title: "Payout received",
+      sub: `${p.payment_method || "e-transfer"}${p.payment_reference ? ` · ${p.payment_reference}` : ""}`,
+      amount: Number(p.amount || 0),
+      status: "paid",
+    })),
+  ];
+  // Sort newest first for mobile (statement is typically read top-down)
+  items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
+  const byMonth = new Map<string, TxnItem[]>();
+  for (const it of items) {
+    const key = it.date.slice(0, 7); // YYYY-MM
+    if (!byMonth.has(key)) byMonth.set(key, []);
+    byMonth.get(key)!.push(it);
+  }
+  const monthLabels = new Intl.DateTimeFormat("en-CA", { month: "long", year: "numeric" });
+
+  const totalReceiptsRemaining =
+    Number((recipient as any).approved_amount) - totalPaidCAD;
+
   return (
     <div className="ra-statement">
       <style>{`
@@ -108,6 +159,60 @@ export default async function StatementPage({ searchParams }: { searchParams?: {
         </div>
       </div>
 
+      {/* ════════════ MOBILE timeline view (CSS-toggled) ════════════ */}
+      <div className="ra-stmt-mobile">
+        <div className="ra-summary-strip">
+          <div className="ra-summary-col">
+            <div className="ra-summary-num">${totalReimbursableCAD.toFixed(0)}</div>
+            <div className="ra-summary-lbl">Reimbursable</div>
+          </div>
+          <div className="ra-summary-col">
+            <div className="ra-summary-num">${totalPaidCAD.toFixed(0)}</div>
+            <div className="ra-summary-lbl">Paid out</div>
+          </div>
+          <div className="ra-summary-col">
+            <div className="ra-summary-num">${Math.max(0, totalReceiptsRemaining).toFixed(0)}</div>
+            <div className="ra-summary-lbl">Left</div>
+          </div>
+        </div>
+
+        {items.length === 0 ? (
+          <p className="ra-quiet" style={{ textAlign: "center", padding: "2rem 0" }}>No activity in {yearParam}.</p>
+        ) : (
+          Array.from(byMonth.entries()).map(([month, list]: [string, TxnItem[]]) => {
+            const monthLabel = month
+              ? monthLabels.format(new Date(`${month}-01T00:00:00Z`))
+              : "Undated";
+            return (
+              <div key={month || "undated"} className="ra-month-group">
+                <div className="ra-month-label">{monthLabel}</div>
+                <div className="ra-txn-rows">
+                  {list.map((it: TxnItem) => {
+                    const isIn = it.kind === "payout";
+                    return (
+                      <div key={`${it.kind}-${it.id}`} className="ra-txn-row">
+                        <span className={`ra-txn-ic ${isIn ? "in" : "out"}`}>
+                          {isIn ? "↓" : "📕"}
+                        </span>
+                        <span className="ra-txn-main">
+                          <span className="ra-txn-title">{it.title}</span>
+                          <span className="ra-txn-sub">{it.sub}</span>
+                        </span>
+                        <span className={`ra-txn-amt ${isIn ? "pos" : ""}`}>
+                          {isIn ? "+" : ""}${it.amount.toFixed(2)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* ════════════ DESKTOP + PRINT table view (CSS-toggled) ════════════ */}
+      <div className="ra-stmt-desktop">
       <section className="ra-stmt-section">
         <h2 className="ra-stmt-title">Grant summary</h2>
         <table className="ra-stmt-table">
@@ -171,6 +276,7 @@ export default async function StatementPage({ searchParams }: { searchParams?: {
           </table>
         )}
       </section>
+      </div>{/* /.ra-stmt-desktop */}
 
       <div className="ra-tiny" style={{ marginTop: "2rem", borderTop: "1px solid #eee", paddingTop: "1rem", color: "#666" }}>
         Generated {now.toLocaleString("en-CA")}. Disbursed by CEO Ministries, the registered Canadian charity that sponsors Raising Arrows. This statement is for your records — it is not a tax receipt. Questions: <a href="mailto:register@raisingarrowsathome.com">register@raisingarrowsathome.com</a>.

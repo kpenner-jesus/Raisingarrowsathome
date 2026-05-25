@@ -84,8 +84,15 @@ export async function GET(req: Request) {
   }
 
   // Build the redirect response, copying over the Set-Cookie headers
-  // the supabase client wrote into `response`.
-  const redirect = NextResponse.redirect(new URL(target, url.origin));
+  // the supabase client wrote into `response`. Use forwarded headers
+  // when present so callback works behind a reverse proxy / Cloudflare
+  // tunnel — req.url would otherwise resolve to http://localhost:3000.
+  const forwardedHost  = req.headers.get("x-forwarded-host");
+  const forwardedProto = req.headers.get("x-forwarded-proto");
+  const origin = forwardedHost
+    ? `${forwardedProto || "https"}://${forwardedHost}`
+    : url.origin;
+  const redirect = NextResponse.redirect(new URL(target, origin));
   response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
   return redirect;
 }

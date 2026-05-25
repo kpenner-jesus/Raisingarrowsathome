@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { EnvBanner } from "./_components/EnvBanner";
 import "./globals.css";
+import "./mobile.css";
 
 const SITE = "https://raisingarrowsathome.com";
 const DESC =
@@ -45,6 +46,15 @@ export const metadata: Metadata = {
   alternates: { canonical: SITE },
 };
 
+// Viewport — required for mobile-first CSS to apply. Without this,
+// mobile browsers render at ~980px and scale down (bleeds layout).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#e8793a",
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -57,8 +67,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
         {/* Icons + manifest are auto-emitted by app/icon.tsx,
             app/icon2.tsx, app/apple-icon.tsx, and app/manifest.ts.
-            Below are PWA-only meta tags that Next doesn't add itself. */}
-        <meta name="theme-color" content="#e8793a" />
+            Viewport + theme-color emitted by the viewport export above.
+            Below are PWA-only meta tags Next doesn't add itself. */}
+        <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Raising Arrows" />
