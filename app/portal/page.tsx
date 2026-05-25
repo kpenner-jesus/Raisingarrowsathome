@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { supabaseServer } from "@/app/lib/supabase/server";
+import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { calcBalance } from "@/app/lib/grant-calc";
 import { HelpHint } from "@/app/_components/HelpHint";
+import { getEffectiveRecipient } from "@/app/lib/impersonation";
 
 export const dynamic = "force-dynamic";
 
@@ -10,11 +11,14 @@ export default async function PortalDashboard() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data: recipient } = await supabase
-    .from("recipients")
-    .select("*, applications(parent_names)")
-    .eq("profile_id", user.id)
-    .maybeSingle();
+  // Use the impersonation-aware helper so admins viewing "as test grantee"
+  // see the seeded test recipient instead of their own profile's recipient.
+  const ctx = await getEffectiveRecipient(user.id);
+  const recipient = ctx.recipient;
+  // Subsequent queries (receipts, payouts) need to run with service role
+  // when impersonating, because the row isn't owned by the calling user
+  // via profile_id (RLS would block reads otherwise).
+  const dataClient = ctx.mode === "impersonating" ? supabaseService() : supabase;
 
   if (!recipient) {
     return (
@@ -29,8 +33,8 @@ export default async function PortalDashboard() {
   }
 
   const [{ data: receipts }, { data: allPayouts }] = await Promise.all([
-    supabase.from("receipts").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
-    supabase.from("payouts").select("amount, paid_at, status").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
+    dataClient.from("receipts").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
+    dataClient.from("payouts").select("amount, paid_at, status").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
   ]);
 
   const paid            = (allPayouts || []).filter((p: any) => p.status === "paid");

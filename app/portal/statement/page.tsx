@@ -4,6 +4,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { getEffectiveRecipient } from "@/app/lib/impersonation";
 import { PrintButton } from "./PrintButton";
 
 export const dynamic = "force-dynamic";
@@ -18,14 +19,24 @@ export default async function StatementPage({ searchParams }: { searchParams?: {
   if (!user) redirect("/auth/login?next=%2Fportal%2Fstatement");
 
   const svc = supabaseService();
-  const { data: recipient } = await svc.from("recipients")
-    .select(`
-      id, approved_amount, reimbursement_rate, status, created_at, cohort_year,
-      address_street, address_city, address_postal,
-      applications!inner(parent_names, contact_email, contact_phone, city, app_ref)
-    `)
-    .eq("profile_id", user.id)
-    .maybeSingle();
+  // Impersonation-aware lookup. Returns the test recipient when an admin
+  // is viewing as a test grantee, else the user's own profile-linked row.
+  const ctx = await getEffectiveRecipient(user.id);
+  const recipient = ctx.recipient
+    ? await (async () => {
+        // Pull the same shape as the original query (with the wider
+        // applications projection) from the resolved recipient id.
+        const { data } = await svc.from("recipients")
+          .select(`
+            id, approved_amount, reimbursement_rate, status, created_at, cohort_year,
+            address_street, address_city, address_postal,
+            applications!inner(parent_names, contact_email, contact_phone, city, app_ref)
+          `)
+          .eq("id", ctx.recipient.id)
+          .maybeSingle();
+        return data;
+      })()
+    : null;
 
   if (!recipient) {
     return (

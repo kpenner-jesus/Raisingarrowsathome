@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabaseServer } from "@/app/lib/supabase/server";
 import { MobileNavShell } from "@/app/_components/MobileNav";
 import { PortalLogoutLink } from "./_PortalLogoutLink";
+import { ImpersonationBanner } from "./_components/ImpersonationBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,9 @@ export default async function PortalLayout({ children }: { children: React.React
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-gradient)" }}>
+      {/* Sticky banner shown only when an admin is impersonating the test grantee */}
+      <ImpersonationBanner />
+
       {/* ───── Desktop horizontal header (hidden on mobile via .ra-portal-header) ───── */}
       <header
         className="ra-portal-header"

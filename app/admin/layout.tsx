@@ -5,6 +5,7 @@ import { NavLink } from "./_components/NavLink";
 import { AdminProviders } from "./_components/AdminProviders";
 import { MobileNavShell } from "@/app/_components/MobileNav";
 import { AdminLogoutLink } from "./_components/AdminLogoutLink";
+import { ImpersonateButton } from "./_components/ImpersonateButton";
 import "./admin.css";
 
 export const dynamic = "force-dynamic";
@@ -98,6 +99,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <NavLink href="/admin/help"            label="Help"         icon="?" />
           </nav>
 
+          {/* Impersonation toggle for non-prod deploys */}
+          <div style={{ padding: "0.5rem 0 1rem", borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: "auto" }}>
+            <ImpersonateButton variant="sidebar" />
+          </div>
           <form action="/auth/logout" method="post" className="ra-admin-signout">
             <div className="ra-admin-signout-email">{user?.email}</div>
             <button type="submit" className="ra-admin-signout-btn">Sign out</button>

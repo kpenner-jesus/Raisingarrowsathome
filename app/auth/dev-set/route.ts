@@ -62,8 +62,14 @@ export async function POST(req: Request) {
     : "/admin";
 
   // Build the redirect response copying the Set-Cookie headers the supabase
-  // client wrote into `response` above.
-  const redirect = NextResponse.redirect(new URL(safe, url.origin), { status: 303 });
+  // client wrote into `response` above. Respect X-Forwarded-Host so this
+  // works behind cloudflared / nginx / vercel proxy.
+  const forwardedHost  = req.headers.get("x-forwarded-host");
+  const forwardedProto = req.headers.get("x-forwarded-proto");
+  const origin = forwardedHost
+    ? `${forwardedProto || "https"}://${forwardedHost}`
+    : url.origin;
+  const redirect = NextResponse.redirect(new URL(safe, origin), { status: 303 });
   response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
   return redirect;
 }

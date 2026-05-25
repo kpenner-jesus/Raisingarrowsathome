@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { supabaseServer } from "@/app/lib/supabase/server";
+import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { getEffectiveRecipient } from "@/app/lib/impersonation";
 
 export const dynamic = "force-dynamic";
 
@@ -8,16 +9,20 @@ export default async function PhotosPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data: recipient } = await supabase
-    .from("recipients").select("id").eq("profile_id", user.id).maybeSingle();
+  const ctx = await getEffectiveRecipient(user.id);
+  const recipient = ctx.recipient;
   if (!recipient) return <p style={{ color: "var(--text-secondary)" }}>Account not linked to a grant.</p>;
 
-  const { data: photos } = await supabase
+  const dataClient = ctx.mode === "impersonating" ? supabaseService() : supabase;
+  const { data: photos } = await dataClient
     .from("photos").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false });
 
   // Sign each path so the <img> can load (private bucket).
+  // Use service-role storage for signed URLs when impersonating so the
+  // admin's session can fetch images that aren't owned via profile_id.
+  const storageClient = ctx.mode === "impersonating" ? supabaseService() : supabase;
   const signed = await Promise.all((photos || []).map(async (p: any) => {
-    const { data } = await supabase.storage.from("photos").createSignedUrl(p.image_path, 600);
+    const { data } = await storageClient.storage.from("photos").createSignedUrl(p.image_path, 600);
     return { ...p, signed_url: data?.signedUrl ?? null };
   }));
 

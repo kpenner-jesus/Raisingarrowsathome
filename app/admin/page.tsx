@@ -3,6 +3,7 @@ import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { AvatarRow } from "./_components/Avatar";
 import { StatusBadge } from "./_components/StatusBadge";
 import { HelpHint } from "../_components/HelpHint";
+import { ImpersonateButton } from "./_components/ImpersonateButton";
 
 export const dynamic = "force-dynamic";
 
@@ -78,7 +79,7 @@ export default async function AdminDashboard() {
 
   return (
     <div>
-      <header className="ra-page-header">
+      <header className="ra-page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "1rem", flexWrap: "wrap" }}>
         <div className="ra-page-title-block">
           <span className="ra-eyebrow">Today</span>
           <h1 className="ra-h1">Welcome back</h1>
@@ -86,6 +87,8 @@ export default async function AdminDashboard() {
             Snapshot of what needs your attention.
           </p>
         </div>
+        {/* Impersonation toggle — hidden on production via component-level guard */}
+        <ImpersonateButton />
       </header>
 
       <div className="ra-stat-grid" style={{ marginBottom: "2.25rem" }}>
