@@ -119,6 +119,10 @@ function SignupInner() {
         Already have an account?{" "}
         <a href="/auth/login" style={{ color: "var(--accent)" }}>Sign in</a>
       </p>
+      <p style={{ marginTop: "0.8rem", fontSize: "0.78rem", color: "var(--text-muted)", textAlign: "center" }}>
+        By signing up you agree to the{" "}
+        <a href="/platform-terms" style={{ color: "var(--text-muted)" }}>platform terms + privacy</a>.
+      </p>
     </main>
   );
 }
