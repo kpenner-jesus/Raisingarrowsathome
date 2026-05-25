@@ -60,7 +60,8 @@ export default async function PortalDashboard() {
     ? Math.min(100, Math.round((committedToDate / approvedAmt) * 100))
     : 0;
 
-  const parentNames = recipient.applications.parent_names;
+  // applications join may be null on orphan recipient rows — guard the deref.
+  const parentNames = recipient.applications?.parent_names ?? "Family";
   const firstName   = parentNames.split(/[&,]| and /i)[0].trim().split(" ")[0];
   const recent      = (receipts || []).slice(0, 5);
 

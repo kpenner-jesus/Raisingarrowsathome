@@ -1,4 +1,5 @@
-import { supabaseServer } from "@/app/lib/supabase/server";
+import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { getEffectiveRecipient } from "@/app/lib/impersonation";
 import TestimonialForm from "./TestimonialForm";
 
 export const dynamic = "force-dynamic";
@@ -8,11 +9,13 @@ export default async function TestimonialsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data: recipient } = await supabase
-    .from("recipients").select("id").eq("profile_id", user.id).maybeSingle();
+  const ctx = await getEffectiveRecipient(user.id);
+  const recipient = ctx.recipient;
   if (!recipient) return <p style={{ color: "var(--text-secondary)" }}>Account not linked to a grant.</p>;
 
-  const { data: items } = await supabase
+  // Service-role when impersonating so the read isn't blocked by RLS.
+  const dataClient = ctx.mode === "impersonating" ? supabaseService() : supabase;
+  const { data: items } = await dataClient
     .from("testimonials")
     .select("*")
     .eq("recipient_id", recipient.id)
