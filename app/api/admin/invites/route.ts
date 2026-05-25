@@ -1,26 +1,39 @@
 // POST /api/admin/invites  { email, role }
-// Super_admin creates an invite. Returns one-time link; also emails it
-// to the invitee via Resend. Token shown only once.
+// Org owner/admin creates an invite to that org. Returns one-time link;
+// also emails it to the invitee via Resend. Token shown only once.
 import { NextResponse } from "next/server";
 import { createHash, randomBytes } from "crypto";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
 import { Resend } from "resend";
+import { getOrgContext } from "@/app/lib/org-context";
 
 export async function POST(req: Request) {
+  // Resolve tenant first — the invite is scoped to whichever org the
+  // caller is currently administering (their host or /o/<slug> path).
+  const orgCtx = await getOrgContext();
+  if (!orgCtx) return NextResponse.json({ error: "no tenant resolved for this host" }, { status: 400 });
+
   const auth = supabaseServer();
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role, email").eq("id", user.id).single();
-  if (profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "super_admin only" }, { status: 403 });
+
+  // Caller must be an owner of this specific org (only owners can invite
+  // other admins/owners; downgrades to plain admin still pass).
+  const { data: membership } = await svc.from("org_members")
+    .select("role").eq("org_id", orgCtx.id).eq("user_id", user.id).maybeSingle();
+  if (membership?.role !== "owner") {
+    return NextResponse.json({ error: "owner only" }, { status: 403 });
   }
+
+  // Caller's profile email is used in the invite copy.
+  const { data: profile } = await svc.from("profiles").select("email").eq("id", user.id).single();
 
   const body = await req.json().catch(() => ({} as any));
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-  const role  = body?.role === "super_admin" ? "super_admin" : "admin";
+  const role  = body?.role === "owner" ? "owner" : "admin";
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return NextResponse.json({ error: "valid email required" }, { status: 400 });
   }
@@ -31,6 +44,7 @@ export async function POST(req: Request) {
   const expires_at = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const { data: row, error } = await svc.from("admin_invites").insert({
+    org_id: orgCtx.id,
     email, role, token_hash, expires_at,
     invited_by: user.id,
   }).select("id").single();
@@ -47,8 +61,8 @@ export async function POST(req: Request) {
       const client = new Resend(RESEND_KEY);
       await client.emails.send({
         from: FROM, to: email,
-        subject: `You've been invited as a ${role.replace("_", " ")} on Raising Arrows`,
-        html: `<p>${(profile?.email || "A super-admin")} invited you to join Raising Arrows as <strong>${role}</strong>.</p>
+        subject: `You've been invited as a ${role.replace("_", " ")} on ${orgCtx.name}`,
+        html: `<p>${(profile?.email || "An owner")} invited you to join ${orgCtx.name} as <strong>${role}</strong>.</p>
           <p style="margin:24px 0;"><a href="${inviteUrl}" style="background:#e8793a;color:#fff;text-decoration:none;padding:12px 24px;border-radius:100px;display:inline-block;">Accept invite</a></p>
           <p style="font-size:0.85rem;color:#666;">This link expires in 7 days. If you didn't expect this, ignore the email.</p>`,
       });
@@ -56,6 +70,7 @@ export async function POST(req: Request) {
   }
 
   await writeAudit({
+    orgId: orgCtx.id,
     actorId: user.id, action: "create_admin_invite",
     targetTable: "admin_invites", targetId: row.id,
     details: { email, role, expires_at },

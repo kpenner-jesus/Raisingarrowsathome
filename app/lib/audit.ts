@@ -29,6 +29,8 @@ export type AuditAction =
   | string; // allow extension without code change
 
 export interface AuditEntry {
+  /** Org/tenant this audit row belongs to. Required — audit_log is tenant-scoped. */
+  orgId: string;
   actorId: string | null;
   action: AuditAction;
   targetTable: string;
@@ -40,6 +42,7 @@ export async function writeAudit(entry: AuditEntry): Promise<void> {
   try {
     const svc = supabaseService();
     const { error } = await svc.from("audit_log").insert({
+      org_id:       entry.orgId,
       actor_id:     entry.actorId,
       action:       entry.action,
       target_table: entry.targetTable,

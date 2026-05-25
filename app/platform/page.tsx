@@ -83,8 +83,10 @@ export default async function PlatformDashboard() {
             {tenantsList.map((t) => (
               <tr key={t.id} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                 <Td>
-                  <div style={{ fontWeight: 600 }}>{t.name}</div>
-                  <div style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.5)", fontFamily: "ui-monospace, monospace" }}>{t.slug}</div>
+                  <Link href={`/platform/tenants/${t.id}`} style={{ color: "#fff", textDecoration: "none" }}>
+                    <div style={{ fontWeight: 600 }}>{t.name}</div>
+                    <div style={{ fontSize: "0.78rem", color: "rgba(255,255,255,0.5)", fontFamily: "ui-monospace, monospace" }}>{t.slug}</div>
+                  </Link>
                 </Td>
                 <Td><StatusPill status={t.status} /></Td>
                 <Td>{t.plan}</Td>

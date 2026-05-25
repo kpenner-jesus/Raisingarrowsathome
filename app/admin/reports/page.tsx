@@ -1,6 +1,7 @@
 // /admin/reports — YTD figures + CSV exports.
 import Link from "next/link";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext } from "@/app/lib/org-context";
 import { YearPicker } from "./YearPicker";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ function startOfYearISO(yr: number) { return `${yr}-01-01T00:00:00Z`; }
 function startOfNextYearISO(yr: number) { return `${yr + 1}-01-01T00:00:00Z`; }
 
 export default async function ReportsPage({ searchParams }: { searchParams?: { year?: string } }) {
+  const ctx = await requireOrgContext();
   const now = new Date();
   const year = searchParams?.year && /^\d{4}$/.test(searchParams.year) ? Number(searchParams.year) : now.getUTCFullYear();
   const start = startOfYearISO(year);
@@ -16,12 +18,12 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { y
 
   const svc = supabaseService();
   const [apps, approvedApps, recipients, receipts, payoutsPaid, payoutsOpen] = await Promise.all([
-    svc.from("applications").select("id", { count: "exact", head: true }).gte("created_at", start).lt("created_at", end),
-    svc.from("applications").select("id", { count: "exact", head: true }).eq("status", "approved").gte("created_at", start).lt("created_at", end),
-    svc.from("recipients").select("id", { count: "exact", head: true }).gte("created_at", start).lt("created_at", end),
-    svc.from("receipts").select("amount, reimbursable_amount, currency, category").gte("created_at", start).lt("created_at", end),
-    svc.from("payouts").select("amount, currency").eq("status", "paid").gte("paid_at", start).lt("paid_at", end),
-    svc.from("payouts").select("amount, currency").in("status", ["scheduled", "approved"]).gte("created_at", start).lt("created_at", end),
+    svc.from("applications").select("id", { count: "exact", head: true }).eq("org_id", ctx.id).gte("created_at", start).lt("created_at", end),
+    svc.from("applications").select("id", { count: "exact", head: true }).eq("org_id", ctx.id).eq("status", "approved").gte("created_at", start).lt("created_at", end),
+    svc.from("recipients").select("id", { count: "exact", head: true }).eq("org_id", ctx.id).gte("created_at", start).lt("created_at", end),
+    svc.from("receipts").select("amount, reimbursable_amount, currency, category").eq("org_id", ctx.id).gte("created_at", start).lt("created_at", end),
+    svc.from("payouts").select("amount, currency").eq("org_id", ctx.id).eq("status", "paid").gte("paid_at", start).lt("paid_at", end),
+    svc.from("payouts").select("amount, currency").eq("org_id", ctx.id).in("status", ["scheduled", "approved"]).gte("created_at", start).lt("created_at", end),
   ]);
 
   const sumPaid = (payoutsPaid.data ?? []).reduce((s: number, r: any) => s + Number(r.amount || 0), 0);

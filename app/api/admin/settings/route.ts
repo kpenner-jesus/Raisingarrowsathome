@@ -1,7 +1,8 @@
 // PATCH /api/admin/settings — admin updates funding caps, rate, deadline, open flag.
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 const ALLOWED_KEYS = new Set([
   "funding_caps",
@@ -51,15 +52,14 @@ function validate(key: string, value: any): string | null {
 }
 
 export async function PATCH(req: Request) {
-  const supabase = supabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
+  const { user, ctx: orgCtx } = auth;
+  const svc = supabaseService();
 
   let body: UpdatePayload;
   try { body = await req.json(); }
@@ -78,22 +78,28 @@ export async function PATCH(req: Request) {
     if (err) return NextResponse.json({ error: `${k}: ${err}` }, { status: 400 });
   }
 
-  const { data: before } = await svc.from("app_settings").select("key, value").in("key", keys);
+  // Per-tenant settings (app_settings uses UNIQUE(org_id, key) constraint
+  // after the multi-tenant migration). Scope before/after to this org.
+  const { data: before } = await svc.from("app_settings")
+    .select("key, value").eq("org_id", orgCtx.id).in("key", keys);
   const beforeMap = new Map((before ?? []).map((r: any) => [r.key, r.value]));
 
   // Upsert each key
   const rows = keys.map((k) => ({
-    key: k,
-    value: body.updates[k],
+    org_id:     orgCtx.id,
+    key:        k,
+    value:      body.updates[k],
     updated_at: new Date().toISOString(),
     updated_by: user.id,
   }));
-  const { error: upErr } = await svc.from("app_settings").upsert(rows);
+  const { error: upErr } = await svc.from("app_settings")
+    .upsert(rows, { onConflict: "org_id,key" });
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
   // Audit one entry per changed key
   for (const k of keys) {
     await writeAudit({
+      orgId: orgCtx.id,
       actorId: user.id,
       action: "update_settings",
       targetTable: "app_settings",

@@ -8,6 +8,7 @@
 //     key; sending-only restricted keys 401. Failure is non-fatal —
 //     we surface a hint and let the webhook section carry the page.
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
@@ -43,10 +44,11 @@ async function fetchEmails(): Promise<{ data: ResendEmail[]; error?: string; res
   }
 }
 
-async function fetchWebhookEvents() {
+async function fetchWebhookEvents(orgId: string) {
   const svc = supabaseService();
   const { data } = await svc.from("email_events")
     .select("id, resend_id, event_type, recipient_email, subject, created_at")
+    .eq("org_id", orgId)
     .order("created_at", { ascending: false }).limit(100);
   return data ?? [];
 }
@@ -59,7 +61,8 @@ function eventTint(ev: string): string {
 }
 
 export default async function EmailsPage() {
-  const [{ data, error, restricted }, events] = await Promise.all([fetchEmails(), fetchWebhookEvents()]);
+  const ctx = await requireOrgContext();
+  const [{ data, error, restricted }, events] = await Promise.all([fetchEmails(), fetchWebhookEvents(ctx.id)]);
 
   // Webhook is configured at the deploy level — assume reachable. Empty state
   // is "nothing yet" not "set up the webhook".

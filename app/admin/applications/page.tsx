@@ -1,4 +1,5 @@
 import { supabaseServer } from "@/app/lib/supabase/server";
+import { requireOrgContext } from "@/app/lib/org-context";
 import { ApplicationsFilter } from "./ApplicationsFilter";
 import { ApplicationsTable } from "./BulkActions";
 
@@ -15,6 +16,7 @@ const SORT_MAP: Record<SortCol, string> = {
 };
 
 export default async function ApplicationsList({ searchParams }: { searchParams: SearchParams }) {
+  const ctx = await requireOrgContext();
   const supabase = supabaseServer();
 
   const sortRaw = (searchParams.sort ?? "created") as SortCol;
@@ -24,6 +26,7 @@ export default async function ApplicationsList({ searchParams }: { searchParams:
   let q = supabase
     .from("applications")
     .select("id, app_ref, parent_names, city, contact_email, status, created_at, children, decided_at")
+    .eq("org_id", ctx.id)
     .order(SORT_MAP[sortCol], { ascending: dir === "asc" });
 
   if (searchParams.status && ["pending", "approved", "denied"].includes(searchParams.status)) {
@@ -44,10 +47,10 @@ export default async function ApplicationsList({ searchParams }: { searchParams:
   const { data: apps } = await q;
 
   const counts = await Promise.all([
-    supabase.from("applications").select("*", { count: "exact", head: true }),
-    supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "pending"),
-    supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "approved"),
-    supabase.from("applications").select("*", { count: "exact", head: true }).eq("status", "denied"),
+    supabase.from("applications").select("*", { count: "exact", head: true }).eq("org_id", ctx.id),
+    supabase.from("applications").select("*", { count: "exact", head: true }).eq("org_id", ctx.id).eq("status", "pending"),
+    supabase.from("applications").select("*", { count: "exact", head: true }).eq("org_id", ctx.id).eq("status", "approved"),
+    supabase.from("applications").select("*", { count: "exact", head: true }).eq("org_id", ctx.id).eq("status", "denied"),
   ]);
 
   const extra: Record<string, string | undefined> = {

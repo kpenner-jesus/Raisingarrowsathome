@@ -46,7 +46,8 @@ export async function POST(req: Request) {
     }
 
     // Intake gate — closed = hard reject. waitlist = accept + flag.
-    const settings = await getSettings();
+    // Tenant-scoped: each org owns its own intake status.
+    const settings = await getSettings(orgCtx.id);
     if (settings.intakeStatus === "closed") {
       return new NextResponse("applications are currently closed", { status: 403 });
     }

@@ -44,14 +44,16 @@ export function isImpersonationAllowed(): boolean {
 /**
  * Read the configured test recipient ID from app_settings.
  * Returns null if not configured (feature effectively disabled).
+ *
+ * Pass `orgId` to scope to a specific tenant. Omitting it falls back to the
+ * legacy global lookup for any callers that haven't been threaded with org
+ * context yet — those should be migrated.
  */
-export async function getTestRecipientId(): Promise<string | null> {
+export async function getTestRecipientId(orgId?: string): Promise<string | null> {
   const svc = supabaseService();
-  const { data } = await svc
-    .from("app_settings")
-    .select("value")
-    .eq("key", "test_recipient_id")
-    .maybeSingle();
+  let q = svc.from("app_settings").select("value").eq("key", "test_recipient_id");
+  if (orgId) q = q.eq("org_id", orgId);
+  const { data } = await q.maybeSingle();
   const raw = data?.value;
   // The setting is stored as a JSONB string (`"uuid-here"`), so it comes
   // back as a plain string from Supabase's JSONB→JS deserialisation.

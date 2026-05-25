@@ -28,23 +28,33 @@ export async function sendBroadcast({ broadcastId }: SendArgs): Promise<SendResu
   const svc = supabaseService();
 
   // Claim the row: queued → sending. Returns null if it was already claimed.
+  // We need org_id to scope every downstream lookup so a broadcast can never
+  // accidentally pull recipients from a different tenant.
   const { data: claimed } = await svc.from("broadcasts")
     .update({ state: "sending" })
     .eq("id", broadcastId)
     .in("state", ["queued", "sending"])
-    .select("id, subject, body_html, audience")
+    .select("id, org_id, subject, body_html, audience")
     .maybeSingle();
   if (!claimed) {
     return { sent: 0, failed: 0, state: "sent" };  // already processed
   }
+  const orgId = (claimed as any).org_id as string;
 
-  // Resolve recipients
+  // Resolve recipients — every read is scoped to the broadcast's tenant.
   let recipients: { email: string; parent_names: string }[] = [];
   if (claimed.audience === "admins") {
-    const { data } = await svc.from("profiles").select("email").in("role", ["admin", "super_admin"]);
-    recipients = (data ?? []).map((r: any) => ({ email: r.email, parent_names: "Admin" }));
+    // Admin audience: pull from org_members (per-tenant role) joined to profiles
+    // so we don't mass-mail platform-wide super_admins of other charities.
+    const { data } = await svc
+      .from("org_members")
+      .select("profiles!inner(email)")
+      .eq("org_id", orgId)
+      .in("role", ["owner", "admin"]);
+    recipients = (data ?? []).map((r: any) => ({ email: r.profiles?.email, parent_names: "Admin" }))
+      .filter((r) => !!r.email);
   } else {
-    let q = svc.from("recipients").select(`applications!inner(parent_names, contact_email)`);
+    let q = svc.from("recipients").select(`applications!inner(parent_names, contact_email)`).eq("org_id", orgId);
     if (claimed.audience === "active_recipients") q = q.eq("status", "active");
     const { data } = await q;
     recipients = (data ?? []).map((r: any) => ({
@@ -53,7 +63,11 @@ export async function sendBroadcast({ broadcastId }: SendArgs): Promise<SendResu
     })).filter((r) => !!r.email);
   }
 
-  // Filter out anyone who opted out of broadcasts.
+  // Filter out anyone who opted out of broadcasts. email_optouts.email is
+  // currently the primary key (global on this platform), so we filter without
+  // an org filter — a single opt-out click silences program broadcasts across
+  // every tenant. If/when the PK is changed to (org_id,email), add an
+  // `.eq("org_id", orgId)` here so each tenant's opt-out list is independent.
   if (recipients.length > 0) {
     const emails = recipients.map((r) => r.email.toLowerCase());
     const { data: opted } = await svc.from("email_optouts").select("email").in("email", emails);
@@ -85,7 +99,11 @@ export async function sendBroadcast({ broadcastId }: SendArgs): Promise<SendResu
 
   let sent = 0, failed = 0;
   for (const r of recipients) {
-    const unsubToken = signToken(`unsub:${r.email.toLowerCase()}`, 60 * 60 * 24 * 365);
+    // Token format `unsub:<orgId>:<email>` so /api/unsubscribe can scope
+    // the email_optouts insert to the correct tenant. Legacy two-segment
+    // tokens (`unsub:<email>`) are still accepted by the verifier as a
+    // back-compat fallback — they default to the raising-arrows org.
+    const unsubToken = signToken(`unsub:${orgId}:${r.email.toLowerCase()}`, 60 * 60 * 24 * 365);
     const unsubUrl = `${SITE}/api/unsubscribe?token=${encodeURIComponent(unsubToken)}`;
     const personalizedHtml = claimed.body_html.replaceAll("{{parent_names}}", escapeHtml(r.parent_names))
       + `<hr style="border:0;border-top:1px solid #eee;margin:36px 0 12px;">
@@ -119,7 +137,7 @@ export async function sendBroadcast({ broadcastId }: SendArgs): Promise<SendResu
   await svc.from("broadcasts").update({
     state, sent_at: new Date().toISOString(),
     recipient_count: sent, failed_count: failed,
-  }).eq("id", broadcastId);
+  }).eq("id", broadcastId).eq("org_id", orgId);
 
   return { sent, failed, state };
 }

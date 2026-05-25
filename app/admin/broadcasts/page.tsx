@@ -1,16 +1,19 @@
 // /admin/broadcasts — send a one-off email to all active recipients (or admins).
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext } from "@/app/lib/org-context";
 import { BroadcastForm } from "./BroadcastForm";
 
 export const dynamic = "force-dynamic";
 
 export default async function BroadcastsPage() {
+  const ctx = await requireOrgContext();
   const svc = supabaseService();
   const [{ count: activeCount }, { count: allCount }, history] = await Promise.all([
-    svc.from("recipients").select("id", { count: "exact", head: true }).eq("status", "active"),
-    svc.from("recipients").select("id", { count: "exact", head: true }),
+    svc.from("recipients").select("id", { count: "exact", head: true }).eq("org_id", ctx.id).eq("status", "active"),
+    svc.from("recipients").select("id", { count: "exact", head: true }).eq("org_id", ctx.id),
     svc.from("broadcasts")
       .select("id, subject, audience, recipient_count, failed_count, created_at, profiles:sent_by(email)")
+      .eq("org_id", ctx.id)
       .order("created_at", { ascending: false }).limit(20),
   ]);
 

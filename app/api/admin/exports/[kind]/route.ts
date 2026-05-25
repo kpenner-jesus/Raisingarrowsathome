@@ -2,7 +2,8 @@
 //   kind: 'receipts' | 'payouts' | 'recipients' | 'transactions'
 // Returns text/csv attachment. Admin only.
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 const VALID_KINDS = new Set(["receipts", "payouts", "recipients", "transactions", "audit_log"]);
 
@@ -24,15 +25,14 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
   const kind = ctx.params.kind;
   if (!VALID_KINDS.has(kind)) return NextResponse.json({ error: "unknown kind" }, { status: 400 });
 
-  const supabase = supabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
+  const { ctx: orgCtx } = auth;
+  const svc = supabaseService();
 
   const url = new URL(req.url);
   const yearRaw = url.searchParams.get("year");
@@ -47,7 +47,7 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
     let q = svc.from("receipts").select(`
       id, status, amount, currency, reimbursable_amount, description, category,
       purchase_date, created_at, recipients!inner(applications!inner(parent_names, app_ref))
-    `).order("created_at", { ascending: false });
+    `).eq("org_id", orgCtx.id).order("created_at", { ascending: false });
     if (startISO) q = q.gte("created_at", startISO).lt("created_at", endISO);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -72,7 +72,7 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
     let q = svc.from("payouts").select(`
       id, status, amount, currency, created_at, paid_at, payment_method, payment_reference,
       recipients!inner(applications!inner(parent_names, app_ref))
-    `).order("created_at", { ascending: false });
+    `).eq("org_id", orgCtx.id).order("created_at", { ascending: false });
     if (startISO) q = q.gte("created_at", startISO).lt("created_at", endISO);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -98,7 +98,7 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
       id, status, reimbursement_rate, approved_amount, created_at, cohort_year,
       address_street, address_city, address_postal,
       applications!inner(parent_names, app_ref, contact_email, contact_phone, city)
-    `).order("created_at", { ascending: false });
+    `).eq("org_id", orgCtx.id).order("created_at", { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     csv = toCsv(
@@ -124,7 +124,7 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
     let q = svc.from("audit_log").select(`
       created_at, action, target_table, target_id, details,
       profiles:actor_id(email)
-    `).order("created_at", { ascending: false }).limit(5000);
+    `).eq("org_id", orgCtx.id).order("created_at", { ascending: false }).limit(5000);
     if (startISO) q = q.gte("created_at", startISO).lt("created_at", endISO);
     const { data, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -147,13 +147,13 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
     let qr = svc.from("receipts").select(`
       id, status, amount, currency, reimbursable_amount, description, purchase_date, created_at,
       recipients!inner(applications!inner(parent_names, app_ref))
-    `).eq("status", "approved");
+    `).eq("org_id", orgCtx.id).eq("status", "approved");
     if (startISO) qr = qr.gte("created_at", startISO).lt("created_at", endISO);
 
     let qp = svc.from("payouts").select(`
       id, status, amount, currency, created_at, paid_at, payment_method, payment_reference,
       recipients!inner(applications!inner(parent_names, app_ref))
-    `).eq("status", "paid");
+    `).eq("org_id", orgCtx.id).eq("status", "paid");
     if (startISO) qp = qp.gte("paid_at", startISO).lt("paid_at", endISO);
 
     const [rcp, pyo] = await Promise.all([qr, qp]);

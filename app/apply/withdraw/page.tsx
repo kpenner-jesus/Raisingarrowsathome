@@ -19,8 +19,11 @@ export default async function WithdrawPage({ searchParams }: { searchParams?: { 
   const applicationId = v.payload.slice("withdraw:".length);
 
   const svc = supabaseService();
+  // The token is HMAC-signed so the application_id is trustworthy. We read
+  // org_id off the row itself so the audit row and idempotent update both
+  // get scoped to the right tenant without needing a tenant header.
   const { data: app } = await svc.from("applications")
-    .select("id, parent_names, status")
+    .select("id, org_id, parent_names, status")
     .eq("id", applicationId)
     .maybeSingle();
   if (!app) return shell("Not found", "We couldn't find that application.");
@@ -32,13 +35,15 @@ export default async function WithdrawPage({ searchParams }: { searchParams?: { 
     return shell("Cannot withdraw", `Your application is currently '${app.status}' — only pending applications can be self-withdrawn. Email register@raisingarrowsathome.com if you'd still like to cancel.`);
   }
 
-  // Withdraw (idempotent: only update if still pending)
+  // Withdraw (idempotent: only update if still pending). Tenant-pinned so
+  // a corrupted/forged id-with-collision can never reach the wrong row.
   const { error } = await svc.from("applications")
     .update({ status: "withdrawn", decided_at: new Date().toISOString() })
-    .eq("id", applicationId).eq("status", "pending");
+    .eq("id", applicationId).eq("org_id", app.org_id).eq("status", "pending");
   if (error) return shell("Something went wrong", error.message);
 
   await writeAudit({
+    orgId: app.org_id,
     actorId: null,                              // self-service, no admin actor
     action: "withdraw_application",
     targetTable: "applications",

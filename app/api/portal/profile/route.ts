@@ -39,23 +39,29 @@ export async function PATCH(req: Request) {
   // Verify ownership: this recipient row must be tied to this user's profile,
   // OR the user is an admin currently impersonating the test grantee.
   const svc = supabaseService();
+  // org_id is loaded off the recipient row so we can scope subsequent writes
+  // to it. The recipient_id is treated as truth; we never trust an orgId from
+  // the request body.
   const { data: own } = await svc.from("recipients")
-    .select("id, profile_id, application_id, address_street, address_city, address_postal")
+    .select("id, org_id, profile_id, application_id, address_street, address_city, address_postal")
     .eq("id", recipientId).maybeSingle();
   if (!own)                                 return NextResponse.json({ error: "not found" },    { status: 404 });
   if (own.application_id !== applicationId) return NextResponse.json({ error: "id mismatch" }, { status: 400 });
+  const orgId = own.org_id as string;
 
   // Permitted if direct owner OR (impersonation enabled + cookie matches +
-  // resolved recipient IS the configured test recipient + caller is admin).
+  // resolved recipient IS the configured test recipient for this org +
+  // caller is an admin of this org via org_members).
   const isOwner = own.profile_id === user.id;
   let impersonationOk = false;
   if (!isOwner && isImpersonationAllowed()) {
     const cookieValue = cookies().get(IMPERSONATE_COOKIE)?.value ?? null;
-    const testId = await getTestRecipientId();
+    const testId = await getTestRecipientId(orgId);
     if (cookieValue && testId && cookieValue === testId && recipientId === testId) {
-      const { data: profile } = await svc
-        .from("profiles").select("role").eq("id", user.id).maybeSingle();
-      impersonationOk = profile?.role === "admin" || profile?.role === "super_admin";
+      const { data: membership } = await svc
+        .from("org_members").select("role")
+        .eq("org_id", orgId).eq("user_id", user.id).maybeSingle();
+      impersonationOk = membership?.role === "owner" || membership?.role === "admin";
     }
   }
   if (!isOwner && !impersonationOk) {
@@ -64,7 +70,7 @@ export async function PATCH(req: Request) {
     //  - Impersonator trying to edit a non-test recipient → specific msg
     const isImpersonatingButWrongRecipient =
       isImpersonationAllowed() && cookies().get(IMPERSONATE_COOKIE)?.value
-      && recipientId !== (await getTestRecipientId());
+      && recipientId !== (await getTestRecipientId(orgId));
     return NextResponse.json({
       error: isImpersonatingButWrongRecipient
         ? "during impersonation you can only edit the test grantee row"
@@ -76,14 +82,19 @@ export async function PATCH(req: Request) {
   const recipientAfter  = { address_street, address_city, address_postal };
 
   // Update both rows. recipients (address) + applications (phone only).
-  const { error: rErr } = await svc.from("recipients").update(recipientAfter).eq("id", recipientId);
+  // Both updates pinned to org_id so cross-tenant id collisions can't slip.
+  const { error: rErr } = await svc.from("recipients").update(recipientAfter)
+    .eq("id", recipientId).eq("org_id", orgId);
   if (rErr) return NextResponse.json({ error: rErr.message }, { status: 500 });
 
-  const { data: appBefore } = await svc.from("applications").select("contact_phone").eq("id", applicationId).maybeSingle();
-  const { error: aErr } = await svc.from("applications").update({ contact_phone }).eq("id", applicationId);
+  const { data: appBefore } = await svc.from("applications")
+    .select("contact_phone").eq("id", applicationId).eq("org_id", orgId).maybeSingle();
+  const { error: aErr } = await svc.from("applications").update({ contact_phone })
+    .eq("id", applicationId).eq("org_id", orgId);
   if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
 
   await writeAudit({
+    orgId,
     actorId: user.id,
     action: "self_edit_profile",
     targetTable: "recipients",

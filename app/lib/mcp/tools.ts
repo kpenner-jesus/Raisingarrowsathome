@@ -18,6 +18,9 @@ import {
 export interface ToolContext {
   profile_id: string;
   origin:     string;
+  /** Tenant the bearer token is scoped to — every DB read/write below must
+   *  filter or stamp by this. */
+  org_id:     string;
 }
 
 interface Tool {
@@ -289,6 +292,7 @@ const decideApplication: Tool = {
   },
   handler: async ({ id, decision, approved_amount, rate, notes }, ctx) => {
     return decideApp({
+      orgId:            ctx.org_id,
       applicationId:    id,
       decision,
       approved_amount,
@@ -703,6 +707,7 @@ const setUserRole: Tool = {
     if (error) throw new Error(error.message);
 
     await supabase.from("audit_log").insert({
+      org_id:       ctx.org_id,
       actor_id:     ctx.profile_id,
       action:       "team.role_change",
       target_table: "profiles",

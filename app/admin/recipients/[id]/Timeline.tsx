@@ -1,5 +1,6 @@
 // Timeline: union of receipts, payouts, notes, and audit events for one recipient.
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext } from "@/app/lib/org-context";
 
 interface Row {
   at: string;
@@ -10,16 +11,21 @@ interface Row {
 }
 
 export async function Timeline({ recipientId, applicationId }: { recipientId: string; applicationId: string | null }) {
+  const ctx = await requireOrgContext();
   const svc = supabaseService();
 
   const [receiptsQ, payoutsQ, notesQ, auditQ] = await Promise.all([
     svc.from("receipts").select("id, status, amount, currency, description, created_at, decided_at, reimbursable_amount")
+      .eq("org_id", ctx.id)
       .eq("recipient_id", recipientId),
     svc.from("payouts").select("id, amount, currency, status, created_at, paid_at, reversed_at, reversal_reason")
+      .eq("org_id", ctx.id)
       .eq("recipient_id", recipientId),
     svc.from("recipient_notes").select("id, body, created_at, profiles:author_id(email)")
+      .eq("org_id", ctx.id)
       .eq("recipient_id", recipientId),
     svc.from("audit_log").select("id, action, target_table, target_id, details, created_at, profiles:actor_id(email)")
+      .eq("org_id", ctx.id)
       .or(`and(target_table.eq.recipients,target_id.eq.${recipientId})${applicationId ? `,and(target_table.eq.applications,target_id.eq.${applicationId})` : ""}`),
   ]);
 

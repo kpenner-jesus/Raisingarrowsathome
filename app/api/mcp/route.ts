@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   }
 
   const origin = new URL(req.url).origin;
-  const ctx: ToolContext = { profile_id: token.profile_id, origin };
+  const ctx: ToolContext = { profile_id: token.profile_id, origin, org_id: token.org_id };
 
   let body: any;
   try { body = await req.json(); }

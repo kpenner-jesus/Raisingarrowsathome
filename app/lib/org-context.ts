@@ -26,42 +26,15 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { supabaseService } from "@/app/lib/supabase/server";
 
-// Hosts that always resolve to the raising-arrows tenant — preserves the
-// original raisingarrowsathome.com URL structure (and the in-network tunnels).
-const LEGACY_RAISING_ARROWS_HOSTS = new Set<string>([
-  "raisingarrowsathome.com",
-  "www.raisingarrowsathome.com",
-  "staging.raisingarrowsathome.com",
-  "www.staging.raisingarrowsathome.com",
-  "raisingarrowsathome.vercel.app",
-  "raising.wildernessedge.biz",
-  "raising-staging.wildernessedge.biz",
-]);
-
-function isLegacyRaisingArrowsHost(host: string): boolean {
-  // Strip port for matching.
-  const h = host.toLowerCase().split(":")[0];
-  if (LEGACY_RAISING_ARROWS_HOSTS.has(h)) return true;
-  // Localhost dev — treat as raising-arrows by default so existing
-  // /admin and /portal pages keep working without prefixes.
-  if (h === "localhost" || h.endsWith(".localhost")) return true;
-  return false;
-}
-
-/** Parse `/o/<slug>/rest` → { slug, rest }. Returns null if not a path-routed URL. */
-export function parseOrgPath(pathname: string): { slug: string; rest: string } | null {
-  const m = pathname.match(/^\/o\/([a-z0-9][a-z0-9-]{1,62}[a-z0-9])(\/.*)?$/);
-  if (!m) return null;
-  return { slug: m[1], rest: m[2] || "/" };
-}
-
-/** Resolve org slug for the current request. Pure function — caller provides host + path. */
-export function resolveOrgSlug(host: string, pathname: string): string | null {
-  const fromPath = parseOrgPath(pathname);
-  if (fromPath) return fromPath.slug;
-  if (isLegacyRaisingArrowsHost(host)) return "raising-arrows";
-  return null;
-}
+// Pure helpers re-exported from org-routing.ts so existing callers don't break.
+// The pure file is safe to import from tests + middleware.
+export {
+  parseOrgPath,
+  resolveOrgSlug,
+  LEGACY_RAISING_ARROWS_HOSTS,
+  isLegacyRaisingArrowsHost,
+} from "./org-routing";
+import { resolveOrgSlug as resolveOrgSlugPure } from "./org-routing";
 
 export type OrgContext = {
   id: string;
@@ -110,7 +83,7 @@ export async function getOrgContext(): Promise<OrgContext | null> {
   if (!slug) {
     const host = h.get("host") || "";
     // Path is unknown at this layer for header-less callers; resolve from host only.
-    slug = resolveOrgSlug(host, "/");
+    slug = resolveOrgSlugPure(host, "/");
     prefixed = false;
   }
   if (!slug) return null;
@@ -131,19 +104,14 @@ export async function requireOrgContext(): Promise<OrgContext> {
 
 /**
  * Build an absolute-path URL for a given pathname, adding the /o/<slug>/
- * prefix when the request came through a path-routed host. Use this for
- * all internal <Link> / router.push targets so cross-host links stay valid.
+ * prefix when the request came through a path-routed host. Re-exported
+ * from org-routing so it stays test-friendly.
  *
  *   orgPath(ctx, "/admin/applications")
  *     → "/admin/applications"             (legacy host)
  *     → "/o/cedar-springs/admin/applications" (path host)
  */
-export function orgPath(ctx: OrgContext | null, path: string): string {
-  if (!ctx || !ctx.prefixed) return path;
-  // Strip leading slash for clean concat
-  const clean = path.startsWith("/") ? path.slice(1) : path;
-  return `/o/${ctx.slug}/${clean}`;
-}
+export { orgPath } from "./org-routing";
 
 /** Verify the caller is a member (any role) of the given org. */
 export async function isOrgMember(orgId: string, userId: string): Promise<boolean> {

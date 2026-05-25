@@ -5,9 +5,15 @@
 //
 // Includes 24 fixed events per year (12 months × 2 windows) for the
 // current + next year. Each event is a 30-min block at noon UTC.
+//
+// Tenant-aware: the calendar name + UID host are derived from the
+// resolved tenant so two charities subscribing to the same path each
+// see their own org's calendar in their client (no collisions on UID).
 import { NextResponse } from "next/server";
+import { getOrgContext } from "@/app/lib/org-context";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function pad(n: number): string { return n < 10 ? `0${n}` : `${n}`; }
 function dt(d: Date): string {
@@ -17,15 +23,15 @@ function lastDayOfMonth(year: number, monthZero: number): number {
   return new Date(Date.UTC(year, monthZero + 1, 0)).getUTCDate();
 }
 
-function buildIcs(): string {
+function buildIcs(orgName: string, orgSlug: string): string {
   const now = new Date();
   const yearStart = now.getUTCFullYear();
   const lines: string[] = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Raising Arrows//Payout Calendar//EN",
+    `PRODID:-//${orgName}//Payout Calendar//EN`,
     "CALSCALE:GREGORIAN",
-    "X-WR-CALNAME:Raising Arrows payouts",
+    `X-WR-CALNAME:${orgName} payouts`,
     "X-WR-TIMEZONE:UTC",
   ];
 
@@ -43,14 +49,16 @@ function buildIcs(): string {
         const day = e.day === "last" ? lastDayOfMonth(y, m) : e.day;
         const start = new Date(Date.UTC(y, m, day, 12, 0, 0));
         const end   = new Date(Date.UTC(y, m, day, 12, 30, 0));
-        const uid = `ra-${y}${pad(m+1)}${pad(day)}-${e.name.replace(/\s+/g,"_")}@raisingarrowsathome.com`;
+        // Per-tenant UID so subscribing to multiple orgs doesn't collide
+        // in the calendar client's de-dupe pass.
+        const uid = `${orgSlug}-${y}${pad(m+1)}${pad(day)}-${e.name.replace(/\s+/g,"_")}@${orgSlug}.raisingarrowsathome.com`;
         lines.push(
           "BEGIN:VEVENT",
           `UID:${uid}`,
           `DTSTAMP:${dt(now)}`,
           `DTSTART:${dt(start)}`,
           `DTEND:${dt(end)}`,
-          `SUMMARY:Raising Arrows — ${e.name}`,
+          `SUMMARY:${orgName} — ${e.name}`,
           "DESCRIPTION:Automated cron job runs at noon UTC.",
           "END:VEVENT"
         );
@@ -62,12 +70,19 @@ function buildIcs(): string {
 }
 
 export async function GET() {
-  return new NextResponse(buildIcs(), {
+  const orgCtx = await getOrgContext();
+  // No tenant resolved → render an empty calendar rather than 500.
+  // The subscribe URL is meant to be hit from a tenant-resolving host.
+  const orgName = orgCtx?.name ?? "Raising Arrows";
+  const orgSlug = orgCtx?.slug ?? "raising-arrows";
+
+  return new NextResponse(buildIcs(orgName, orgSlug), {
     status: 200,
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=86400",
-      "Content-Disposition": `inline; filename="raising-arrows-payouts.ics"`,
+      // Per-tenant feed — keep cache private so a CDN doesn't cross-pollinate.
+      "Cache-Control": "private, max-age=86400",
+      "Content-Disposition": `inline; filename="${orgSlug}-payouts.ics"`,
     },
   });
 }

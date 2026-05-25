@@ -1,11 +1,13 @@
 // /admin/settings — edit DB-backed runtime settings.
 import { getSettings } from "@/app/lib/settings";
+import { requireOrgContext } from "@/app/lib/org-context";
 import { SettingsForm } from "../SettingsForm";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const s = await getSettings();
+  const ctx = await requireOrgContext();
+  const s = await getSettings(ctx.id);
   return (
     <div>
       <header className="ra-page-header">

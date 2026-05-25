@@ -13,6 +13,8 @@ export interface AuthedToken {
   token_id:   string;
   profile_id: string;
   email:      string;
+  /** Tenant the token belongs to — populated from api_tokens.org_id. */
+  org_id:     string;
 }
 
 export function hashToken(plaintext: string): string {
@@ -34,13 +36,14 @@ export async function authBearer(authHeader: string | null): Promise<AuthedToken
   const supabase = supabaseService();
   const { data: token } = await supabase
     .from("api_tokens")
-    .select("id, profile_id, revoked_at, expires_at, profiles!inner(email, role)")
+    .select("id, profile_id, org_id, revoked_at, expires_at, profiles!inner(email, role)")
     .eq("token_hash", hash)
     .maybeSingle();
 
   if (!token) return null;
   if (token.revoked_at) return null;
   if (token.expires_at && new Date(token.expires_at) < new Date()) return null;
+  if (!token.org_id) return null;          // token must be tenant-scoped
 
   const profile = (token as any).profiles;
   if (!profile) return null;
@@ -53,5 +56,6 @@ export async function authBearer(authHeader: string | null): Promise<AuthedToken
     token_id:   token.id,
     profile_id: token.profile_id,
     email:      profile.email,
+    org_id:     token.org_id,
   };
 }

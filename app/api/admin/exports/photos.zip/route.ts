@@ -3,7 +3,8 @@
 // annual-report assembly.
 import { NextResponse } from "next/server";
 import JSZip from "jszip";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Vercel: max 60s on Pro; on Hobby this is ignored
@@ -13,15 +14,14 @@ function safeName(s: string): string {
 }
 
 export async function GET(req: Request) {
-  const auth = supabaseServer();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return new NextResponse("unauthorized", { status: 401 });
-
-  const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return new NextResponse("forbidden", { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return new NextResponse(e.message, { status: e.status });
+    throw e;
   }
+  const { ctx: orgCtx } = auth;
+  const svc = supabaseService();
 
   const url = new URL(req.url);
   const yearRaw = url.searchParams.get("year");
@@ -35,12 +35,14 @@ export async function GET(req: Request) {
   const offsetRaw = url.searchParams.get("offset");
   const offset = offsetRaw && /^\d+$/.test(offsetRaw) ? Number(offsetRaw) : 0;
 
-  // First, count total to surface 'more available' guidance
+  // First, count total to surface 'more available' guidance — per tenant.
   const { count: total } = await svc.from("photos").select("id", { count: "exact", head: true })
+    .eq("org_id", orgCtx.id)
     .gte("created_at", startISO).lt("created_at", endISO);
 
   const { data: photos, error } = await svc.from("photos")
     .select("id, image_path, caption, created_at, recipient_id, recipients!inner(applications!inner(parent_names, app_ref))")
+    .eq("org_id", orgCtx.id)
     .gte("created_at", startISO).lt("created_at", endISO)
     .order("created_at", { ascending: true })
     .range(offset, offset + MAX_PER_ZIP - 1);
@@ -50,7 +52,7 @@ export async function GET(req: Request) {
   }
 
   const zip = new JSZip();
-  const folder = zip.folder(`raising-arrows-photos-${year}`)!;
+  const folder = zip.folder(`${orgCtx.slug}-photos-${year}`)!;
 
   // Manifest of which photo came from which family
   const manifest: string[] = ["filename,family,app_ref,caption,created_at"];
@@ -74,7 +76,7 @@ export async function GET(req: Request) {
   const blob = await zip.generateAsync({ type: "nodebuffer" });
   const headers: Record<string, string> = {
     "Content-Type": "application/zip",
-    "Content-Disposition": `attachment; filename="raising-arrows-photos-${year}-from-${offset}.zip"`,
+    "Content-Disposition": `attachment; filename="${orgCtx.slug}-photos-${year}-from-${offset}.zip"`,
     "Cache-Control": "no-store",
   };
   // Surface pagination guidance in custom header if more remain.

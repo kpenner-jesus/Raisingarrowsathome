@@ -2,8 +2,9 @@
 //   body: { status?: 'pending'|'approved'|'hidden', featured?: boolean }
 // DELETE /api/admin/testimonials/[id] (not provided — use status='hidden' instead)
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 const VALID_STATUSES = new Set(["pending", "approved", "hidden"]);
 
@@ -11,15 +12,14 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   const id = ctx.params.id;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const supabase = supabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
+  const { user, ctx: orgCtx } = auth;
+  const svc = supabaseService();
 
   let body: { status?: string; featured?: boolean };
   try { body = await req.json(); }
@@ -45,9 +45,13 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   updates.reviewed_by = user.id;
   updates.reviewed_at = new Date().toISOString();
 
-  const { data: before } = await svc.from("testimonials").select("status, featured").eq("id", id).single();
+  // Scope every read/write to the caller's tenant.
+  const { data: before } = await svc.from("testimonials")
+    .select("status, featured").eq("id", id).eq("org_id", orgCtx.id).single();
+  if (!before) return NextResponse.json({ error: "testimonial not found" }, { status: 404 });
+
   const { data: after, error } = await svc.from("testimonials")
-    .update(updates).eq("id", id).select().single();
+    .update(updates).eq("id", id).eq("org_id", orgCtx.id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const action = updates.status === "hidden" ? "hide_testimonial"
@@ -56,6 +60,7 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
               : "approve_testimonial";
 
   await writeAudit({
+    orgId: orgCtx.id,
     actorId: user.id,
     action,
     targetTable: "testimonials",

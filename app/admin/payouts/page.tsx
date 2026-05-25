@@ -1,4 +1,5 @@
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 import { calcBalance } from "@/app/lib/grant-calc";
 import { StatusBadge } from "../_components/StatusBadge";
 import { SortHeader } from "../_components/SortHeader";
@@ -11,17 +12,17 @@ export const dynamic = "force-dynamic";
 /** Compute what a 'Generate batch now' click would produce RIGHT NOW.
  *  Mirrors the eligibility math in /api/admin/payouts/generate so the
  *  preview can't drift from the actual generator. */
-async function computeEligiblePreview() {
+async function computeEligiblePreview(orgId: string) {
   const svc = supabaseService();
-  const { data: recipients } = await svc.from("recipients").select("*").eq("status", "active");
+  const { data: recipients } = await svc.from("recipients").select("*").eq("org_id", orgId).eq("status", "active");
   if (!recipients) return { activeRecipients: 0, eligibleRecipients: 0, eligibleTotal: 0, pendingReceipts: 0 };
 
   const recipientIds = recipients.map((r: any) => r.id);
   if (recipientIds.length === 0) return { activeRecipients: 0, eligibleRecipients: 0, eligibleTotal: 0, pendingReceipts: 0 };
 
   const [{ data: receipts }, { data: payouts }] = await Promise.all([
-    svc.from("receipts").select("id, recipient_id, amount, status, reimbursable_amount, currency").in("recipient_id", recipientIds),
-    svc.from("payouts").select("recipient_id, amount, status").in("recipient_id", recipientIds),
+    svc.from("receipts").select("id, recipient_id, amount, status, reimbursable_amount, currency").eq("org_id", orgId).in("recipient_id", recipientIds),
+    svc.from("payouts").select("recipient_id, amount, status").eq("org_id", orgId).in("recipient_id", recipientIds),
   ]);
 
   let eligibleRecipients = 0;
@@ -54,6 +55,7 @@ async function computeEligiblePreview() {
 }
 
 export default async function PayoutsPage({ searchParams }: { searchParams?: { sort?: string; dir?: string } }) {
+  const ctx = await requireOrgContext();
   const supabase = supabaseServer();
 
   const VALID = ["scheduled", "total", "status"] as const;
@@ -66,8 +68,8 @@ export default async function PayoutsPage({ searchParams }: { searchParams?: { s
   const dir: "asc" | "desc" = searchParams?.dir === "asc" ? "asc" : "desc";
 
   const [{ data: batches }, preview] = await Promise.all([
-    supabase.from("payout_batches").select("*").order(SORT_MAP[sortCol], { ascending: dir === "asc" }),
-    computeEligiblePreview(),
+    supabase.from("payout_batches").select("*").eq("org_id", ctx.id).order(SORT_MAP[sortCol], { ascending: dir === "asc" }),
+    computeEligiblePreview(ctx.id),
   ]);
 
   // Counts per status
@@ -158,9 +160,9 @@ export default async function PayoutsPage({ searchParams }: { searchParams?: { s
         <table className="ra-table ra-table-mobile">
           <thead>
             <tr>
-              <SortHeader label="Scheduled" col="scheduled" currentSort={sortCol} currentDir={dir} basePath="/admin/payouts" />
-              <SortHeader label="Total"     col="total"     currentSort={sortCol} currentDir={dir} basePath="/admin/payouts" />
-              <SortHeader label="Status"    col="status"    currentSort={sortCol} currentDir={dir} basePath="/admin/payouts" />
+              <SortHeader label="Scheduled" col="scheduled" currentSort={sortCol} currentDir={dir} basePath={orgPath(ctx, "/admin/payouts")} />
+              <SortHeader label="Total"     col="total"     currentSort={sortCol} currentDir={dir} basePath={orgPath(ctx, "/admin/payouts")} />
+              <SortHeader label="Status"    col="status"    currentSort={sortCol} currentDir={dir} basePath={orgPath(ctx, "/admin/payouts")} />
               <th>CEO ref</th>
               <th>CSV</th>
               <th style={{ textAlign: "right" }}>Action</th>

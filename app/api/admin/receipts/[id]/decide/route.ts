@@ -7,19 +7,21 @@
 //
 // Idempotent: only acts on receipts currently in 'pending' status.
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
 import { notifyReceiptApproved, notifyReceiptRejected } from "@/app/lib/notify";
 import { writeAudit } from "@/app/lib/audit";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 const MAX_REIMBURSABLE = 50_000;
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const auth = supabaseServer();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return new NextResponse("unauthorized", { status: 401 });
-
-  const { data: profile } = await auth.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") return new NextResponse("forbidden", { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return new NextResponse(e.message, { status: e.status });
+    throw e;
+  }
+  const { user, ctx: orgCtx } = auth;
 
   const body = await req.json().catch(() => ({} as any));
   const { decision, notes, reimbursable_amount } = body;
@@ -41,6 +43,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     .from("receipts")
     .select("id, amount, currency, description, status, recipients!inner(applications!inner(parent_names, contact_email))")
     .eq("id", params.id)
+    .eq("org_id", orgCtx.id)
     .single();
   if (loadErr || !receipt) return new NextResponse(loadErr?.message || "receipt not found", { status: 404 });
 
@@ -71,6 +74,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     .from("receipts")
     .update(update)
     .eq("id", params.id)
+    .eq("org_id", orgCtx.id)
     .eq("status", "pending")
     .select("id")
     .maybeSingle();
@@ -79,6 +83,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   // Audit log
   await writeAudit({
+    orgId:       orgCtx.id,
     actorId:     user.id,
     action:      "decide_receipt",
     targetTable: "receipts",

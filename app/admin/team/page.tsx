@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 import { StatusBadge } from "../_components/StatusBadge";
 import { SortHeader } from "../_components/SortHeader";
 import TeamRow from "./TeamRow";
@@ -8,6 +9,7 @@ import InviteForm from "./InviteForm";
 export const dynamic = "force-dynamic";
 
 export default async function TeamPage({ searchParams }: { searchParams?: { sort?: string; dir?: string } }) {
+  const ctx = await requireOrgContext();
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return notFound();
@@ -37,6 +39,7 @@ export default async function TeamPage({ searchParams }: { searchParams?: { sort
   const { data: audit } = await service
     .from("audit_log")
     .select("id, actor_id, action, target_id, details, created_at, profiles:profiles!actor_id(email)")
+    .eq("org_id", ctx.id)
     .like("action", "team.%")
     .order("created_at", { ascending: false })
     .limit(10);
@@ -60,9 +63,9 @@ export default async function TeamPage({ searchParams }: { searchParams?: { sort
         <table className="ra-table ra-table-mobile">
           <thead>
             <tr>
-              <SortHeader label="Email"   col="email"   currentSort={sortCol} currentDir={dir} basePath="/admin/team" />
-              <SortHeader label="Role"    col="role"    currentSort={sortCol} currentDir={dir} basePath="/admin/team" />
-              <SortHeader label="Joined"  col="created" currentSort={sortCol} currentDir={dir} basePath="/admin/team" />
+              <SortHeader label="Email"   col="email"   currentSort={sortCol} currentDir={dir} basePath={orgPath(ctx, "/admin/team")} />
+              <SortHeader label="Role"    col="role"    currentSort={sortCol} currentDir={dir} basePath={orgPath(ctx, "/admin/team")} />
+              <SortHeader label="Joined"  col="created" currentSort={sortCol} currentDir={dir} basePath={orgPath(ctx, "/admin/team")} />
               <th>Last sign-in</th>
               <th style={{ textAlign: "right" }}></th>
             </tr>

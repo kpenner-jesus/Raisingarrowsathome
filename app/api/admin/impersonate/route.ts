@@ -24,6 +24,7 @@ import {
   isImpersonationAllowed,
 } from "@/app/lib/impersonation";
 import { writeAudit } from "@/app/lib/audit";
+import { getOrgContext } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,14 @@ export async function POST(req: Request) {
     return new NextResponse("Not found", { status: 404 });
   }
 
+  // Resolve the tenant. Impersonation is a per-tenant feature now — every
+  // wipe/update below is scoped to this org so a bad cookie can never reach
+  // another tenant's data.
+  const orgCtx = await getOrgContext();
+  if (!orgCtx) {
+    return NextResponse.json({ error: "no tenant resolved for this host" }, { status: 400 });
+  }
+
   // Auth check
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
@@ -40,17 +49,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
 
-  // Role check via service role (avoids RLS edge cases)
+  // Tenant-level admin check via org_members (per-tenant role).
   const svc = supabaseService();
-  const { data: profile } = await svc
-    .from("profiles")
-    .select("role, email")
-    .eq("id", user.id)
-    .maybeSingle();
-  const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
+  const { data: membership } = await svc.from("org_members")
+    .select("role").eq("org_id", orgCtx.id).eq("user_id", user.id).maybeSingle();
+  const isAdmin = membership?.role === "owner" || membership?.role === "admin";
   if (!isAdmin) {
     return NextResponse.json({ error: "Admin only" }, { status: 403 });
   }
+
+  // We still need the actor email for the test-recipient impersonation
+  // (so notifications during the session land in their inbox).
+  const { data: profile } = await svc
+    .from("profiles").select("email").eq("id", user.id).maybeSingle();
 
   const body = await req.json().catch(() => ({} as any));
   const action: string = body?.action;
@@ -59,19 +70,21 @@ export async function POST(req: Request) {
   if (action === "stop") {
     const res = NextResponse.json({ ok: true, mode: "self" });
     res.cookies.set(IMPERSONATE_COOKIE, "", { path: "/", maxAge: 0 });
-    const testId = await getTestRecipientId();
+    const testId = await getTestRecipientId(orgCtx.id);
     // Reset test app's contact_email so it doesn't keep the last admin's
     // address bleeding across demo sessions. Best-effort; failures logged.
     if (testId) {
       const { data: rec } = await svc
-        .from("recipients").select("application_id").eq("id", testId).maybeSingle();
+        .from("recipients").select("application_id")
+        .eq("id", testId).eq("org_id", orgCtx.id).maybeSingle();
       if (rec?.application_id) {
         await svc.from("applications")
           .update({ contact_email: "test@example.com" })
-          .eq("id", rec.application_id);
+          .eq("id", rec.application_id).eq("org_id", orgCtx.id);
       }
     }
     await writeAudit({
+      orgId:       orgCtx.id,
       actorId:     user.id,
       action:      "impersonate_stop",
       targetTable: "recipients",
@@ -82,7 +95,7 @@ export async function POST(req: Request) {
 
   // ── START path: cookie + wipe + reset email + audit ──────
   if (action === "start") {
-    const testId = await getTestRecipientId();
+    const testId = await getTestRecipientId(orgCtx.id);
     if (!testId) {
       // Configuration gap, not a runtime crash. Return 503 so the UI can
       // distinguish "feature not set up here" from "code broken".
@@ -94,13 +107,13 @@ export async function POST(req: Request) {
 
     // Wipe transient data on the test recipient so the next session
     // starts from a clean slate. (Best effort — failures are logged
-    // but don't block the toggle.)
+    // but don't block the toggle.) All scoped to this tenant.
     const wipeResults = await Promise.allSettled([
-      svc.from("receipts").delete().eq("recipient_id", testId),
-      svc.from("photos").delete().eq("recipient_id", testId),
-      svc.from("testimonials").delete().eq("recipient_id", testId),
+      svc.from("receipts").delete().eq("recipient_id", testId).eq("org_id", orgCtx.id),
+      svc.from("photos").delete().eq("recipient_id", testId).eq("org_id", orgCtx.id),
+      svc.from("testimonials").delete().eq("recipient_id", testId).eq("org_id", orgCtx.id),
       // payouts table: clear rows linked to this recipient
-      svc.from("payouts").delete().eq("recipient_id", testId),
+      svc.from("payouts").delete().eq("recipient_id", testId).eq("org_id", orgCtx.id),
     ]);
 
     // Update the test recipient's contact_email (on the linked
@@ -110,12 +123,14 @@ export async function POST(req: Request) {
       .from("recipients")
       .select("application_id")
       .eq("id", testId)
+      .eq("org_id", orgCtx.id)
       .maybeSingle();
     if (rec?.application_id && profile?.email) {
       await svc
         .from("applications")
         .update({ contact_email: profile.email })
-        .eq("id", rec.application_id);
+        .eq("id", rec.application_id)
+        .eq("org_id", orgCtx.id);
     }
 
     const res = NextResponse.json({
@@ -132,6 +147,7 @@ export async function POST(req: Request) {
     });
 
     await writeAudit({
+      orgId:       orgCtx.id,
       actorId:     user.id,
       action:      "impersonate_start",
       targetTable: "recipients",

@@ -6,8 +6,11 @@
 // /admin/testimonials approve flow before it ever surfaces here.
 import { NextResponse } from "next/server";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { getOrgContext } from "@/app/lib/org-context";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";  // tenant resolution must happen
+                                         // per request — can't be static.
 
 function firstNamesOnly(parent_names: string | null | undefined): string {
   if (!parent_names) return "";
@@ -18,10 +21,18 @@ function firstNamesOnly(parent_names: string | null | undefined): string {
 
 export async function GET() {
   try {
+    // No tenant resolved → return an empty list rather than leaking
+    // cross-tenant testimonials. This route is mounted under a per-tenant
+    // host or /o/<slug>/ path, so the marketing/signup host should never
+    // call it.
+    const orgCtx = await getOrgContext();
+    if (!orgCtx) return NextResponse.json({ items: [] });
+
     const svc = supabaseService();
     const { data, error } = await svc.from("testimonials")
       .select(`id, body, featured, created_at,
         recipients!inner(applications!inner(parent_names, city))`)
+      .eq("org_id", orgCtx.id)
       .eq("status", "approved")
       .order("featured", { ascending: false })
       .order("created_at", { ascending: false })
@@ -41,8 +52,9 @@ export async function GET() {
 
     return NextResponse.json({ items }, {
       headers: {
-        // Modest CDN cache — admin-flipping approval picks up within 5 min
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        // Modest cache — but private since responses differ per tenant.
+        "Cache-Control": "private, max-age=300",
+        "X-Org-Slug":    orgCtx.slug,
       },
     });
   } catch (e: any) {

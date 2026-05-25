@@ -1,6 +1,7 @@
 // /admin/testimonials — review/approve/hide submitted testimonials.
 import Link from "next/link";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 import { TestimonialManager } from "./TestimonialManager";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ function sanitize(raw: string): string {
 export default async function TestimonialsPage({ searchParams }: {
   searchParams?: { status?: string; q?: string; sort?: string; dir?: string };
 }) {
+  const ctx = await requireOrgContext();
   const svc = supabaseService();
   const status = searchParams?.status ?? "pending";
   const searchRaw = (searchParams?.q ?? "").trim();
@@ -23,7 +25,9 @@ export default async function TestimonialsPage({ searchParams }: {
   let q = svc.from("testimonials").select(`
     id, body, status, featured, created_at, reviewed_at,
     recipients!inner(applications!inner(parent_names, app_ref, city))
-  `).order("created_at", { ascending: dir === "asc" });
+  `)
+    .eq("org_id", ctx.id)
+    .order("created_at", { ascending: dir === "asc" });
 
   if (status !== "all") q = q.eq("status", status);
   if (term) {
@@ -33,9 +37,9 @@ export default async function TestimonialsPage({ searchParams }: {
   const { data } = await q;
 
   const counts: any = await Promise.all([
-    svc.from("testimonials").select("id", { count: "exact", head: true }).eq("status", "pending"),
-    svc.from("testimonials").select("id", { count: "exact", head: true }).eq("status", "approved"),
-    svc.from("testimonials").select("id", { count: "exact", head: true }).eq("status", "hidden"),
+    svc.from("testimonials").select("id", { count: "exact", head: true }).eq("org_id", ctx.id).eq("status", "pending"),
+    svc.from("testimonials").select("id", { count: "exact", head: true }).eq("org_id", ctx.id).eq("status", "approved"),
+    svc.from("testimonials").select("id", { count: "exact", head: true }).eq("org_id", ctx.id).eq("status", "hidden"),
   ]);
 
   return (
@@ -56,7 +60,7 @@ export default async function TestimonialsPage({ searchParams }: {
           <input type="hidden" name="status" value={status} />
           <input type="hidden" name="dir" value={dir} />
           <button type="submit" className="ra-btn">Search</button>
-          {term && <Link href={`/admin/testimonials?status=${status}`} className="ra-btn">Reset</Link>}
+          {term && <Link href={orgPath(ctx, `/admin/testimonials?status=${status}`)} className="ra-btn">Reset</Link>}
         </form>
       </header>
 
@@ -69,14 +73,14 @@ export default async function TestimonialsPage({ searchParams }: {
           if (term) params.set("q", searchRaw);
           if (dir === "asc") params.set("dir", "asc");
           return (
-            <a key={s} href={`/admin/testimonials?${params.toString()}`}
+            <a key={s} href={orgPath(ctx, `/admin/testimonials?${params.toString()}`)}
               className={`ra-tab ${status === s ? "ra-tab-active" : ""}`}>
               {labels[s]}{count != null ? ` (${count})` : ""}
             </a>
           );
         })}
         <div style={{ flex: 1 }} />
-        <a href={`/admin/testimonials?status=${status}${term ? `&q=${encodeURIComponent(searchRaw)}` : ""}&dir=${dir === "asc" ? "desc" : "asc"}`}
+        <a href={orgPath(ctx, `/admin/testimonials?status=${status}${term ? `&q=${encodeURIComponent(searchRaw)}` : ""}&dir=${dir === "asc" ? "desc" : "asc"}`)}
           className="ra-tab" title="Toggle date sort direction">
           Sort: date {dir === "asc" ? "↑" : "↓"}
         </a>

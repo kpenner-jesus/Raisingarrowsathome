@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 import { calcBalance } from "@/app/lib/grant-calc";
 import { AvatarRow } from "../../_components/Avatar";
 import { StatusBadge } from "../../_components/StatusBadge";
@@ -15,11 +16,13 @@ import { PrintButton } from "../../_components/PrintButton";
 export const dynamic = "force-dynamic";
 
 export default async function RecipientDetail({ params }: { params: { id: string } }) {
+  const ctx = await requireOrgContext();
   const supabase = supabaseServer();
 
   const { data: recipient } = await supabase
     .from("recipients")
     .select("*, applications(parent_names, city, contact_email, contact_phone, children, app_ref)")
+    .eq("org_id", ctx.id)
     .eq("id", params.id)
     .single();
   if (!recipient) return notFound();
@@ -28,14 +31,15 @@ export default async function RecipientDetail({ params }: { params: { id: string
   const svc = supabaseService();
   const { data: notesData } = await svc.from("recipient_notes")
     .select("id, author_id, body, created_at, profiles:author_id(email)")
+    .eq("org_id", ctx.id)
     .eq("recipient_id", recipient.id)
     .order("created_at", { ascending: false });
 
   const [{ data: receipts }, { data: payouts }, { data: testimonials }, { data: photos }] = await Promise.all([
-    supabase.from("receipts").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
-    supabase.from("payouts").select("*, payout_batches(scheduled_date, ceo_reference, status)").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
-    supabase.from("testimonials").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
-    supabase.from("photos").select("*").eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
+    supabase.from("receipts").select("*").eq("org_id", ctx.id).eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
+    supabase.from("payouts").select("*, payout_batches(scheduled_date, ceo_reference, status)").eq("org_id", ctx.id).eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
+    supabase.from("testimonials").select("*").eq("org_id", ctx.id).eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
+    supabase.from("photos").select("*").eq("org_id", ctx.id).eq("recipient_id", recipient.id).order("created_at", { ascending: false }),
   ]);
 
   const paidToDate      = (payouts || []).filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + Number(p.amount), 0);
@@ -53,7 +57,7 @@ export default async function RecipientDetail({ params }: { params: { id: string
 
   return (
     <div>
-      <Link href="/admin/recipients" className="ra-breadcrumb">← All recipients</Link>
+      <Link href={orgPath(ctx, "/admin/recipients")} className="ra-breadcrumb">← All recipients</Link>
 
       <header className="ra-page-header" style={{ marginTop: "0.5rem" }}>
         <div className="ra-page-title-block">

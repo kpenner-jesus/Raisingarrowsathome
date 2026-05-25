@@ -71,11 +71,13 @@ export async function POST(req: Request) {
   const cleanCurrency = ALLOWED_CURRENCIES.includes(currency) ? currency : "CAD";
 
   // Use service-role when impersonating so RLS doesn't reject the insert
-  // (the admin isn't profile-linked to the test recipient).
+  // (the admin isn't profile-linked to the test recipient). org_id is
+  // taken off the recipient row — the source of truth for tenant binding.
   const writeClient = ctx.mode === "impersonating" ? supabaseService() : supabase;
   const { data, error } = await writeClient
     .from("receipts")
     .insert({
+      org_id:              recipient.org_id,
       recipient_id:        recipient.id,
       image_path,
       amount:              numericAmount,

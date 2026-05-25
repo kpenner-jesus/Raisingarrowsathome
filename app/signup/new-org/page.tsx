@@ -30,6 +30,7 @@ export default function NewOrgPage() {
   const [charityNumber, setCharityNumber] = useState("");
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState("");
+  const [slugCheck, setSlugCheck] = useState<{ state: "idle" | "checking" | "available" | "unavailable"; reason?: string }>({ state: "idle" });
 
   useEffect(() => {
     (async () => {
@@ -45,6 +46,23 @@ export default function NewOrgPage() {
   useEffect(() => {
     if (!slugTouched) setSlug(slugify(name));
   }, [name, slugTouched]);
+
+  // Debounced availability check whenever slug changes.
+  useEffect(() => {
+    if (!slug || slug.length < 3) { setSlugCheck({ state: "idle" }); return; }
+    setSlugCheck({ state: "checking" });
+    const handle = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/signup/check-slug?slug=${encodeURIComponent(slug)}`);
+        const j = await r.json();
+        if (j?.available) setSlugCheck({ state: "available" });
+        else setSlugCheck({ state: "unavailable", reason: j?.reason || "not available" });
+      } catch {
+        setSlugCheck({ state: "idle" });
+      }
+    }, 350);
+    return () => clearTimeout(handle);
+  }, [slug]);
 
   async function submit() {
     setError("");
@@ -128,10 +146,24 @@ export default function NewOrgPage() {
           placeholder="cedar-springs"
           style={{
             width: "100%", padding: "0.75rem 1rem", fontSize: 16,
-            border: "1px solid rgba(0,0,0,0.15)", borderRadius: 10,
-            marginBottom: "1rem", fontFamily: "ui-monospace, monospace",
+            border: slugCheck.state === "unavailable" ? "1px solid #e05050"
+                  : slugCheck.state === "available"   ? "1px solid #3a9e6e"
+                  : "1px solid rgba(0,0,0,0.15)",
+            borderRadius: 10,
+            marginBottom: "0.35rem", fontFamily: "ui-monospace, monospace",
           }}
         />
+        <div style={{ minHeight: "1.1rem", fontSize: "0.82rem", marginBottom: "1rem" }}>
+          {slugCheck.state === "checking" && (
+            <span style={{ color: "var(--text-muted)" }}>Checking availability…</span>
+          )}
+          {slugCheck.state === "available" && (
+            <span style={{ color: "#3a9e6e" }}>✓ Available</span>
+          )}
+          {slugCheck.state === "unavailable" && (
+            <span style={{ color: "#a83232" }}>✗ {slugCheck.reason}</span>
+          )}
+        </div>
 
         <label style={{ display: "block", fontWeight: 600, fontSize: "0.88rem", marginBottom: "0.3rem" }}>
           CRA charity number{" "}

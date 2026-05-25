@@ -3,6 +3,7 @@
 //   Filter by recipient or year.
 import Link from "next/link";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ function sanitize(raw: string): string {
 export default async function PhotosPage({ searchParams }: {
   searchParams?: { recipient?: string; year?: string; q?: string; dir?: string };
 }) {
+  const ctx = await requireOrgContext();
   const svc = supabaseService();
   const dir: "asc" | "desc" = searchParams?.dir === "asc" ? "asc" : "desc";
   const searchRaw = (searchParams?.q ?? "").trim();
@@ -23,7 +25,9 @@ export default async function PhotosPage({ searchParams }: {
   let q = svc.from("photos").select(`
     id, image_path, caption, created_at, recipient_id,
     recipients!inner(id, applications!inner(parent_names, app_ref))
-  `).order("created_at", { ascending: dir === "asc" }).limit(200);
+  `)
+    .eq("org_id", ctx.id)
+    .order("created_at", { ascending: dir === "asc" }).limit(200);
 
   if (searchParams?.recipient) q = q.eq("recipient_id", searchParams.recipient);
   if (searchParams?.year && /^\d{4}$/.test(searchParams.year)) {
@@ -118,7 +122,7 @@ export default async function PhotosPage({ searchParams }: {
                 </a>
                 <div style={{ padding: "0.55rem 0.75rem" }}>
                   <div style={{ fontWeight: 500, fontSize: "0.85rem" }}>
-                    <Link href={`/admin/recipients/${p.recipient_id}`}
+                    <Link href={orgPath(ctx, `/admin/recipients/${p.recipient_id}`)}
                       style={{ color: "var(--ra-ink)", textDecoration: "none" }}>
                       {fam} →
                     </Link>

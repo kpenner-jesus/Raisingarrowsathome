@@ -41,10 +41,23 @@ function coerceIntake(v: any, legacyBool?: any): IntakeStatus {
   return "open";
 }
 
-export async function getSettings(): Promise<AppSettings> {
+/**
+ * Read the app_settings for a tenant. Returns DEFAULTS if no rows exist
+ * for that tenant (or read fails). Pass `orgId` to scope the query — the
+ * multi-tenant `app_settings` table has UNIQUE(org_id, key), so without
+ * the org filter we would silently mash together settings from every
+ * charity on the platform.
+ *
+ * Tests and other callers that genuinely need a global fallback can omit
+ * orgId; that path returns DEFAULTS rather than reading the DB. Callers
+ * inside route handlers must always pass orgCtx.id.
+ */
+export async function getSettings(orgId?: string): Promise<AppSettings> {
+  if (!orgId) return DEFAULTS;
   try {
     const svc = supabaseService();
-    const { data, error } = await svc.from("app_settings").select("key, value");
+    const { data, error } = await svc.from("app_settings")
+      .select("key, value").eq("org_id", orgId);
     if (error || !data) return DEFAULTS;
     const map = new Map(data.map((r: any) => [r.key, r.value]));
     const intakeStatus = coerceIntake(map.get("intake_status"), map.get("applications_open"));

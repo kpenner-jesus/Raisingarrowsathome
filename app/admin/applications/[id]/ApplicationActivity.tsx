@@ -1,5 +1,6 @@
 // Activity timeline for a single application — derived from audit_log.
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext } from "@/app/lib/org-context";
 
 const ACTION_LABELS: Record<string, string> = {
   decide_application: "Decision",
@@ -13,12 +14,14 @@ export async function ApplicationActivity({ applicationId, createdAt }: {
   applicationId: string;
   createdAt: string;
 }) {
+  const ctx = await requireOrgContext();
   const svc = supabaseService();
   // Direct hits on the app itself + notes referencing it
   const { data: events } = await svc.from("audit_log").select(`
     id, action, target_table, target_id, details, created_at,
     profiles:actor_id(email)
   `)
+    .eq("org_id", ctx.id)
     .or(`and(target_table.eq.applications,target_id.eq.${applicationId}),and(target_table.eq.application_notes,details->>application_id.eq.${applicationId})`)
     .order("created_at", { ascending: false })
     .limit(50);

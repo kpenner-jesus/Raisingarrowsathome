@@ -3,46 +3,53 @@
 // Hard-gated: status MUST be 'draft' (never delete exported/paid).
 // Idempotent via status guard in the WHERE clause.
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 export async function DELETE(_req: Request, ctx: { params: { id: string } }) {
   const id = ctx.params.id;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const auth = supabaseServer();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
+  const { user, ctx: orgCtx } = auth;
+  const svc = supabaseService();
 
-  // Snapshot the batch first (so audit captures totals + bucket).
+  // Snapshot the batch first (so audit captures totals + bucket). Tenant-scoped
+  // so a draft id from another org can never be reached from here.
   const { data: batch } = await svc.from("payout_batches")
-    .select("id, status, total, bucket, scheduled_date").eq("id", id).single();
+    .select("id, status, total, bucket, scheduled_date")
+    .eq("id", id).eq("org_id", orgCtx.id).single();
   if (!batch) return NextResponse.json({ error: "batch not found" }, { status: 404 });
   if (batch.status !== "draft") {
     return NextResponse.json({ error: `only draft batches can be deleted (this one is '${batch.status}')` }, { status: 409 });
   }
 
-  // Count payouts being removed (for audit + response)
+  // Count payouts being removed (for audit + response). Also tenant-scoped
+  // — payouts.org_id should always match payout_batches.org_id, but the
+  // extra eq("org_id") is defense-in-depth.
   const { count: payoutCount } = await svc.from("payouts")
-    .select("id", { count: "exact", head: true }).eq("batch_id", id);
+    .select("id", { count: "exact", head: true })
+    .eq("batch_id", id).eq("org_id", orgCtx.id);
 
   // Cascade-ish: delete child payouts first, then the batch row.
-  // Both gated to draft-only state to avoid races.
-  const { error: payErr } = await svc.from("payouts").delete().eq("batch_id", id);
+  // Both gated to draft-only state and tenant to avoid races + cross-tenant slips.
+  const { error: payErr } = await svc.from("payouts").delete()
+    .eq("batch_id", id).eq("org_id", orgCtx.id);
   if (payErr) return NextResponse.json({ error: `payouts delete: ${payErr.message}` }, { status: 500 });
 
   const { error: batchErr, count } = await svc.from("payout_batches")
-    .delete({ count: "exact" }).eq("id", id).eq("status", "draft");
+    .delete({ count: "exact" }).eq("id", id).eq("org_id", orgCtx.id).eq("status", "draft");
   if (batchErr) return NextResponse.json({ error: `batch delete: ${batchErr.message}` }, { status: 500 });
   if (!count)   return NextResponse.json({ error: "batch concurrently modified" }, { status: 409 });
 
   await writeAudit({
+    orgId: orgCtx.id,
     actorId: user.id,
     action: "delete_draft_batch",
     targetTable: "payout_batches",

@@ -3,6 +3,7 @@
 // contact_email, app_ref, or description. Returns top 20 per bucket.
 import Link from "next/link";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
@@ -18,20 +19,24 @@ function sanitize(raw: string): string {
 }
 
 export default async function SearchPage({ searchParams }: { searchParams?: { q?: string } }) {
+  const ctx = await requireOrgContext();
   const raw = (searchParams?.q ?? "").trim();
   const q = sanitize(raw);
   const svc = supabaseService();
 
   const [apps, recs, receipts] = q.length === 0 ? [{ data: [] }, { data: [] }, { data: [] }] as any : await Promise.all([
     svc.from("applications").select("id, app_ref, parent_names, contact_email, city, status, created_at, archived_at")
+      .eq("org_id", ctx.id)
       .or(`parent_names.ilike.%${q}%,contact_email.ilike.%${q}%,app_ref.ilike.%${q}%,city.ilike.%${q}%`)
       .order("created_at", { ascending: false }).limit(20),
     svc.from("recipients").select(`id, status, archived_at, created_at,
       applications!inner(parent_names, contact_email, app_ref, city)`)
+      .eq("org_id", ctx.id)
       .or(`parent_names.ilike.%${q}%,contact_email.ilike.%${q}%,app_ref.ilike.%${q}%`, { foreignTable: "applications" })
       .order("created_at", { ascending: false }).limit(20),
     svc.from("receipts").select(`id, amount, currency, description, status, created_at,
       recipients!inner(id, applications!inner(parent_names, app_ref))`)
+      .eq("org_id", ctx.id)
       .ilike("description", `%${q}%`)
       .order("created_at", { ascending: false }).limit(20),
   ]);
@@ -62,7 +67,7 @@ export default async function SearchPage({ searchParams }: { searchParams?: { q?
               <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                 {(apps.data as any[]).map((a) => (
                   <li key={a.id} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--ra-line)" }}>
-                    <Link href={`/admin/applications/${a.id}`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+                    <Link href={orgPath(ctx, `/admin/applications/${a.id}`)} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
                       <strong>{a.parent_names}</strong>{" "}
                       <span className="ra-tiny">· {a.app_ref} · {a.city ?? "—"} · {a.status}</span>
                       {a.archived_at && <span className="ra-tiny" style={{ color: "var(--ra-danger)" }}> · archived</span>}
@@ -79,7 +84,7 @@ export default async function SearchPage({ searchParams }: { searchParams?: { q?
               <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                 {(recs.data as any[]).map((r) => (
                   <li key={r.id} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--ra-line)" }}>
-                    <Link href={`/admin/recipients/${r.id}`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+                    <Link href={orgPath(ctx, `/admin/recipients/${r.id}`)} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
                       <strong>{r.applications.parent_names}</strong>{" "}
                       <span className="ra-tiny">· {r.applications.app_ref} · {r.status}</span>
                       {r.archived_at && <span className="ra-tiny" style={{ color: "var(--ra-danger)" }}> · archived</span>}
@@ -96,7 +101,7 @@ export default async function SearchPage({ searchParams }: { searchParams?: { q?
               <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                 {(receipts.data as any[]).map((r) => (
                   <li key={r.id} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--ra-line)" }}>
-                    <Link href={`/admin/recipients/${r.recipients.id}`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+                    <Link href={orgPath(ctx, `/admin/recipients/${r.recipients.id}`)} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
                       <strong>{r.description || "Receipt"}</strong>{" "}
                       <span className="ra-tiny">· ${Number(r.amount).toFixed(2)} {r.currency || "CAD"} · {r.status}</span>
                       <div className="ra-tiny">{r.recipients.applications.parent_names} · {r.recipients.applications.app_ref}</div>

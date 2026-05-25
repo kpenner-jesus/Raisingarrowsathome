@@ -4,6 +4,7 @@
 //   ?from=YYYY-MM-DD &to=YYYY-MM-DD   date range
 import Link from "next/link";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ function pretty(action: string): string {
 export default async function AuditLogPage({ searchParams }: {
   searchParams?: { action?: string; actor?: string; from?: string; to?: string };
 }) {
+  const ctx = await requireOrgContext();
   const svc = supabaseService();
 
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -37,7 +39,9 @@ export default async function AuditLogPage({ searchParams }: {
   let q = svc.from("audit_log").select(`
     id, action, target_table, target_id, details, created_at,
     profiles:actor_id(email)
-  `).order("created_at", { ascending: false }).limit(500);
+  `)
+    .eq("org_id", ctx.id)
+    .order("created_at", { ascending: false }).limit(500);
 
   if (searchParams?.action) q = q.eq("action", searchParams.action);
   if (safeFrom) q = q.gte("created_at", `${safeFrom}T00:00:00Z`);
@@ -89,7 +93,7 @@ export default async function AuditLogPage({ searchParams }: {
         </div>
         <div style={{ display: "flex", alignItems: "end", gap: "0.5rem" }}>
           <button type="submit" className="ra-btn ra-btn-primary">Apply</button>
-          <Link href="/admin/audit-log" className="ra-btn">Reset</Link>
+          <Link href={orgPath(ctx, "/admin/audit-log")} className="ra-btn">Reset</Link>
         </div>
       </form>
 

@@ -2,8 +2,9 @@
 //   body: { body: string }
 // DELETE /api/admin/applications/[id]/notes?nid=<note_id> — delete note (author or super_admin)
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 const MAX_NOTE = 4000;
 
@@ -11,15 +12,13 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   const appId = ctx.params.id;
   if (!appId) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const supabase = supabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
+  const { user, ctx: orgCtx } = auth;
 
   let body: { body?: string };
   try { body = await req.json(); }
@@ -29,15 +28,17 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   if (!text) return NextResponse.json({ error: "body required" }, { status: 400 });
   if (text.length > MAX_NOTE) return NextResponse.json({ error: `max ${MAX_NOTE} chars` }, { status: 400 });
 
-  const { data: app } = await svc.from("applications").select("id").eq("id", appId).single();
+  const svc = supabaseService();
+  const { data: app } = await svc.from("applications").select("id").eq("id", appId).eq("org_id", orgCtx.id).single();
   if (!app) return NextResponse.json({ error: "application not found" }, { status: 404 });
 
   const { data: note, error } = await svc.from("application_notes")
-    .insert({ application_id: appId, author_id: user.id, body: text })
+    .insert({ org_id: orgCtx.id, application_id: appId, author_id: user.id, body: text })
     .select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await writeAudit({
+    orgId: orgCtx.id,
     actorId: user.id,
     action: "add_note",
     targetTable: "application_notes",
@@ -54,30 +55,34 @@ export async function DELETE(req: Request, ctx: { params: { id: string } }) {
   const nid = url.searchParams.get("nid");
   if (!appId || !nid) return NextResponse.json({ error: "id and nid required" }, { status: 400 });
 
-  const supabase = supabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
+  }
+  const { user, ctx: orgCtx } = auth;
 
+  // Look up the caller's platform-level role for the super_admin override.
   const svc = supabaseService();
   const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
 
-  // Only author or super_admin can delete
+  // Only author or super_admin can delete. Scope by org so a member of org A
+  // can't delete notes belonging to org B even if they guess the note id.
   const { data: note } = await svc.from("application_notes")
-    .select("id, author_id, application_id").eq("id", nid).single();
+    .select("id, author_id, application_id").eq("id", nid).eq("org_id", orgCtx.id).single();
   if (!note || note.application_id !== appId) {
     return NextResponse.json({ error: "note not found" }, { status: 404 });
   }
-  if (note.author_id !== user.id && profile.role !== "super_admin") {
+  if (note.author_id !== user.id && profile?.role !== "super_admin") {
     return NextResponse.json({ error: "only author or super_admin can delete" }, { status: 403 });
   }
 
-  const { error } = await svc.from("application_notes").delete().eq("id", nid);
+  const { error } = await svc.from("application_notes").delete().eq("id", nid).eq("org_id", orgCtx.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await writeAudit({
+    orgId: orgCtx.id,
     actorId: user.id,
     action: "delete_note",
     targetTable: "application_notes",

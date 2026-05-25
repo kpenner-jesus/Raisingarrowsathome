@@ -28,6 +28,8 @@ import {
 } from "@/app/lib/notify";
 
 export interface DecideArgs {
+  /** Tenant org id — application + recipient lookups/writes are scoped to this. */
+  orgId:           string;
   applicationId:   string;
   decision:        "approved" | "denied";
   approved_amount?: number;
@@ -64,6 +66,7 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
     .from("applications")
     .select("*")
     .eq("id", args.applicationId)
+    .eq("org_id", args.orgId)
     .single();
   if (loadErr || !app) throw new Error(loadErr?.message || "application not found");
   if (app.status !== "pending") {
@@ -81,6 +84,7 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
         decided_by:  args.deciderProfileId,
       })
       .eq("id", args.applicationId)
+      .eq("org_id", args.orgId)
       .eq("status", "pending")
       .select("*")
       .single();
@@ -122,6 +126,7 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
     .from("recipients")
     .upsert(
       {
+        org_id:              args.orgId,
         application_id:      app.id,
         profile_id:          profileId,
         approved_amount:     cap,
@@ -145,6 +150,7 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
       decided_by:  args.deciderProfileId,
     })
     .eq("id", args.applicationId)
+    .eq("org_id", args.orgId)
     .eq("status", "pending")
     .select("*")
     .single();

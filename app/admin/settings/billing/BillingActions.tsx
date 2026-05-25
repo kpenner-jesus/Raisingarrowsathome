@@ -31,6 +31,23 @@ export function BillingActions({ orgId, status, hasStripeCustomer }: {
     }
   }
 
+  async function portal() {
+    setBusy("portal"); setError(null);
+    try {
+      const r = await fetch("/api/billing/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orgId }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      window.location.href = j.url;
+    } catch (e: any) {
+      setError(e?.message || "Failed to open Stripe portal");
+      setBusy(null);
+    }
+  }
+
   return (
     <div style={{ marginTop: "0.5rem" }}>
       {needsUpgrade ? (
@@ -64,13 +81,33 @@ export function BillingActions({ orgId, status, hasStripeCustomer }: {
       ) : (
         <>
           <p style={{ color: "var(--text-secondary)", marginBottom: "1rem", lineHeight: 1.55 }}>
-            Your subscription is active. To update your card, cancel, or view invoices, open the Stripe customer portal.
+            Your subscription is active. Update your card, view invoices, or cancel — all from the Stripe customer portal.
           </p>
-          <p className="ra-quiet" style={{ fontSize: "0.85rem" }}>
-            Stripe customer portal coming soon. For now contact{" "}
-            <a href="mailto:register@raisingarrowsathome.com" style={{ color: "var(--ra-accent)" }}>register@raisingarrowsathome.com</a>{" "}
-            to update payment.
-          </p>
+          <button
+            onClick={portal}
+            disabled={!!busy || !hasStripeCustomer}
+            className="ra-btn ra-btn-primary"
+            style={{
+              background: "linear-gradient(180deg, var(--ra-accent, #e8793a), #c45f20)",
+              color: "#fff", border: "none", padding: "0.95rem 1.5rem",
+              borderRadius: 100, fontWeight: 600, fontSize: "0.95rem",
+              cursor: hasStripeCustomer ? "pointer" : "not-allowed", minHeight: 52,
+              boxShadow: "0 4px 12px rgba(232,121,58,0.35)",
+              opacity: hasStripeCustomer ? 1 : 0.55,
+            }}
+          >
+            {busy === "portal" ? "Opening Stripe…" : "Open Stripe customer portal →"}
+          </button>
+          {!hasStripeCustomer && (
+            <p className="ra-quiet" style={{ fontSize: "0.85rem", marginTop: "0.75rem" }}>
+              No Stripe customer yet — complete one Checkout first to enable the portal.
+            </p>
+          )}
+          {error && (
+            <div style={{ marginTop: "0.75rem", padding: "0.7rem 1rem", borderRadius: 8, background: "rgba(224,80,80,0.08)", color: "#a83232", fontSize: "0.88rem" }}>
+              {error}
+            </div>
+          )}
         </>
       )}
     </div>

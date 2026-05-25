@@ -7,10 +7,12 @@ import Link from "next/link";
 import { createHash } from "crypto";
 import { redirect } from "next/navigation";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
 export default async function OnboardPage({ searchParams }: { searchParams?: { token?: string } }) {
+  const ctx = await requireOrgContext();
   const token = searchParams?.token ?? "";
   if (!token) return shell("Missing token", "The invite link is incomplete.");
 
@@ -18,6 +20,7 @@ export default async function OnboardPage({ searchParams }: { searchParams?: { t
   const svc = supabaseService();
   const { data: invite } = await svc.from("admin_invites")
     .select("id, email, role, expires_at, used_at")
+    .eq("org_id", ctx.id)
     .eq("token_hash", token_hash).maybeSingle();
 
   if (!invite)                                  return shell("Invite not found", "This invite link is invalid.");
@@ -32,7 +35,7 @@ export default async function OnboardPage({ searchParams }: { searchParams?: { t
     return shell(
       `Sign in as ${invite.email}`,
       `Use the magic-link form below to sign in with the exact email this invite was sent to. After signing in, come back to this page to accept.`,
-      <Link href={`/auth/login?next=${encodeURIComponent(`/admin/onboard?token=${token}`)}`}
+      <Link href={`/auth/login?next=${encodeURIComponent(orgPath(ctx, `/admin/onboard?token=${token}`))}`}
         style={{ display: "inline-block", marginTop: "1rem", background: "var(--ra-accent)", color: "#fff", padding: "0.6rem 1.25rem", borderRadius: 100, textDecoration: "none", fontWeight: 500 }}>
         Sign in →
       </Link>
@@ -56,7 +59,7 @@ export default async function OnboardPage({ searchParams }: { searchParams?: { t
     { onConflict: "id" }
   );
 
-  redirect("/admin");
+  redirect(orgPath(ctx, "/admin"));
 }
 
 function shell(title: string, body: string, action?: React.ReactNode) {

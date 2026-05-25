@@ -18,6 +18,7 @@
 
 import { supabaseService } from "./supabase/server";
 import { sendTrialEndingSoon, sendPastDueNudge } from "./notify-platform";
+import { decideReminder, type ReminderKind } from "./billing-reminder-logic";
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -43,12 +44,10 @@ async function ownerEmail(orgId: string, slug: string): Promise<{ email: string 
 export interface ReminderResult {
   org_id: string;
   slug:   string;
-  kind:   "trial_3day" | "trial_1day" | "past_due";
+  kind:   ReminderKind;
   sent:   boolean;
   reason?: string;
 }
-
-type ReminderKind = "trial_3day" | "trial_1day" | "past_due";
 
 /** Persist that we sent a reminder so we don't fire it again. */
 async function markSent(orgId: string, kind: ReminderKind, now: Date) {
@@ -73,82 +72,39 @@ export async function processBillingReminders(now: Date = new Date()): Promise<R
   if (!tenants) return [];
 
   const results: ReminderResult[] = [];
-  const nowMs = now.getTime();
 
   for (const t of tenants as any[]) {
-    // ── Trial reminders ──
-    if (t.status === "trialing" && t.trial_ends_at) {
-      const endsMs   = new Date(t.trial_ends_at).getTime();
-      const daysLeft = (endsMs - nowMs) / ONE_DAY_MS;
-      const lastKind = t.last_reminder_kind as ReminderKind | null;
+    // Decide which reminder (if any) should fire — pure function, unit-tested.
+    const decision = decideReminder({
+      status: t.status,
+      trial_ends_at: t.trial_ends_at,
+      last_reminder_kind: t.last_reminder_kind,
+      last_reminder_sent_at: t.last_reminder_sent_at,
+      now,
+    });
+    if (!decision.fire) continue;
 
-      // trial_3day fires once when daysLeft falls in [1.5, 4.0]. State machine
-      // gate prevents re-fire after we've already sent it.
-      if (
-        daysLeft >= 1.5 && daysLeft <= 4.0 &&
-        lastKind !== "trial_3day" && lastKind !== "trial_1day"
-      ) {
-        const { email, billingUrl } = await ownerEmail(t.id, t.slug);
-        if (email) {
-          try {
-            await sendTrialEndingSoon({ to: email, orgName: t.name, daysLeft: Math.max(1, Math.round(daysLeft)), billingUrl });
-            await markSent(t.id, "trial_3day", now);
-            results.push({ org_id: t.id, slug: t.slug, kind: "trial_3day", sent: true });
-          } catch (e: any) {
-            results.push({ org_id: t.id, slug: t.slug, kind: "trial_3day", sent: false, reason: e?.message || "send failed" });
-          }
-        } else {
-          results.push({ org_id: t.id, slug: t.slug, kind: "trial_3day", sent: false, reason: "no owner email" });
-        }
-        continue;
-      }
-
-      // trial_1day fires once when daysLeft falls in [-0.5, 1.5). Even after
-      // trial_3day has fired we still want this last-chance nudge.
-      if (
-        daysLeft >= -0.5 && daysLeft < 1.5 &&
-        lastKind !== "trial_1day"
-      ) {
-        const { email, billingUrl } = await ownerEmail(t.id, t.slug);
-        if (email) {
-          // Pre-expiry: daysLeft >= 0.5 → "1 day"; near zero → "today".
-          const copy = daysLeft >= 0.5 ? 1 : 0;
-          try {
-            await sendTrialEndingSoon({ to: email, orgName: t.name, daysLeft: copy, billingUrl });
-            await markSent(t.id, "trial_1day", now);
-            results.push({ org_id: t.id, slug: t.slug, kind: "trial_1day", sent: true });
-          } catch (e: any) {
-            results.push({ org_id: t.id, slug: t.slug, kind: "trial_1day", sent: false, reason: e?.message || "send failed" });
-          }
-        } else {
-          results.push({ org_id: t.id, slug: t.slug, kind: "trial_1day", sent: false, reason: "no owner email" });
-        }
-        continue;
-      }
+    const { email, billingUrl } = await ownerEmail(t.id, t.slug);
+    if (!email) {
+      results.push({ org_id: t.id, slug: t.slug, kind: decision.fire, sent: false, reason: "no owner email" });
+      continue;
     }
 
-    // ── Past-due nudge ──
-    // Re-fires once per 6+ days while status stays past_due. Webhook clears
-    // last_reminder_kind when status flips back to active, so the next
-    // past_due event will fire the first nudge immediately.
-    if (t.status === "past_due") {
-      const lastSentMs = t.last_reminder_sent_at ? new Date(t.last_reminder_sent_at).getTime() : 0;
-      const recentlySent = (t.last_reminder_kind === "past_due") &&
-        (nowMs - lastSentMs) < 6 * ONE_DAY_MS;
-      if (!recentlySent) {
-        const { email, billingUrl } = await ownerEmail(t.id, t.slug);
-        if (email) {
-          try {
-            await sendPastDueNudge({ to: email, orgName: t.name, billingUrl });
-            await markSent(t.id, "past_due", now);
-            results.push({ org_id: t.id, slug: t.slug, kind: "past_due", sent: true });
-          } catch (e: any) {
-            results.push({ org_id: t.id, slug: t.slug, kind: "past_due", sent: false, reason: e?.message || "send failed" });
-          }
-        } else {
-          results.push({ org_id: t.id, slug: t.slug, kind: "past_due", sent: false, reason: "no owner email" });
-        }
+    try {
+      if (decision.fire === "past_due") {
+        await sendPastDueNudge({ to: email, orgName: t.name, billingUrl });
+      } else {
+        await sendTrialEndingSoon({
+          to: email,
+          orgName: t.name,
+          daysLeft: decision.daysLeftCopy,
+          billingUrl,
+        });
       }
+      await markSent(t.id, decision.fire, now);
+      results.push({ org_id: t.id, slug: t.slug, kind: decision.fire, sent: true });
+    } catch (e: any) {
+      results.push({ org_id: t.id, slug: t.slug, kind: decision.fire, sent: false, reason: e?.message || "send failed" });
     }
   }
 

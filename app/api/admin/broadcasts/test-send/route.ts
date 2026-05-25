@@ -4,18 +4,17 @@
 // prefixed with "[TEST]" so it's never confused with a live broadcast.
 // Does NOT write a broadcasts row.
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 export async function POST(req: Request) {
-  const auth = supabaseServer();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user?.email) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
+  const { user } = auth;
+  if (!user.email) return NextResponse.json({ error: "user has no email" }, { status: 400 });
 
   const body = await req.json().catch(() => ({} as any));
   const subject = typeof body?.subject === "string" ? body.subject.trim() : "";

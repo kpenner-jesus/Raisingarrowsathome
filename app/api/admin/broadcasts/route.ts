@@ -3,22 +3,22 @@
 // If scheduled_for is set and in the future, row is queued and the
 // daily cron dispatch will send it. Otherwise it sends immediately.
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
 import { sendBroadcast } from "@/app/lib/broadcasts";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 const VALID_AUDIENCES = new Set(["active_recipients", "all_recipients", "admins"]);
 
 export async function POST(req: Request) {
-  const auth = supabaseServer();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
+  const { user, ctx: orgCtx } = auth;
+  const svc = supabaseService();
 
   const body = await req.json().catch(() => ({} as any));
   const subject  = typeof body?.subject  === "string" ? body.subject.trim() : "";
@@ -43,6 +43,7 @@ export async function POST(req: Request) {
   // Insert row first (queued or sending), then send if not scheduled.
   const initState = scheduled_for ? "queued" : "sending";
   const { data: row, error: insErr } = await svc.from("broadcasts").insert({
+    org_id: orgCtx.id,
     sent_by: user.id, subject, body_html: html, audience,
     state: initState, scheduled_for, recipient_count: 0, failed_count: 0,
   }).select("id").single();
@@ -50,6 +51,7 @@ export async function POST(req: Request) {
 
   if (scheduled_for) {
     await writeAudit({
+      orgId: orgCtx.id,
       actorId: user.id, action: "schedule_broadcast",
       targetTable: "broadcasts", targetId: row.id,
       details: { subject, audience, scheduled_for },
@@ -57,9 +59,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, queued: true, scheduled_for });
   }
 
-  // Send now (inline).
+  // Send now (inline). sendBroadcast reads broadcasts.org_id off the row
+  // and scopes every downstream recipient lookup to that tenant.
   const r = await sendBroadcast({ broadcastId: row.id });
   await writeAudit({
+    orgId: orgCtx.id,
     actorId: user.id, action: "send_broadcast",
     targetTable: "broadcasts", targetId: row.id,
     details: { subject, audience, sent: r.sent, failed: r.failed },

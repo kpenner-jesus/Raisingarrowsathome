@@ -1,37 +1,42 @@
 // GET  /api/admin/mcp/tokens — list MCP tokens for the signed-in admin
-// POST /api/admin/mcp/tokens — mint a new token. Plaintext returned ONCE.
+//                              within the current tenant
+// POST /api/admin/mcp/tokens — mint a new token (tenant-scoped). Plaintext returned ONCE.
 import { NextResponse } from "next/server";
 import { createHash, randomBytes } from "crypto";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
-async function requireAdmin(): Promise<{ user: any } | { error: NextResponse }> {
-  const auth = supabaseServer();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return { error: new NextResponse("unauthorized", { status: 401 }) };
-  const { data: profile } = await auth.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return { error: new NextResponse("forbidden", { status: 403 }) };
+async function authOrError() {
+  try { return await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return { error: new NextResponse(e.message, { status: e.status }) };
+    throw e;
   }
-  return { user };
 }
 
 export async function GET() {
-  const check = await requireAdmin();
-  if ("error" in check) return check.error;
+  const c = await authOrError();
+  if ("error" in c) return c.error;
+  const { user, ctx: orgCtx } = c;
 
   const service = supabaseService();
+  // List only tokens the user owns AND that belong to the current tenant.
+  // Without the org filter, an admin moving between two tenants they belong
+  // to would see/manage the other tenant's tokens.
   const { data } = await service
     .from("api_tokens")
     .select("id, label, prefix, created_at, last_used_at, revoked_at, expires_at")
-    .eq("profile_id", check.user.id)
+    .eq("profile_id", user.id)
+    .eq("org_id", orgCtx.id)
     .order("created_at", { ascending: false });
 
   return NextResponse.json({ tokens: data || [] });
 }
 
 export async function POST(req: Request) {
-  const check = await requireAdmin();
-  if ("error" in check) return check.error;
+  const c = await authOrError();
+  if ("error" in c) return c.error;
+  const { user, ctx: orgCtx } = c;
 
   const { label } = await req.json().catch(() => ({} as any));
   if (typeof label !== "string" || !label.trim() || label.length > 60) {
@@ -47,7 +52,8 @@ export async function POST(req: Request) {
   const { data, error } = await service
     .from("api_tokens")
     .insert({
-      profile_id: check.user.id,
+      org_id:     orgCtx.id,
+      profile_id: user.id,
       label:      label.trim(),
       prefix,
       token_hash: tokenHash,
@@ -57,7 +63,8 @@ export async function POST(req: Request) {
   if (error) return new NextResponse(error.message, { status: 500 });
 
   await service.from("audit_log").insert({
-    actor_id:     check.user.id,
+    org_id:       orgCtx.id,
+    actor_id:     user.id,
     action:       "mcp.mint_token",
     target_table: "api_tokens",
     target_id:    data.id,

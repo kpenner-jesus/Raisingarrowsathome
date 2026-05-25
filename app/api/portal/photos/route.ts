@@ -34,7 +34,11 @@ export async function POST(req: Request) {
   }
 
   const writeClient = ctx.mode === "impersonating" ? supabaseService() : supabase;
+  // org_id is required (NOT NULL); take it off the recipient row so the photo
+  // can never end up under the wrong tenant even if the caller's auth.uid
+  // somehow belonged to a recipient in a different org.
   const { error } = await writeClient.from("photos").insert({
+    org_id:       recipient.org_id,
     recipient_id: recipient.id,
     image_path,
     caption: typeof caption === "string" ? caption.slice(0, 300).trim() || null : null,

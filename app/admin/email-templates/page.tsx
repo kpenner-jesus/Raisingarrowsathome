@@ -1,13 +1,16 @@
 // /admin/email-templates — DB-editable transactional email copy.
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext } from "@/app/lib/org-context";
 import { TemplateEditor } from "./TemplateEditor";
 
 export const dynamic = "force-dynamic";
 
 export default async function EmailTemplatesPage() {
+  const ctx = await requireOrgContext();
   const svc = supabaseService();
   const { data } = await svc.from("email_templates")
     .select("key, label, subject, body_html, body_text, vars, updated_at")
+    .eq("org_id", ctx.id)
     .order("label");
 
   return (

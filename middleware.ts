@@ -22,7 +22,9 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "./app/lib/supabase/middleware";
-import { resolveOrgSlug, parseOrgPath } from "./app/lib/org-context";
+// Import pure routing helpers from org-routing (not org-context, which pulls
+// in `react`'s cache() and can't run in the edge/middleware runtime).
+import { resolveOrgSlug, parseOrgPath } from "./app/lib/org-routing";
 
 export async function middleware(req: NextRequest) {
   const { response, supabase } = await updateSession(req);

@@ -7,27 +7,32 @@
 //  Side effect: marks batch as "exported" on first download.
 // ============================================================
 
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const auth = supabaseServer();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return new Response("unauthorized", { status: 401 });
-
-  const { data: profile } = await auth.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin") return new Response("forbidden", { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return new Response(e.message, { status: e.status });
+    throw e;
+  }
+  const { ctx: orgCtx } = auth;
 
   const service = supabaseService();
-  const { data: batch } = await service.from("payout_batches").select("*").eq("id", params.id).single();
+  // Scope the batch lookup to this tenant so an admin can't download
+  // another org's CSV by guessing the batch UUID.
+  const { data: batch } = await service.from("payout_batches")
+    .select("*").eq("id", params.id).eq("org_id", orgCtx.id).single();
   if (!batch) return new Response("not found", { status: 404 });
 
   const { data: payouts } = await service
     .from("payouts")
     .select("amount, status, receipts_included, recipients!inner(approved_amount, reimbursement_rate, applications!inner(parent_names, contact_email, contact_phone, city, app_ref))")
-    .eq("batch_id", params.id);
+    .eq("batch_id", params.id).eq("org_id", orgCtx.id);
 
   const rows: (string | number)[][] = [
-    ["Raising Arrows — payout batch handoff"],
+    [`${orgCtx.name} — payout batch handoff`],
     ["Batch date", batch.scheduled_date],
     ["Batch ID",   batch.id],
     ["Status",     batch.status],
@@ -58,14 +63,14 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     await service
       .from("payout_batches")
       .update({ status: "exported", exported_at: new Date().toISOString() })
-      .eq("id", batch.id);
+      .eq("id", batch.id).eq("org_id", orgCtx.id);
   }
 
   return new Response(csv, {
     status: 200,
     headers: {
       "Content-Type":        "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="raising-arrows-payout-${batch.scheduled_date}.csv"`,
+      "Content-Disposition": `attachment; filename="${orgCtx.slug}-payout-${batch.scheduled_date}.csv"`,
     },
   });
 }

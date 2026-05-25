@@ -16,10 +16,12 @@ export async function POST(req: Request) {
   const { body } = await req.json();
   if (!body?.trim()) return new NextResponse("empty body", { status: 400 });
 
+  // org_id from the recipient row pins the testimonial to the right tenant.
   const writeClient = ctx.mode === "impersonating" ? supabaseService() : supabase;
   const { error } = await writeClient.from("testimonials").insert({
+    org_id:       recipient.org_id,
     recipient_id: recipient.id,
-    body: body.trim(),
+    body:         body.trim(),
   });
   if (error) return new NextResponse(error.message, { status: 500 });
 

@@ -1,22 +1,22 @@
 // PATCH /api/admin/email-templates/[key]
 //   body: { subject, body_html, body_text }
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit, diff } from "@/app/lib/audit";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 export async function PATCH(req: Request, ctx: { params: { key: string } }) {
   const key = ctx.params.key;
   if (!key) return NextResponse.json({ error: "key required" }, { status: 400 });
 
-  const auth = supabaseServer();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const svc = supabaseService();
-  const { data: profile } = await svc.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
+  const { user, ctx: orgCtx } = auth;
+  const svc = supabaseService();
 
   const body = await req.json().catch(() => ({} as any));
   const subject   = typeof body?.subject   === "string" ? body.subject.trim()    : null;
@@ -28,18 +28,22 @@ export async function PATCH(req: Request, ctx: { params: { key: string } }) {
   if (body_html.length > 50_000) return NextResponse.json({ error: "body_html too long" }, { status: 400 });
   if (body_text && body_text.length > 50_000) return NextResponse.json({ error: "body_text too long" }, { status: 400 });
 
+  // Templates are keyed (org_id, key) per the multi-tenant migration. Scope
+  // every read/write to the caller's org so a member of org A can't read or
+  // overwrite org B's template even if they know the key.
   const { data: before } = await svc.from("email_templates")
-    .select("subject, body_html, body_text").eq("key", key).single();
+    .select("subject, body_html, body_text").eq("org_id", orgCtx.id).eq("key", key).single();
   if (!before) return NextResponse.json({ error: "template not found" }, { status: 404 });
 
   const { error } = await svc.from("email_templates").update({
     subject, body_html, body_text,
     updated_at: new Date().toISOString(),
     updated_by: user.id,
-  }).eq("key", key);
+  }).eq("org_id", orgCtx.id).eq("key", key);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await writeAudit({
+    orgId:       orgCtx.id,
     actorId:     user.id,
     action:      "update_email_template",
     targetTable: "email_templates",

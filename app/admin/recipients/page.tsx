@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabaseServer } from "@/app/lib/supabase/server";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 import { AvatarRow } from "../_components/Avatar";
 import { StatusBadge } from "../_components/StatusBadge";
 import { ProgressBar } from "../_components/ProgressBar";
@@ -30,6 +31,7 @@ function sanitizeSearch(raw: string): string {
 }
 
 export default async function RecipientsList({ searchParams }: { searchParams?: SearchParams }) {
+  const ctx = await requireOrgContext();
   const supabase = supabaseServer();
   const showArchived = searchParams?.show === "archived";
 
@@ -49,7 +51,8 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
 
   let q = supabase
     .from("recipients")
-    .select("id, approved_amount, reimbursement_rate, status, created_at, cohort_year, archived_at, applications!inner(app_ref, parent_names, city, contact_email)");
+    .select("id, approved_amount, reimbursement_rate, status, created_at, cohort_year, archived_at, applications!inner(app_ref, parent_names, city, contact_email)")
+    .eq("org_id", ctx.id);
 
   // By default hide archived rows; show only when ?show=archived.
   if (showArchived) q = q.not("archived_at", "is", null);
@@ -80,7 +83,7 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
   const { data: recipients } = await q;
 
   // Distinct cohort years for filter
-  const { data: cohortRows } = await supabase.from("recipients").select("cohort_year").not("cohort_year", "is", null);
+  const { data: cohortRows } = await supabase.from("recipients").select("cohort_year").eq("org_id", ctx.id).not("cohort_year", "is", null);
   const cohortYears = Array.from(new Set((cohortRows ?? []).map((r: any) => r.cohort_year))).sort((a: number, b: number) => b - a);
 
   // Compute paid-to-date in one batched query
@@ -89,6 +92,7 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
     const { data: paid } = await supabase
       .from("payouts")
       .select("recipient_id, amount, status")
+      .eq("org_id", ctx.id)
       .in("recipient_id", recipients.map((r: any) => r.id))
       .eq("status", "paid");
     (paid || []).forEach((p: any) => {
@@ -103,7 +107,7 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
     status: searchParams?.status,
     show:   showArchived ? "archived" : undefined,
   };
-  const base = "/admin/recipients";
+  const base = orgPath(ctx, "/admin/recipients");
 
   return (
     <div>
@@ -172,7 +176,7 @@ export default async function RecipientsList({ searchParams }: { searchParams?: 
               return (
                 <tr key={r.id}>
                   <td data-label="Family">
-                    <Link href={`/admin/recipients/${r.id}`}>
+                    <Link href={orgPath(ctx, `/admin/recipients/${r.id}`)}>
                       <AvatarRow name={r.applications.parent_names} secondary={`${r.applications.city} · ${r.applications.app_ref}`} />
                     </Link>
                   </td>

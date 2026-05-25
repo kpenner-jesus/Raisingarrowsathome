@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 import { defaultGrantCap } from "@/app/lib/grant-calc";
 import { SITE_CONFIG } from "@/app/siteConfig";
 import { AvatarRow } from "../../_components/Avatar";
@@ -13,15 +14,17 @@ import { ApplicationActivity } from "./ApplicationActivity";
 export const dynamic = "force-dynamic";
 
 export default async function ApplicationDetail({ params }: { params: { id: string } }) {
+  const ctx = await requireOrgContext();
   const supabase = supabaseServer();
-  const { data: app } = await supabase.from("applications").select("*").eq("id", params.id).single();
+  const { data: app } = await supabase.from("applications").select("*").eq("org_id", ctx.id).eq("id", params.id).single();
   if (!app) return notFound();
 
-  const { data: recipient } = await supabase.from("recipients").select("*").eq("application_id", app.id).maybeSingle();
+  const { data: recipient } = await supabase.from("recipients").select("*").eq("org_id", ctx.id).eq("application_id", app.id).maybeSingle();
   const { data: { user: currentUser } } = await supabase.auth.getUser();
   const svc = supabaseService();
   const { data: notesData } = await svc.from("application_notes")
     .select("id, author_id, body, created_at, profiles:author_id(email)")
+    .eq("org_id", ctx.id)
     .eq("application_id", app.id)
     .order("created_at", { ascending: false });
   const defaultCap = defaultGrantCap(app.children || []);
@@ -38,7 +41,7 @@ export default async function ApplicationDetail({ params }: { params: { id: stri
 
   return (
     <div>
-      <Link href="/admin/applications" className="ra-breadcrumb">← All applications</Link>
+      <Link href={orgPath(ctx, "/admin/applications")} className="ra-breadcrumb">← All applications</Link>
 
       <header className="ra-page-header" style={{ marginTop: "0.5rem" }}>
         <div className="ra-page-title-block">
@@ -154,7 +157,7 @@ export default async function ApplicationDetail({ params }: { params: { id: stri
                     </span>
                   </div>
                 </div>
-                <Link href={`/admin/recipients/${recipient.id}`} className="ra-btn ra-btn-accent" style={{ marginTop: "1.25rem", width: "100%" }}>
+                <Link href={orgPath(ctx, `/admin/recipients/${recipient.id}`)} className="ra-btn ra-btn-accent" style={{ marginTop: "1.25rem", width: "100%" }}>
                   Open recipient →
                 </Link>
               </div>

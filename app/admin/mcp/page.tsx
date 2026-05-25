@@ -1,10 +1,12 @@
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext } from "@/app/lib/org-context";
 import { HelpHint } from "@/app/_components/HelpHint";
 import TokenManager from "./TokenManager";
 
 export const dynamic = "force-dynamic";
 
 export default async function McpPage() {
+  const ctx = await requireOrgContext();
   const auth = supabaseServer();
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return null;
@@ -13,6 +15,7 @@ export default async function McpPage() {
   const { data: tokens } = await service
     .from("api_tokens")
     .select("id, label, prefix, created_at, last_used_at, revoked_at, expires_at")
+    .eq("org_id", ctx.id)
     .eq("profile_id", user.id)
     .order("created_at", { ascending: false });
 

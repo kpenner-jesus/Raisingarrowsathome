@@ -2,19 +2,19 @@
 // body: { ids: string[], notes: string }
 // Marks each pending application as denied with the same admin_notes.
 import { NextResponse } from "next/server";
-import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
+import { supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
 import { notifyApplicationDenied } from "@/app/lib/notify";
+import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 export async function POST(req: Request) {
-  const auth = supabaseServer();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  const { data: profile } = await auth.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "admin" && profile?.role !== "super_admin") {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  let auth;
+  try { auth = await requireAdmin(); }
+  catch (e) {
+    if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
+  const { user, ctx: orgCtx } = auth;
 
   const body = await req.json().catch(() => ({} as any));
   const ids: string[] = Array.isArray(body?.ids) ? body.ids.filter((x: any) => typeof x === "string") : [];
@@ -26,14 +26,17 @@ export async function POST(req: Request) {
   const svc = supabaseService();
   const now = new Date().toISOString();
 
+  // Scope the update to this org so an admin can never accidentally deny
+  // applications belonging to a different tenant by id collision/spoofing.
   const { data: updated, error } = await svc.from("applications")
     .update({ status: "denied", admin_notes: notes, decided_at: now, decided_by: user.id })
-    .in("id", ids).eq("status", "pending")
+    .in("id", ids).eq("org_id", orgCtx.id).eq("status", "pending")
     .select("id, parent_names, contact_email");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   for (const u of updated ?? []) {
     await writeAudit({
+      orgId:       orgCtx.id,
       actorId:     user.id,
       action:      "decide_application",
       targetTable: "applications",

@@ -30,7 +30,7 @@ export default async function AdminDashboard() {
   const svc = supabaseService();
   // Every query scoped to org_id. supabase (user role) is also RLS-scoped
   // via is_org_admin(org_id) policies; the explicit filter is defence-in-depth.
-  const [pendingApps, activeRecipients, pendingReceipts, draftBatches, latestApps, latestReceipts, recentAudit, appsLast6Mo] = await Promise.all([
+  const [pendingApps, activeRecipients, pendingReceipts, draftBatches, latestApps, latestReceipts, recentAudit, appsLast6Mo, anyAppsRes, customTemplatesCount] = await Promise.all([
     supabase.from("applications").select("*", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "pending"),
     supabase.from("recipients").select("*", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "active"),
     supabase.from("receipts").select("*", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "pending"),
@@ -39,7 +39,38 @@ export default async function AdminDashboard() {
     supabase.from("receipts").select("id, amount, status, created_at, description, recipients!inner(applications!inner(parent_names))").eq("org_id", orgId).eq("status", "pending").order("created_at", { ascending: false }).limit(5),
     svc.from("audit_log").select("id, action, target_table, created_at, profiles:actor_id(email)").eq("org_id", orgId).order("created_at", { ascending: false }).limit(10),
     supabase.from("applications").select("created_at").eq("org_id", orgId).gte("created_at", new Date(Date.now() - 1000 * 60 * 60 * 24 * 180).toISOString()),
+    supabase.from("applications").select("*", { count: "exact", head: true }).eq("org_id", orgId),
+    supabase.from("email_templates").select("*", { count: "exact", head: true }).eq("org_id", orgId),
   ]);
+
+  // Onboarding checklist — only render while at least one step incomplete.
+  const checklist = [
+    {
+      label: "Add your logo + accent colour",
+      done:  !!ctx.logo_url || (ctx.brand_color && ctx.brand_color.toLowerCase() !== "#e8793a"),
+      href:  orgPath(ctx, "/admin/settings/branding"),
+      hint:  "Replace the default Raising Arrows orange + add your logo.",
+    },
+    {
+      label: "Verify your sending domain",
+      done:  !!ctx.sender_verified,
+      href:  orgPath(ctx, "/admin/settings/email-domain"),
+      hint:  "Emails to families send from your own domain instead of the platform sender.",
+    },
+    {
+      label: "Customize email templates",
+      done:  (customTemplatesCount.count ?? 0) > 0,
+      href:  orgPath(ctx, "/admin/email-templates"),
+      hint:  "Edit the welcome / approve / deny / payout copy that families receive.",
+    },
+    {
+      label: "Share your apply link with families",
+      done:  (anyAppsRes.count ?? 0) > 0,
+      href:  orgPath(ctx, "/apply/family"),
+      hint:  `Public funnel URL: ${ctx.prefixed ? `/o/${ctx.slug}/apply/family` : "/apply/family"}`,
+    },
+  ];
+  const onboardingComplete = checklist.every((c) => c.done);
 
   // Bucket apps by month over last 6 months
   const monthBuckets: { label: string; count: number }[] = [];
@@ -95,6 +126,60 @@ export default async function AdminDashboard() {
         {/* Impersonation toggle — hidden on production via component-level guard */}
         <ImpersonateButton />
       </header>
+
+      {!onboardingComplete && (
+        <section className="ra-card" style={{
+          marginBottom: "2rem",
+          background: "linear-gradient(135deg, rgba(232,121,58,0.08), rgba(232,121,58,0.02))",
+          border: "1.5px solid rgba(232,121,58,0.25)",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.85rem" }}>
+            <div>
+              <div style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--ra-accent)", fontWeight: 600, marginBottom: "0.25rem" }}>
+                Get started
+              </div>
+              <h3 className="ra-section-title" style={{ margin: 0, fontSize: "1.15rem" }}>
+                Finish setting up your portal
+              </h3>
+            </div>
+            <span className="ra-quiet" style={{ fontSize: "0.85rem", whiteSpace: "nowrap" }}>
+              {checklist.filter((c) => c.done).length} of {checklist.length} complete
+            </span>
+          </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+            {checklist.map((c) => (
+              <li key={c.label}>
+                <Link href={c.href} style={{
+                  display: "flex", alignItems: "center", gap: "0.85rem",
+                  padding: "0.7rem 0.85rem",
+                  background: c.done ? "rgba(58,158,110,0.06)" : "rgba(255,255,255,0.65)",
+                  border: `1px solid ${c.done ? "rgba(58,158,110,0.2)" : "rgba(0,0,0,0.08)"}`,
+                  borderRadius: 10,
+                  textDecoration: "none", color: "inherit",
+                  transition: "background 0.12s",
+                }}>
+                  <span style={{
+                    width: 22, height: 22, borderRadius: "50%",
+                    display: "grid", placeItems: "center", flexShrink: 0,
+                    background: c.done ? "#3a9e6e" : "rgba(0,0,0,0.06)",
+                    color: c.done ? "#fff" : "var(--text-muted)",
+                    fontSize: "0.78rem", fontWeight: 700,
+                  }}>{c.done ? "✓" : ""}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: "0.95rem", textDecoration: c.done ? "line-through" : "none", opacity: c.done ? 0.6 : 1 }}>
+                      {c.label}
+                    </div>
+                    <div className="ra-quiet" style={{ fontSize: "0.82rem", marginTop: "0.15rem" }}>
+                      {c.hint}
+                    </div>
+                  </span>
+                  {!c.done && <span style={{ color: "var(--ra-accent)", flexShrink: 0 }}>→</span>}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="ra-stat-grid" style={{ marginBottom: "2.25rem" }}>
         {stats.map((s) => (

@@ -1,13 +1,16 @@
 // /admin/categories — curate the receipt-category dropdown.
 import { supabaseService } from "@/app/lib/supabase/server";
+import { requireOrgContext } from "@/app/lib/org-context";
 import { CategoriesEditor } from "./CategoriesEditor";
 
 export const dynamic = "force-dynamic";
 
 export default async function CategoriesPage() {
+  const ctx = await requireOrgContext();
   const svc = supabaseService();
   const { data } = await svc.from("receipt_categories")
     .select("id, label, sort_order, archived_at")
+    .eq("org_id", ctx.id)
     .order("sort_order");
 
   return (
