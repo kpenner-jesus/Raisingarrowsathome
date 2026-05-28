@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 import { authBearer } from "@/app/lib/mcp/auth";
 import { handleRpc, handleRpcBatch } from "@/app/lib/mcp/server";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { isTenantAccessBlocked } from "@/app/lib/tenant-access";
 import type { ToolContext } from "@/app/lib/mcp/tools";
 
 export const dynamic = "force-dynamic";
@@ -32,10 +33,18 @@ export async function POST(req: Request) {
 
   const origin = new URL(req.url).origin;
 
-  // Resolve the tenant slug from the token's org_id so MCP tool handlers
-  // can build portal URLs that land on the correct tenant.
+  // Resolve the tenant slug + status from the token's org_id. Slug is used to
+  // build correct portal URLs; status gates access so a paused/canceled tenant's
+  // token can't keep reading/writing via MCP (parity with requireAdmin's 423).
   const svc = supabaseService();
-  const { data: tenant } = await svc.from("tenants").select("slug").eq("id", token.org_id).maybeSingle();
+  const { data: tenant } = await svc.from("tenants").select("slug, status").eq("id", token.org_id).maybeSingle();
+  if (isTenantAccessBlocked(tenant?.status)) {
+    return new NextResponse(JSON.stringify({
+      jsonrpc: "2.0",
+      id:      null,
+      error:   { code: -32002, message: `tenant is ${tenant?.status ?? "unknown"} — access paused` },
+    }), { status: 423, headers: { "Content-Type": "application/json" } });
+  }
   const ctx: ToolContext = {
     profile_id: token.profile_id,
     origin,

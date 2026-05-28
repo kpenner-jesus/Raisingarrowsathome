@@ -4,6 +4,7 @@
 // an arbitrary storage path passed by an attacker.
 import { supabaseService } from "@/app/lib/supabase/server";
 import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
+import { assertPathBelongsToOrg } from "@/app/lib/storage-path";
 
 export async function GET(req: Request) {
   let auth;
@@ -24,6 +25,10 @@ export async function GET(req: Request) {
     .from("photos").select("image_path")
     .eq("id", id).eq("org_id", orgCtx.id).single();
   if (loadErr || !photo) return new Response("photo not found", { status: 404 });
+
+  // See receipt-image/route.ts for rationale.
+  try { assertPathBelongsToOrg(photo.image_path, orgCtx.id); }
+  catch (e: any) { return new Response(e?.message || "path/tenant mismatch", { status: 403 }); }
 
   const { data, error } = await service.storage.from("photos").createSignedUrl(photo.image_path, 300);
   if (error || !data?.signedUrl) return new Response(error?.message || "could not sign url", { status: 500 });

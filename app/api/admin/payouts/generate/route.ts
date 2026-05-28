@@ -13,6 +13,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { generatePayoutsForOrg, type PayoutBucket } from "@/app/lib/payouts";
+import { isTenantAccessBlocked } from "@/app/lib/tenant-access";
 import { timingSafeEqual } from "crypto";
 
 function constantTimeEq(a: string, b: string): boolean {
@@ -27,6 +28,7 @@ export async function POST(req: Request) {
   const bucket: PayoutBucket = (reqBucket === "mid" || reqBucket === "end" ? reqBucket : "manual");
 
   let orgId: string | null = null;
+  let isCron = false;
 
   // ── 1. Cron-secret auth — caller must supply org_id explicitly. ──
   const cronHeader = req.headers.get("x-cron-secret") || "";
@@ -34,6 +36,7 @@ export async function POST(req: Request) {
   if (cronSecret && cronHeader && constantTimeEq(cronHeader, cronSecret)) {
     if (!queryOrg) return new NextResponse("org_id query param required for cron caller", { status: 400 });
     orgId = queryOrg;
+    isCron = true;
   }
 
   // ── 2. Admin-session auth — resolve org_id from user's org_members row. ──
@@ -61,6 +64,16 @@ export async function POST(req: Request) {
         .limit(1);
       if (!rows || rows.length === 0) return new NextResponse("no admin org", { status: 403 });
       orgId = rows[0].org_id as string;
+    }
+  }
+
+  // Tenant-access gate for the admin-session path. Cron already restricts to
+  // active statuses via listActiveTenants, so skip the extra round-trip there.
+  if (!isCron) {
+    const svc = supabaseService();
+    const { data: t } = await svc.from("tenants").select("status").eq("id", orgId!).maybeSingle();
+    if (isTenantAccessBlocked(t?.status)) {
+      return new NextResponse(`tenant is ${t?.status ?? "unknown"} — payouts paused`, { status: 423 });
     }
   }
 

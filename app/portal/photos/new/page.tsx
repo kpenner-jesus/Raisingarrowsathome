@@ -48,7 +48,18 @@ export default function NewPhotoPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setError("Not signed in."); setBusy(false); return; }
 
-    const path = `${user.id}/${randomId()}.${ext}`;
+    // Resolve tenant so photo lands under <user_id>/<org_id>/<file>. Server
+    // hard-rejects any other layout — whoami failure must surface, not silently
+    // downgrade to a path the server will reject.
+    let orgId: string | null = null;
+    try {
+      const wh = await fetch("/api/portal/whoami", { cache: "no-store" });
+      if (wh.ok) orgId = (await wh.json()).org_id || null;
+    } catch { /* handled below */ }
+    if (!orgId) { setError("Couldn't resolve your portal tenant. Refresh the page and try again."); setBusy(false); return; }
+
+    const fileBase = `${randomId()}.${ext}`;
+    const path = `${user.id}/${orgId}/${fileBase}`;
     const { error: upErr } = await supabase.storage.from("photos").upload(path, processed, {
       contentType: processed.type,
       cacheControl: "0",

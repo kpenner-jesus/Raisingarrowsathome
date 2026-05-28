@@ -107,10 +107,13 @@ export async function POST(req: Request) {
 
     // Await notifications so a Vercel serverless teardown can't kill the
     // Resend/Slack HTTPS call mid-flight (which silently drops the family's
-    // confirmation email + the admin Slack alert). Adds ~300ms to the
-    // response time — acceptable for a once-per-applicant action.
-    const origin = process.env.NEXT_PUBLIC_PLATFORM_URL || new URL(req.url).origin;
+    // confirmation email + the admin Slack alert). Adds ~300ms — fine for a
+    // once-per-applicant action. The ENTIRE block is wrapped so NOTHING after
+    // the successful insert (a sync throw in orgPath/signToken, a notify
+    // rejection) can turn an already-saved application into a 500 → the family
+    // never re-submits a duplicate.
     try {
+      const origin = process.env.NEXT_PUBLIC_PLATFORM_URL || new URL(req.url).origin;
       const withdrawToken = signToken(`withdraw:${data.id}`, 60 * 60 * 24 * 30);  // 30 days
       await notifyApplicationReceived({
         to:           clip(contact_email, 200),
@@ -118,24 +121,23 @@ export async function POST(req: Request) {
         app_ref:      data.app_ref,
         withdraw_url: `${origin}${orgPath(orgCtx, `/apply/withdraw?token=${encodeURIComponent(withdrawToken)}`)}`,
         orgId:        orgCtx.id,
-      }).catch((e: any) => console.warn("[submit] confirmation email failed:", e?.message || e));
+      });
+      await sendAdminAlert({
+        title: `New grant application — ${orgCtx.name}`,
+        summary: `${clip(parent_names, 60)} just submitted an application.`,
+        url: `${origin}${orgPath(orgCtx, `/admin/applications/${data.id}`)}`,
+        fields: [
+          { label: "Org",      value: orgCtx.name },
+          { label: "Family",   value: clip(parent_names, 100) },
+          { label: "City",     value: clip(city, 100) || "—" },
+          { label: "Email",    value: clip(contact_email, 200) },
+          { label: "Children", value: String(cleanChildren.length) },
+          { label: "App ref",  value: data.app_ref },
+        ],
+      });
     } catch (e: any) {
-      console.warn("[submit] withdraw token signing failed:", e?.message || e);
+      console.warn("[submit] post-insert notification failed (application still saved):", e?.message || e);
     }
-
-    await sendAdminAlert({
-      title: `New grant application — ${orgCtx.name}`,
-      summary: `${clip(parent_names, 60)} just submitted an application.`,
-      url: `${origin}${orgPath(orgCtx, `/admin/applications/${data.id}`)}`,
-      fields: [
-        { label: "Org",      value: orgCtx.name },
-        { label: "Family",   value: clip(parent_names, 100) },
-        { label: "City",     value: clip(city, 100) || "—" },
-        { label: "Email",    value: clip(contact_email, 200) },
-        { label: "Children", value: String(cleanChildren.length) },
-        { label: "App ref",  value: data.app_ref },
-      ],
-    }).catch((e: any) => console.warn("[submit] admin alert failed:", e?.message || e));
 
     return NextResponse.json({ id: data.id, app_ref: data.app_ref });
   } catch (e: any) {

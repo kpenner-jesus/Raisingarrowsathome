@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { getEffectiveRecipient } from "@/app/lib/impersonation";
 import { requireOrgContext } from "@/app/lib/org-context";
+import { isTenantAccessBlocked } from "@/app/lib/tenant-access";
 
 export async function POST(req: Request) {
   const supabase = supabaseServer();
@@ -11,6 +12,7 @@ export async function POST(req: Request) {
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
   const orgCtx = await requireOrgContext();
+  if (isTenantAccessBlocked(orgCtx.status)) return new NextResponse("portal is paused", { status: 423 });
   const ctx = await getEffectiveRecipient(user.id, orgCtx.id);
   const recipient = ctx.recipient;
   if (!recipient) return new NextResponse("no recipient", { status: 400 });

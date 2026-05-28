@@ -48,7 +48,7 @@ export async function sendBroadcast({ broadcastId }: SendArgs): Promise<SendResu
     // so we don't mass-mail platform-wide super_admins of other charities.
     const { data } = await svc
       .from("org_members")
-      .select("profiles!inner(email)")
+      .select("profiles:profiles!org_members_user_id_fkey(email)")
       .eq("org_id", orgId)
       .in("role", ["owner", "admin"]);
     recipients = (data ?? []).map((r: any) => ({ email: r.profiles?.email, parent_names: "Admin" }))
@@ -63,14 +63,12 @@ export async function sendBroadcast({ broadcastId }: SendArgs): Promise<SendResu
     })).filter((r) => !!r.email);
   }
 
-  // Filter out anyone who opted out of broadcasts. email_optouts.email is
-  // currently the primary key (global on this platform), so we filter without
-  // an org filter — a single opt-out click silences program broadcasts across
-  // every tenant. If/when the PK is changed to (org_id,email), add an
-  // `.eq("org_id", orgId)` here so each tenant's opt-out list is independent.
+  // Filter out anyone who opted out of THIS tenant's broadcasts. email_optouts
+  // PK is now (org_id, email), so opt-outs are per-tenant — scope the read by
+  // orgId so one tenant's unsubscribe doesn't silence another tenant's mail.
   if (recipients.length > 0) {
     const emails = recipients.map((r) => r.email.toLowerCase());
-    const { data: opted } = await svc.from("email_optouts").select("email").in("email", emails);
+    const { data: opted } = await svc.from("email_optouts").select("email").eq("org_id", orgId).in("email", emails);
     const optedSet = new Set((opted ?? []).map((r: any) => r.email.toLowerCase()));
     recipients = recipients.filter((r) => !optedSet.has(r.email.toLowerCase()));
   }

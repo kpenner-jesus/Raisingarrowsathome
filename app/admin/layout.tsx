@@ -46,6 +46,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!isAdmin && !isPlatformSuper) {
     redirect(orgPath(orgCtx, "/portal"));
   }
+  // NOTE: admin READS stay open for blocked-status tenants by design — the
+  // owner must be able to view their own data + reach Settings → Billing to
+  // pay/reactivate. WRITES are blocked via requireAdmin() (423) on every
+  // mutation route, which is the actual leverage while delinquent.
   const isSuper = isOwner || isPlatformSuper;
 
   // Helper: wrap path with /o/<slug>/ prefix when accessed via path-routed host

@@ -2,7 +2,9 @@
 //  GET /api/cron/generate-payouts?bucket=mid|end
 //
 //  Iterates every active tenant and generates a payout batch for each.
-//  Tenant statuses processed: active, trialing, free.
+//  Tenant statuses processed: active, trialing, past_due, free (see
+//  listActiveTenants / TENANT_ACTIVE_STATUSES). past_due is included so a
+//  card hiccup doesn't freeze a grant program mid-cycle.
 //
 //  Auth: Authorization header must equal exactly `Bearer ${CRON_SECRET}`.
 //        timingSafeEqual comparison.

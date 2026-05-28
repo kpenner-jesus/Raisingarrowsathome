@@ -21,7 +21,7 @@ export default async function PlatformDashboard() {
   // 1000-row cap) so the dashboard stays accurate at any scale.
   const [tenantsRes, statsRes] = await Promise.all([
     svc.from("tenants").select("*").order("created_at", { ascending: false }),
-    svc.rpc("platform_tenant_stats"),
+    svc.rpc("platform_tenant_stats", { p_org_id: null }),
   ]);
 
   const memberCount:         Record<string, number> = {};

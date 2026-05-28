@@ -19,6 +19,7 @@
 
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { getOrgContext, type OrgContext } from "@/app/lib/org-context";
+import { isTenantAccessBlocked } from "@/app/lib/tenant-access";
 
 export class AdminAuthError extends Error {
   status: number;
@@ -68,8 +69,10 @@ export async function requireAdmin(): Promise<AdminAuth> {
     throw new AdminAuthError(403, "forbidden");
   }
 
-  // Pause/cancel gate — super_admin bypass keeps support paths open.
-  if (!isPlatformSuper && (ctx.status === "paused" || ctx.status === "canceled")) {
+  // Access gate — ALLOW-list (active/trialing/past_due/free). Blocks paused,
+  // canceled, unpaid, incomplete*, and any unknown status. super_admin bypass
+  // keeps support paths open.
+  if (!isPlatformSuper && isTenantAccessBlocked(ctx.status)) {
     throw new AdminAuthError(423, `tenant is ${ctx.status}`);
   }
 

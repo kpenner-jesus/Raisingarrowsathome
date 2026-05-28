@@ -73,16 +73,12 @@ export async function GET(req: Request) {
   }
 
   const svc = supabaseService();
-  // The migration kept the primary key as `email` (global), and only added a
-  // tenant-stamping `org_id NOT NULL` column. So we upsert on email but still
-  // stamp the tenant that the unsubscribe was triggered from for forensics
-  // and so broadcasts.ts can filter out opt-outs per-tenant when (eventually)
-  // the PK becomes composite. The user-facing effect for now: one click from
-  // any tenant suppresses program broadcasts for that email globally on this
-  // platform — which is the CASL-safe default.
+  // email_optouts PK is now (org_id, email) — opt-outs are per-tenant, so an
+  // unsubscribe from tenant A no longer suppresses tenant B's mail to the same
+  // address. Upsert on the composite key.
   await svc.from("email_optouts").upsert(
     { org_id: orgId, email: parsed.email, scope: "broadcasts" },
-    { onConflict: "email" }
+    { onConflict: "org_id,email" }
   );
 
   return page(orgName, `<p>You've been unsubscribed from program broadcasts at <strong>${parsed.email}</strong>.</p>

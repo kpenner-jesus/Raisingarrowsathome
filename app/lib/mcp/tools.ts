@@ -18,6 +18,7 @@ import { supabaseService } from "@/app/lib/supabase/server";
 import { calcBalance } from "@/app/lib/grant-calc";
 import { decideApplication as decideApp } from "@/app/lib/admin/decide-application";
 import { generatePayoutsForOrg } from "@/app/lib/payouts";
+import { assertPathBelongsToOrg } from "@/app/lib/storage-path";
 import {
   notifyReceiptApproved,
   notifyReceiptRejected,
@@ -311,6 +312,11 @@ const getReceiptImageUrl: Tool = {
       .eq("org_id", ctx.org_id)
       .single();
     if (loadErr || !receipt) throw new Error(loadErr?.message || "receipt not found");
+    // Defence-in-depth: row was org-filtered, but if image_path was ever
+    // mutated to point at another tenant's file the embedded tenant segment
+    // catches it. Requires 3-segment <user>/<org>/<file>; THROWS otherwise
+    // (surfaced as a JSON-RPC error). Verified zero legacy rows in prod.
+    assertPathBelongsToOrg(receipt.image_path, ctx.org_id);
     const { data, error } = await supabase.storage.from("receipts").createSignedUrl(receipt.image_path, ttl_secs);
     if (error) throw new Error(error.message);
     return { signed_url: data.signedUrl, expires_in_secs: ttl_secs };
@@ -337,6 +343,8 @@ const getPhotoImageUrl: Tool = {
       .eq("org_id", ctx.org_id)
       .single();
     if (loadErr || !photo) throw new Error(loadErr?.message || "photo not found");
+    // See get_receipt_image_url for rationale.
+    assertPathBelongsToOrg(photo.image_path, ctx.org_id);
     const { data, error } = await supabase.storage.from("photos").createSignedUrl(photo.image_path, ttl_secs);
     if (error) throw new Error(error.message);
     return { signed_url: data.signedUrl, expires_in_secs: ttl_secs };
@@ -696,11 +704,26 @@ const bulkCreateRecipients: Tool = {
           submission_deadline: r.submission_deadline || null,
           grandfathered:       !!grandfathered,
         }).select("id").single();
-        if (recErr) throw new Error(recErr.message);
+        if (recErr) {
+          // Roll back the application insert so failed rows don't leave
+          // orphan applications with no recipient. Scoped by org_id for
+          // defence-in-depth (same as every other write in this tool).
+          await supabase.from("applications").delete().eq("id", app.id).eq("org_id", ctx.org_id);
+          throw new Error(recErr.message);
+        }
+
+        // Full rollback of the row's application + recipient. Used by the
+        // legacy-payout failure paths so a row that fails AFTER the recipient
+        // was created doesn't leave a half-imported family (which would
+        // double-count approved_amount + drop paid_to_date on re-import).
+        const rollbackRow = async () => {
+          await supabase.from("recipients").delete().eq("id", recipient.id).eq("org_id", ctx.org_id);
+          await supabase.from("applications").delete().eq("id", app.id).eq("org_id", ctx.org_id);
+        };
 
         let legacy_payout_id: string | null = null;
         if (r.paid_to_date && Number(r.paid_to_date) > 0) {
-          const { data: batch } = await supabase.from("payout_batches").insert({
+          const { data: batch, error: batchErr } = await supabase.from("payout_batches").insert({
             org_id:         ctx.org_id,
             scheduled_date: todayDate,
             status:         "paid",
@@ -710,8 +733,12 @@ const bulkCreateRecipients: Tool = {
             exported_at:    today,
             bucket:         "legacy",
           }).select("id").single();
+          if (batchErr) {
+            await rollbackRow();
+            throw new Error(`legacy payout_batches insert failed: ${batchErr.message}`);
+          }
           if (batch) {
-            const { data: payout } = await supabase.from("payouts").insert({
+            const { data: payout, error: payoutErr } = await supabase.from("payouts").insert({
               org_id:            ctx.org_id,
               batch_id:          batch.id,
               recipient_id:      recipient.id,
@@ -722,6 +749,13 @@ const bulkCreateRecipients: Tool = {
               payment_method:    "e-transfer (pre-portal)",
               payment_reference: "imported via MCP",
             }).select("id").single();
+            if (payoutErr) {
+              // Roll back the empty batch + the application/recipient so the
+              // whole row fails atomically and re-import won't duplicate it.
+              await supabase.from("payout_batches").delete().eq("id", batch.id).eq("org_id", ctx.org_id);
+              await rollbackRow();
+              throw new Error(`legacy payouts insert failed: ${payoutErr.message}`);
+            }
             legacy_payout_id = payout?.id || null;
           }
         }

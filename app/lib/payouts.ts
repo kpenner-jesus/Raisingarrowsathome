@@ -13,6 +13,7 @@
 
 import { supabaseService } from "./supabase/server";
 import { calcBalance } from "./grant-calc";
+import { TENANT_ACTIVE_STATUSES } from "./tenant-access";
 
 export type PayoutBucket = "mid" | "end" | "manual";
 
@@ -144,9 +145,11 @@ export async function generatePayoutsForOrg(
  */
 export async function listActiveTenants(): Promise<Array<{ id: string; slug: string; name: string }>> {
   const svc = supabaseService();
+  // Mirror the access allow-list (active/trialing/past_due/free). 'free' =
+  // comped tenants — they must keep getting payouts + summaries.
   const { data } = await svc
     .from("tenants")
     .select("id, slug, name")
-    .in("status", ["active", "trialing", "past_due"]);
+    .in("status", [...TENANT_ACTIVE_STATUSES]);
   return (data || []) as any[];
 }

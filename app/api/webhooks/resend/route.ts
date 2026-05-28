@@ -69,13 +69,33 @@ export async function POST(req: Request) {
   const event_type  = TYPE_MAP[evt] ?? evt.replace(/^email\./, "") ?? "unknown";
 
   const svc = supabaseService();
-  await svc.from("email_events").insert({
+  const recipientEmail = Array.isArray(data.to) ? data.to[0] : (data.to ?? "");
+
+  // Resend's payload carries no tenant context. Best-effort: resolve org_id by
+  // matching the recipient email against an application's contact_email. If it
+  // maps to exactly one org, stamp it; otherwise leave null (email_events.org_id
+  // is nullable). The /admin/emails panel filters by org_id, so unresolved
+  // events simply won't appear there but still persist for forensics/backfill.
+  let orgId: string | null = null;
+  if (recipientEmail) {
+    const { data: apps } = await svc
+      .from("applications")
+      .select("org_id")
+      .ilike("contact_email", recipientEmail)
+      .limit(2);
+    const distinct = Array.from(new Set((apps ?? []).map((a: any) => a.org_id)));
+    if (distinct.length === 1) orgId = distinct[0] as string;
+  }
+
+  const { error: insErr } = await svc.from("email_events").insert({
+    org_id:          orgId,
     resend_id:       String(data.email_id || data.id || ""),
     event_type,
-    recipient_email: Array.isArray(data.to) ? data.to[0] : (data.to ?? ""),
+    recipient_email: recipientEmail,
     subject:         String(data.subject || ""),
     payload:         data,
   });
+  if (insErr) console.error("[webhook/resend] email_events insert failed:", insErr.message);
 
   return NextResponse.json({ ok: true });
 }

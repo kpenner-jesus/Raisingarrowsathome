@@ -63,6 +63,17 @@ export default function BatchUploadPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSummary("Not signed in."); setBusy(false); return; }
 
+    // Resolve tenant ONCE before the loop so every receipt in the batch lands
+    // under the same <user_id>/<org_id>/ prefix. Server hard-rejects anything
+    // else, so a whoami failure must abort the batch instead of producing N
+    // doomed uploads.
+    let orgId: string | null = null;
+    try {
+      const wh = await fetch("/api/portal/whoami", { cache: "no-store" });
+      if (wh.ok) orgId = (await wh.json()).org_id || null;
+    } catch { /* handled below */ }
+    if (!orgId) { setSummary("Couldn't resolve your portal tenant. Refresh the page and try again."); setBusy(false); return; }
+
     let ok = 0, fail = 0;
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
@@ -87,7 +98,8 @@ export default function BatchUploadPage() {
         update(i, { status: "error", error: "bad extension" });
         fail++; continue;
       }
-      const path = `${user.id}/${randomId()}.${ext}`;
+      const fileBase = `${randomId()}.${ext}`;
+      const path = `${user.id}/${orgId}/${fileBase}`;
       const { error: upErr } = await supabase.storage.from("receipts").upload(path, processed, {
         contentType: processed.type, cacheControl: "0", upsert: false,
       });

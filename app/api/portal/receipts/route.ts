@@ -12,6 +12,8 @@ import { NextResponse } from "next/server";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { getEffectiveRecipient } from "@/app/lib/impersonation";
 import { requireOrgContext } from "@/app/lib/org-context";
+import { validatePortalUploadPath } from "@/app/lib/storage-path";
+import { isTenantAccessBlocked } from "@/app/lib/tenant-access";
 
 const MAX_RECEIPT_AMOUNT = 50_000;
 const ALLOWED_EXTS = ["jpg", "jpeg", "png", "webp", "heic", "heif", "pdf"];
@@ -23,6 +25,7 @@ export async function POST(req: Request) {
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
   const orgCtx = await requireOrgContext();
+  if (isTenantAccessBlocked(orgCtx.status)) return new NextResponse("portal is paused", { status: 423 });
 
   // Impersonation-aware recipient resolution.
   const ctx = await getEffectiveRecipient(user.id, orgCtx.id);
@@ -49,16 +52,15 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({} as any));
   const { image_path, amount, purchase_date, description, currency } = body;
 
-  if (typeof image_path !== "string" || !image_path) {
-    return new NextResponse("image_path required", { status: 400 });
+  // Requires the 3-segment layout <user_id>/<org_id>/<file>; the tenant segment
+  // must equal the resolved recipient's org — prevents a recipient who somehow
+  // holds two memberships from cross-posting a receipt to a different tenant by
+  // hand-crafting the path. Legacy 2-segment paths are rejected.
+  const pathCheck = validatePortalUploadPath(image_path, user.id, recipient.org_id);
+  if (!pathCheck.ok) {
+    return new NextResponse(pathCheck.error, { status: 400 });
   }
-  if (!image_path.startsWith(`${user.id}/`)) {
-    return new NextResponse("image_path must be inside your own folder", { status: 400 });
-  }
-  if (image_path.includes("..") || image_path.includes("\\") || image_path.includes("\0")) {
-    return new NextResponse("invalid image_path", { status: 400 });
-  }
-  const ext = image_path.split(".").pop()?.toLowerCase() ?? "";
+  const ext = (image_path as string).split(".").pop()?.toLowerCase() ?? "";
   if (!ALLOWED_EXTS.includes(ext)) {
     return new NextResponse(`extension not allowed (must be one of ${ALLOWED_EXTS.join(", ")})`, { status: 400 });
   }

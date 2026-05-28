@@ -14,22 +14,47 @@ export default async function TeamPage({ searchParams }: { searchParams?: { sort
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return notFound();
 
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (profile?.role !== "super_admin") return notFound();
+  const service = supabaseService();
+
+  // Gate: owner of THIS org, OR platform super_admin (support). Tenant-admin
+  // status lives in org_members, NOT profiles.role.
+  const { data: membership } = await service
+    .from("org_members").select("role").eq("org_id", ctx.id).eq("user_id", user.id).maybeSingle();
+  const { data: profile } = await service.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const isOwner = membership?.role === "owner";
+  const isPlatformSuper = profile?.role === "super_admin";
+  if (!isOwner && !isPlatformSuper) return notFound();
 
   const VALID = ["role", "email", "created"] as const;
   type Col = typeof VALID[number];
-  const SORT_MAP: Record<Col, string> = { role: "role", email: "email", created: "created_at" };
   const sortRaw = (searchParams?.sort ?? "role") as Col;
   const sortCol: Col = (VALID as readonly string[]).includes(sortRaw) ? sortRaw : "role";
   const dir: "asc" | "desc" = searchParams?.dir === "asc" ? "asc" : "desc";
 
-  const service = supabaseService();
-  const { data: team } = await service
-    .from("profiles")
-    .select("id, email, role, created_at")
-    .in("role", ["admin", "super_admin"])
-    .order(SORT_MAP[sortCol], { ascending: dir === "asc" });
+  // Roster from org_members for THIS tenant only — never the global profiles
+  // table (that leaked every charity's admin emails). Email comes from the
+  // joined profile; role is the per-tenant org role.
+  // org_members has TWO FKs to profiles (user_id, invited_by) → disambiguate
+  // the embed with the explicit constraint name, else PostgREST errors.
+  const { data: members } = await service
+    .from("org_members")
+    .select("user_id, role, created_at, profiles:profiles!org_members_user_id_fkey(email)")
+    .eq("org_id", ctx.id)
+    .in("role", ["owner", "admin"]);
+
+  let team = (members ?? []).map((m: any) => ({
+    id:         m.user_id,
+    email:      m.profiles?.email ?? "",
+    role:       m.role,
+    created_at: m.created_at,
+  }));
+  // Sort in JS (the sort cols span two joined tables).
+  team.sort((a, b) => {
+    const av = (sortCol === "created" ? a.created_at : (a as any)[sortCol]) ?? "";
+    const bv = (sortCol === "created" ? b.created_at : (b as any)[sortCol]) ?? "";
+    const cmp = String(av).localeCompare(String(bv));
+    return dir === "asc" ? cmp : -cmp;
+  });
 
   const { data: list } = await service.auth.admin.listUsers();
   const lastSignIn: Record<string, string | null> = {};

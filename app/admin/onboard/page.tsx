@@ -49,11 +49,10 @@ export default async function OnboardPage({ searchParams }: { searchParams?: { t
 
   // Promote — but never DOWNGRADE. Profile.role is platform-level only
   // (super_admin etc.); tenant-admin status is recorded in org_members for
-  // THIS tenant. Mark invite used BEFORE the writes so a partial failure
-  // can't leave a still-usable token.
+  // THIS tenant. Do the membership-granting writes FIRST and only mark the
+  // invite used LAST — so any partial failure leaves the token re-usable
+  // instead of stranding the invitee with a spent token + no membership.
   const { data: existing } = await svc.from("profiles").select("role").eq("id", user.id).maybeSingle();
-
-  await svc.from("admin_invites").update({ used_at: new Date().toISOString() }).eq("id", invite.id);
 
   // Ensure profile row exists (no role change unless they have no role yet).
   await svc.from("profiles").upsert(
@@ -61,13 +60,20 @@ export default async function OnboardPage({ searchParams }: { searchParams?: { t
     { onConflict: "id", ignoreDuplicates: !!existing }
   );
 
-  // CRITICAL: stamp the org membership so requireAdmin will accept them.
-  // Coerce 'super_admin' (a platform role, not a tenant role) down to 'admin'.
+  // Stamp the org membership so requireAdmin will accept them. Coerce
+  // 'super_admin' (a platform role, not a tenant role) down to 'admin'.
   const tenantRole = invite.role === "owner" || invite.role === "admin" ? invite.role : "admin";
-  await svc.from("org_members").upsert(
+  const { error: memberErr } = await svc.from("org_members").upsert(
     { org_id: ctx.id, user_id: user.id, role: tenantRole },
     { onConflict: "org_id,user_id" }
   );
+  if (memberErr) {
+    // Membership failed → leave the invite UNused so they can retry.
+    return shell("Couldn't complete setup", "Something went wrong granting your access. Open the invite link again to retry, or ask for a fresh invite.");
+  }
+
+  // Membership granted — now burn the token (last, so a failure above is retryable).
+  await svc.from("admin_invites").update({ used_at: new Date().toISOString() }).eq("id", invite.id);
 
   redirect(orgPath(ctx, "/admin"));
 }
