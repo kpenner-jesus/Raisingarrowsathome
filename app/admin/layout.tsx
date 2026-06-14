@@ -7,6 +7,8 @@ import { MobileNavShell } from "@/app/_components/MobileNav";
 import { AdminLogoutLink } from "./_components/AdminLogoutLink";
 import { ImpersonateButton } from "./_components/ImpersonateButton";
 import { getOrgContext, orgPath } from "@/app/lib/org-context";
+import { aiReady } from "@/app/lib/ai/anthropic";
+import { AdminChat } from "./_components/AdminChat";
 import "./admin.css";
 
 export const dynamic = "force-dynamic";
@@ -143,6 +145,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           {children}
         </main>
       </div>
+
+      {/* Operator AI assistant — only when an Anthropic key is configured. */}
+      {aiReady().ready && <AdminChat />}
     </AdminProviders>
   );
 }

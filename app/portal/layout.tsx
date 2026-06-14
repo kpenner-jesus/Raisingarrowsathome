@@ -5,6 +5,8 @@ import { PortalLogoutLink } from "./_PortalLogoutLink";
 import { ImpersonationBanner } from "./_components/ImpersonationBanner";
 import { getOrgContext } from "@/app/lib/org-context";
 import { isTenantAccessBlocked } from "@/app/lib/tenant-access";
+import { aiReady } from "@/app/lib/ai/anthropic";
+import { PortalChat } from "./_components/PortalChat";
 
 export const dynamic = "force-dynamic";
 
@@ -140,6 +142,9 @@ export default async function PortalLayout({ children }: { children: React.React
       >
         {children}
       </main>
+
+      {/* Read-only grant-help assistant — only when configured + signed in. */}
+      {user && aiReady().ready && <PortalChat />}
     </div>
   );
 }

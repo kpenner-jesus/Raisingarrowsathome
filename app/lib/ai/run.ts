@@ -1,0 +1,166 @@
+// ============================================================
+//  run.ts — agentic tool loop for the admin operator chat.
+//
+//  Protocol (stateless server; the CLIENT holds the full Anthropic
+//  message history and replays it each turn):
+//
+//   POST a turn with { messages } →
+//     - read-only tools execute inline; the loop continues until Claude
+//       returns plain text → { kind: "final", messages, text }.
+//     - the moment Claude wants a MUTATING tool, the loop HALTS without
+//       executing and returns { kind: "pending", messages, pending }.
+//       `messages` already includes the assistant turn carrying the
+//       tool_use, so the client stores it and re-POSTs with `confirm`.
+//
+//   POST with { messages, confirm: { approved } } → the last assistant
+//     turn's tool_use(s) are executed (approved) or declined, a
+//     tool_result is appended for EVERY tool_use in that turn (Anthropic
+//     requires one per id), then the loop resumes.
+//
+//  v1 is non-streaming: a turn returns once it settles (final or pending).
+// ============================================================
+
+import type Anthropic from "@anthropic-ai/sdk";
+import { anthropic, chatModel } from "./anthropic";
+import { anthropicToolDefs, isMutatingTool, runTool } from "./tool-bridge";
+import type { ToolContext } from "@/app/lib/mcp/tools";
+
+const MAX_STEPS = 8;          // bounds tool round-trips (and cost) per turn
+const MAX_TOKENS = 1500;
+
+export interface PendingAction {
+  tool_use_id: string;
+  name:        string;
+  input:       any;
+}
+
+export type TurnResult =
+  | { kind: "final";   messages: Anthropic.MessageParam[]; text: string }
+  | { kind: "pending"; messages: Anthropic.MessageParam[]; text: string; pending: PendingAction };
+
+function systemPrompt(orgName: string, userEmail: string, todayISO: string): string {
+  return [
+    `You are the operator assistant for "${orgName}", a grant program running on the Raising Arrows platform.`,
+    `You are talking to an admin (${userEmail}). Today is ${todayISO}.`,
+    ``,
+    `You can read the program's data (applications, recipients, receipts, payouts, testimonials, photos) and PROPOSE changes.`,
+    `Read-only lookups run automatically. Any change that touches money or grant decisions (approving/denying applications, deciding receipts, generating or marking payout batches, modifying recipients, importing families, changing team roles) is shown to the admin to CONFIRM before it runs — never claim a change is done until it is confirmed and executed.`,
+    `Be concise and concrete. Use the tools rather than guessing. When you show numbers, format currency clearly. If you're unsure which record the admin means, ask.`,
+  ].join("\n");
+}
+
+function textOf(content: Anthropic.ContentBlock[]): string {
+  return content.filter((b) => b.type === "text").map((b: any) => b.text).join("").trim();
+}
+
+function toolUseBlocks(content: Anthropic.ContentBlock[]): Anthropic.ToolUseBlock[] {
+  return content.filter((b) => b.type === "tool_use") as Anthropic.ToolUseBlock[];
+}
+
+/** Execute a set of tool_use blocks → tool_result content blocks (one per id). */
+async function executeToolUses(
+  blocks: Anthropic.ToolUseBlock[],
+  ctx: ToolContext,
+  opts: { declineAll?: boolean } = {},
+): Promise<Anthropic.ToolResultBlockParam[]> {
+  return Promise.all(blocks.map(async (b): Promise<Anthropic.ToolResultBlockParam> => {
+    if (opts.declineAll) {
+      return { type: "tool_result", tool_use_id: b.id, content: "The admin declined this action; it was not performed.", is_error: false };
+    }
+    try {
+      const result = await runTool(b.name, b.input, ctx);
+      const text = typeof result === "string" ? result : JSON.stringify(result);
+      return { type: "tool_result", tool_use_id: b.id, content: text.slice(0, 20000) };
+    } catch (e: any) {
+      return { type: "tool_result", tool_use_id: b.id, content: `Error: ${e?.message || "tool failed"}`, is_error: true };
+    }
+  }));
+}
+
+export interface RunArgs {
+  messages:  Anthropic.MessageParam[];
+  ctx:       ToolContext;
+  orgName:   string;
+  userEmail: string;
+  /** When present, resume a pending action from the prior turn. */
+  confirm?:  { approved: boolean };
+}
+
+/**
+ * Plain single-shot chat with NO tools — used by the portal family helper.
+ * The model answers only from the injected system context (the family's own
+ * grant data), so there is no tool surface to leak across tenants.
+ */
+export async function runPortalChatTurn(
+  args: { messages: Anthropic.MessageParam[]; system: string },
+): Promise<{ messages: Anthropic.MessageParam[]; text: string }> {
+  const client = anthropic();
+  const resp = await client.messages.create({
+    model:      chatModel(),
+    max_tokens: 800,
+    system:     args.system,
+    messages:   args.messages,
+  });
+  const messages: Anthropic.MessageParam[] = [...args.messages, { role: "assistant", content: resp.content }];
+  return { messages, text: textOf(resp.content) };
+}
+
+export async function runAdminChatTurn(args: RunArgs): Promise<TurnResult> {
+  const client = anthropic();
+  const system = systemPrompt(args.orgName, args.userEmail, new Date().toISOString().split("T")[0]);
+  const tools  = anthropicToolDefs();
+  const work: Anthropic.MessageParam[] = [...args.messages];
+
+  // ── Resume path: execute (or decline) the last assistant turn's tool_use(s). ──
+  if (args.confirm) {
+    const lastAssistant = [...work].reverse().find((m) => m.role === "assistant");
+    const blocks = lastAssistant && Array.isArray(lastAssistant.content)
+      ? toolUseBlocks(lastAssistant.content as Anthropic.ContentBlock[])
+      : [];
+    if (blocks.length > 0) {
+      const results = await executeToolUses(blocks, args.ctx, { declineAll: !args.confirm.approved });
+      work.push({ role: "user", content: results });
+    }
+  }
+
+  // ── Loop ──
+  for (let step = 0; step < MAX_STEPS; step++) {
+    const resp = await client.messages.create({
+      model:      chatModel(),
+      max_tokens: MAX_TOKENS,
+      system,
+      tools,
+      messages:   work,
+    });
+    work.push({ role: "assistant", content: resp.content });
+
+    const uses = toolUseBlocks(resp.content);
+    if (uses.length === 0) {
+      return { kind: "final", messages: work, text: textOf(resp.content) };
+    }
+
+    // If the turn wants any mutating tool, halt the WHOLE turn for confirm
+    // (Anthropic requires a tool_result for every tool_use id when we resume,
+    // so we can't partially execute). The first mutating use drives the prompt.
+    const firstMutating = uses.find((u) => isMutatingTool(u.name));
+    if (firstMutating) {
+      return {
+        kind: "pending",
+        messages: work,
+        text: textOf(resp.content),
+        pending: { tool_use_id: firstMutating.id, name: firstMutating.name, input: firstMutating.input },
+      };
+    }
+
+    // All read-only — execute inline and continue.
+    const results = await executeToolUses(uses, args.ctx);
+    work.push({ role: "user", content: results });
+  }
+
+  // Hit the step ceiling — return whatever text we have.
+  const lastAssistant = [...work].reverse().find((m) => m.role === "assistant");
+  const text = lastAssistant && Array.isArray(lastAssistant.content)
+    ? textOf(lastAssistant.content as Anthropic.ContentBlock[])
+    : "I stopped after several steps. Could you narrow the request?";
+  return { kind: "final", messages: work, text };
+}
