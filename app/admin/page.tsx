@@ -5,6 +5,7 @@ import { StatusBadge } from "./_components/StatusBadge";
 import { HelpHint } from "../_components/HelpHint";
 import { ImpersonateButton } from "./_components/ImpersonateButton";
 import { requireOrgContext, orgPath } from "@/app/lib/org-context";
+import { isPrimaryTenant } from "@/app/lib/org-routing";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,11 @@ export default async function AdminDashboard() {
   ]);
 
   // Onboarding checklist — only render while at least one step incomplete.
-  const checklist = [
+  // The logo/accent + sending-domain steps are SaaS onboarding (a subscriber
+  // branding their OWN charity). The first-party tenant uses the platform
+  // defaults (its real brand + already-verified domain), so they're omitted.
+  const isPrimary = isPrimaryTenant(ctx.slug);
+  const brandingSteps = isPrimary ? [] : [
     {
       label: "Add your logo + accent colour",
       done:  !!ctx.logo_url || (ctx.brand_color && ctx.brand_color.toLowerCase() !== "#e8793a"),
@@ -57,6 +62,9 @@ export default async function AdminDashboard() {
       href:  orgPath(ctx, "/admin/settings/email-domain"),
       hint:  "Emails to families send from your own domain instead of the platform sender.",
     },
+  ];
+  const checklist = [
+    ...brandingSteps,
     {
       label: "Customize email templates",
       done:  (customTemplatesCount.count ?? 0) > 0,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseOrgPath, resolveOrgSlug, orgPath } from "./org-routing";
+import { parseOrgPath, resolveOrgSlug, orgPath, isPrimaryTenant, PRIMARY_TENANT_SLUG } from "./org-routing";
 
 describe("parseOrgPath", () => {
   it("parses /o/<slug>/admin", () => {
@@ -68,6 +68,19 @@ describe("resolveOrgSlug", () => {
 
   it("port stripping", () => {
     expect(resolveOrgSlug("raisingarrowsathome.com:8080", "/admin")).toBe("raising-arrows");
+  });
+});
+
+describe("isPrimaryTenant", () => {
+  it("true only for the platform's own charity slug", () => {
+    expect(isPrimaryTenant(PRIMARY_TENANT_SLUG)).toBe(true);
+    expect(isPrimaryTenant("raising-arrows")).toBe(true);
+  });
+  it("false for SaaS subscriber tenants and empty values", () => {
+    expect(isPrimaryTenant("cedar-springs")).toBe(false);
+    expect(isPrimaryTenant("hope-house")).toBe(false);
+    expect(isPrimaryTenant(null)).toBe(false);
+    expect(isPrimaryTenant(undefined)).toBe(false);
   });
 });
 

@@ -25,6 +25,18 @@ export function isLegacyRaisingArrowsHost(host: string): boolean {
   return false;
 }
 
+// The platform's own first-party charity (the operator running the platform).
+// Every OTHER tenant is a SaaS subscriber who brands their OWN charity — they
+// upload a logo, pick an accent, and verify their own sending domain. The
+// first-party tenant uses the platform defaults (which ARE its real brand +
+// already-verified domain), so those SaaS-onboarding steps don't apply to it.
+export const PRIMARY_TENANT_SLUG = "raising-arrows";
+
+/** True for the platform's own charity (vs a paying SaaS subscriber tenant). */
+export function isPrimaryTenant(slug: string | null | undefined): boolean {
+  return slug === PRIMARY_TENANT_SLUG;
+}
+
 /** Parse `/o/<slug>/rest` → { slug, rest }. Returns null if not a path-routed URL. */
 export function parseOrgPath(pathname: string): { slug: string; rest: string } | null {
   const m = pathname.match(/^\/o\/([a-z0-9][a-z0-9-]{1,62}[a-z0-9])(\/.*)?$/);
