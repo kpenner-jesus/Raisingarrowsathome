@@ -51,17 +51,34 @@ tool_result, satisfying Anthropic's API rule — then the loop continues.
   `.env.local` (gitignored) from everybooking's `credentials.dig(:claude,
   :api_key)`. **Add `ANTHROPIC_API_KEY` to Vercel for prod** — without it both
   surfaces hide (the `aiReady()` gate) and the routes return 503.
-- Per-tenant daily cap bounds spend. Tenants can move to their own keys later.
+- Per-tenant daily cap bounds spend. The platform key is also the automatic
+  backup/failover for tenants on their own provider (see below).
 - The feature auto-hides when no key is set (mirrors the Stripe/Resend
   not-configured pattern).
 
-## Migration
-`supabase/migrations/20260530_ai_chat_usage.sql` — `ai_chat_usage` table +
-`ai_chat_consume(uuid,int)` RPC (REVOKE EXECUTE FROM PUBLIC, granted to
-service_role). Applied to prod.
+## Per-tenant BYO OpenRouter key
+- A tenant OWNER can run the assistant on their own OpenRouter account + model
+  at **Settings → AI** (`app/admin/settings/ai/`, owner-gated; key field is
+  write-only). Resolution + the provider abstraction live in
+  `app/lib/ai/provider.ts`: `resolveAiConfig(orgId)` → OpenRouter when BOTH an
+  (encrypted) key and a model are set, else the platform Anthropic model.
+- `createMessage()` is the single provider-agnostic call the loop uses. The loop
+  stays in Anthropic Messages shape; provider.ts translates Anthropic↔OpenAI
+  (tools, tool_use/tool_result, base64 images) for the OpenRouter path. **Any**
+  OpenRouter error (incl. a 45s timeout) auto-fails-over to platform Sonnet 4.6.
+- Keys are AES-256-GCM encrypted (`app/lib/crypto.ts`, env
+  `AI_KEY_ENCRYPTION_SECRET` — `openssl rand -hex 32`) and stored in the
+  service-role-only `tenant_ai_secrets` table (RLS on, no policies); the model
+  slug is `tenants.ai_model`. Save route: `app/api/admin/ai-settings/route.ts`.
+
+## Migrations
+- `supabase/migrations/20260530_ai_chat_usage.sql` — `ai_chat_usage` table +
+  `ai_chat_consume(uuid,int)` RPC (EXECUTE revoked from public/anon/authenticated,
+  granted to service_role). Applied to prod + staging.
+- `supabase/migrations/20260614_tenant_ai_settings.sql` — `tenants.ai_model` +
+  `tenant_ai_secrets` table. Applied to prod + staging.
 
 ## Follow-ups (not in v1)
 - Token streaming (v1 is request/response — text appears when the turn
   settles). Streaming a multi-step tool loop is the main lift.
-- Per-tenant model selection (everybooking's `/ai_models` pattern).
 - Conversation persistence (v1 chat is client-held + ephemeral).

@@ -42,6 +42,12 @@ export default async function SettingsHub() {
       title: "Branding",
       description: "Upload your logo + pick an accent colour. Coming soon.",
     },
+    {
+      href:  op("/admin/settings/ai"),
+      glyph: "✧",
+      title: "AI assistant",
+      description: "Use your own OpenRouter key + pick the model the assistant runs on. Falls back to the platform model when unset.",
+    },
   ];
 
   return (

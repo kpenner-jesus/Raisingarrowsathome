@@ -21,7 +21,7 @@
 // ============================================================
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic, chatModel } from "./anthropic";
+import { createMessage, type AiConfig } from "./provider";
 import { anthropicToolDefs, isMutatingTool, runTool } from "./tool-bridge";
 import { writeAudit } from "@/app/lib/audit";
 import type { ToolContext } from "@/app/lib/mcp/tools";
@@ -106,6 +106,8 @@ export interface RunArgs {
   ctx:       ToolContext;
   orgName:   string;
   userEmail: string;
+  /** Per-tenant AI provider config (OpenRouter or platform Anthropic). */
+  aiConfig:  AiConfig;
   /** When present, resume a pending action from the prior turn. */
   confirm?:  { approved: boolean };
 }
@@ -116,21 +118,17 @@ export interface RunArgs {
  * grant data), so there is no tool surface to leak across tenants.
  */
 export async function runPortalChatTurn(
-  args: { messages: Anthropic.MessageParam[]; system: string },
+  args: { messages: Anthropic.MessageParam[]; system: string; aiConfig: AiConfig },
 ): Promise<{ messages: Anthropic.MessageParam[]; text: string }> {
-  const client = anthropic();
-  const resp = await client.messages.create({
-    model:      chatModel(),
-    max_tokens: 800,
-    system:     args.system,
-    messages:   args.messages,
-  });
+  const resp = await createMessage(
+    { system: args.system, messages: args.messages, max_tokens: 800 },
+    args.aiConfig,
+  );
   const messages: Anthropic.MessageParam[] = [...args.messages, { role: "assistant", content: resp.content }];
   return { messages, text: textOf(resp.content) };
 }
 
 export async function runAdminChatTurn(args: RunArgs): Promise<TurnResult> {
-  const client = anthropic();
   const system = systemPrompt(args.orgName, args.userEmail, new Date().toISOString().split("T")[0]);
   const tools  = anthropicToolDefs();
   const work: Anthropic.MessageParam[] = [...args.messages];
@@ -173,13 +171,10 @@ export async function runAdminChatTurn(args: RunArgs): Promise<TurnResult> {
 
   // ── Loop ──
   for (let step = 0; step < MAX_STEPS; step++) {
-    const resp = await client.messages.create({
-      model:      chatModel(),
-      max_tokens: MAX_TOKENS,
-      system,
-      tools,
-      messages:   work,
-    });
+    const resp = await createMessage(
+      { system, messages: work, tools, max_tokens: MAX_TOKENS },
+      args.aiConfig,
+    );
     work.push({ role: "assistant", content: resp.content });
 
     const uses = toolUseBlocks(resp.content);

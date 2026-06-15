@@ -16,6 +16,7 @@ import { aiReady } from "@/app/lib/ai/anthropic";
 import { consumeChatMessage } from "@/app/lib/ai/usage";
 import { buildPortalContext } from "@/app/lib/ai/portal-context";
 import { runPortalChatTurn } from "@/app/lib/ai/run";
+import { resolveAiConfig } from "@/app/lib/ai/provider";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,8 +66,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ text: "I couldn't load your grant details right now. Please try again shortly.", messages });
   }
 
+  const aiConfig = await resolveAiConfig(orgCtx.id);
+
   try {
-    const result = await runPortalChatTurn({ messages, system: built.system });
+    const result = await runPortalChatTurn({ messages, system: built.system, aiConfig });
     return NextResponse.json({ ...result, usage });
   } catch (e: any) {
     console.error("[ai/portal-chat] turn failed:", e?.message || e);

@@ -13,6 +13,7 @@ import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 import { aiReady } from "@/app/lib/ai/anthropic";
 import { consumeChatMessage } from "@/app/lib/ai/usage";
 import { runAdminChatTurn } from "@/app/lib/ai/run";
+import { resolveAiConfig } from "@/app/lib/ai/provider";
 import type { ToolContext } from "@/app/lib/mcp/tools";
 
 export const runtime = "nodejs";
@@ -95,12 +96,15 @@ export async function POST(req: Request) {
   // client-echoed action) and only after it succeeds — so the trail can't be
   // spoofed, can't record phantom mutations, and reflects real outcomes.
 
+  const aiConfig = await resolveAiConfig(ctx.id);
+
   try {
     const result = await runAdminChatTurn({
       messages,
       ctx:       toolCtx,
       orgName:   ctx.name,
       userEmail: user.email ?? "admin",
+      aiConfig,
       confirm,
     });
     return NextResponse.json({ ...result, usage });
