@@ -14,6 +14,7 @@
 //  admin_invites, receipt_categories.
 // ============================================================
 
+import { randomUUID } from "crypto";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { calcBalance } from "@/app/lib/grant-calc";
 import { decideApplication as decideApp } from "@/app/lib/admin/decide-application";
@@ -35,6 +36,11 @@ export interface ToolContext {
    *  so path-routed tenants don't send links pointing at the host-default
    *  tenant's portal. */
   slug?:      string;
+  /** Most-recent receipt photo the admin attached in chat (base64 + media
+   *  type). Set by the chat route from the latest image block in the message
+   *  history; consumed by create_receipt to upload + attach the image. Not
+   *  set for the external MCP server. */
+  receiptImage?: { data: string; mediaType: string };
 }
 
 /**
@@ -52,6 +58,10 @@ interface Tool {
   description: string;
   inputSchema: Record<string, any>;
   handler:     (args: any, ctx: ToolContext) => Promise<any>;
+  /** Tools that depend on the in-app chat channel (e.g. an attached image)
+   *  and can't function over the external MCP server. Hidden from MCP
+   *  tools/list and rejected by tools/call. */
+  chatOnly?:   boolean;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -435,6 +445,104 @@ const decideReceipt: Tool = {
     else                          await notifyReceiptRejected({ ...notifyArgs, admin_notes: notes || "" });
 
     return { ok: true, receipt_id: id, decision };
+  },
+};
+
+/** Detect a raster image format from its leading magic bytes. Returns the
+ *  canonical media type, or null if the bytes aren't an allowed image. */
+function sniffImageMime(buf: Buffer): string | null {
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47
+      && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a) return "image/png";
+  if (buf.length >= 6 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return "image/gif";
+  if (buf.length >= 12 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46
+      && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return "image/webp";
+  return null;
+}
+
+const createReceipt: Tool = {
+  name:        "create_receipt",
+  description:
+    "Create a receipt for a recipient from the receipt photo the admin attached in this chat. " +
+    "Read the photo, then provide the recipient_id, total amount, currency, purchase date, and a short " +
+    "description of what was purchased. Use list_recipients first to resolve the recipient_id from a " +
+    "family name if the admin gave a name. The receipt is created as 'pending' and appears in the normal " +
+    "review queue. REQUIRES an attached image — if none was attached, ask the admin to attach the receipt photo.",
+  chatOnly: true,
+  inputSchema: {
+    type: "object",
+    properties: {
+      recipient_id:  { type: "string", description: "The recipient the receipt belongs to (resolve via list_recipients if given a name)." },
+      amount:        { type: "number", description: "Total amount shown on the receipt." },
+      currency:      { type: "string", enum: ["CAD", "USD"], default: "CAD" },
+      purchase_date: { type: "string", description: "Purchase date in YYYY-MM-DD, if legible on the receipt." },
+      description:   { type: "string", description: "Short description of the purchase (e.g. 'Sonlight Core A curriculum')." },
+    },
+    required: ["recipient_id", "amount"],
+  },
+  handler: async ({ recipient_id, amount, currency = "CAD", purchase_date, description }, ctx) => {
+    if (!ctx.receiptImage?.data) {
+      throw new Error("No receipt image is attached to this chat. Ask the admin to attach the receipt photo, then try again.");
+    }
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0 || amt > 50_000) {
+      throw new Error("amount must be a positive number up to 50,000");
+    }
+    const cur = currency === "USD" ? "USD" : "CAD";
+
+    const supabase = supabaseService();
+
+    // Resolve the recipient (org-scoped). profile_id (when the family has a
+    // login) becomes the storage folder so they can self-view the image; else
+    // fall back to the admin's id. Either way the row stays org-scoped.
+    const { data: recipient, error: rErr } = await supabase
+      .from("recipients")
+      .select("id, profile_id, org_id")
+      .eq("id", recipient_id)
+      .eq("org_id", ctx.org_id)
+      .single();
+    if (rErr || !recipient) throw new Error(rErr?.message || "recipient not found in this org");
+
+    // Sniff the REAL format from magic bytes — never trust the client-declared
+    // media_type for the stored Content-Type or extension.
+    const bytes   = Buffer.from(ctx.receiptImage.data, "base64");
+    const sniffed = sniffImageMime(bytes);
+    if (!sniffed) throw new Error("the attached file is not a valid JPEG, PNG, WebP, or GIF image");
+    const ext =
+      sniffed === "image/png"  ? "png" :
+      sniffed === "image/webp" ? "webp" :
+      sniffed === "image/gif"  ? "gif"  : "jpg";
+    const folder = recipient.profile_id || ctx.profile_id;
+    const path   = `${folder}/${ctx.org_id}/${randomUUID()}.${ext}`;
+    assertPathBelongsToOrg(path, ctx.org_id); // <user>/<org>/<file> with org segment == ctx.org_id
+
+    const { error: upErr } = await supabase.storage
+      .from("receipts")
+      .upload(path, bytes, { contentType: sniffed, upsert: false });
+    if (upErr) throw new Error(`image upload failed: ${upErr.message}`);
+
+    const { data: row, error: insErr } = await supabase
+      .from("receipts")
+      .insert({
+        org_id:              ctx.org_id,
+        recipient_id:        recipient.id,
+        image_path:          path,
+        amount:              amt,
+        currency:            cur,
+        reimbursable_amount: null,
+        purchase_date:       purchase_date || null,
+        description:         (description || "").slice(0, 500),
+        status:              "pending",
+      })
+      .select("id, amount, currency, purchase_date, description, status")
+      .single();
+    if (insErr) {
+      // Roll back the orphaned upload so a failed insert doesn't leave a file.
+      await supabase.storage.from("receipts").remove([path]).catch(() => {});
+      throw new Error(insErr.message);
+    }
+
+    return { created: true, receipt: row };
   },
 };
 
@@ -858,6 +966,7 @@ export const TOOLS: Tool[] = [
   getPhotoImageUrl,
   decideApplication,
   decideReceipt,
+  createReceipt,
   modifyRecipient,
   bulkCreateRecipients,
   setUserRole,

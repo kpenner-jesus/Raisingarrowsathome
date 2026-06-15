@@ -35,7 +35,8 @@ begin
   return query select (cur <= p_cap), cur;
 end $$;
 
--- Lock down execute: REVOKE FROM PUBLIC (anon/authenticated inherit via
--- PUBLIC, so revoking from them directly is a no-op — learned the hard way).
-revoke execute on function public.ai_chat_consume(uuid, int) from public;
+-- Lock down execute. Supabase grants EXECUTE on public functions DIRECTLY to
+-- anon + authenticated (Postgres default privileges), NOT only via PUBLIC — so
+-- revoking from PUBLIC alone leaves those direct grants in place. Revoke all three.
+revoke execute on function public.ai_chat_consume(uuid, int) from public, anon, authenticated;
 grant  execute on function public.ai_chat_consume(uuid, int) to service_role;

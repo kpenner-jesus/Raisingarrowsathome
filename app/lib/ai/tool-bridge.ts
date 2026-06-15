@@ -22,6 +22,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 export const MUTATING_TOOLS = new Set<string>([
   "decide_application",
   "decide_receipt",
+  "create_receipt",
   "modify_recipient",
   "generate_payout_batch",
   "mark_batch_paid",

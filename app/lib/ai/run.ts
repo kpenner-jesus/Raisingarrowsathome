@@ -23,6 +23,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic, chatModel } from "./anthropic";
 import { anthropicToolDefs, isMutatingTool, runTool } from "./tool-bridge";
+import { writeAudit } from "@/app/lib/audit";
 import type { ToolContext } from "@/app/lib/mcp/tools";
 
 const MAX_STEPS = 8;          // bounds tool round-trips (and cost) per turn
@@ -44,7 +45,8 @@ function systemPrompt(orgName: string, userEmail: string, todayISO: string): str
     `You are talking to an admin (${userEmail}). Today is ${todayISO}.`,
     ``,
     `You can read the program's data (applications, recipients, receipts, payouts, testimonials, photos) and PROPOSE changes.`,
-    `Read-only lookups run automatically. Any change that touches money or grant decisions (approving/denying applications, deciding receipts, generating or marking payout batches, modifying recipients, importing families, changing team roles) is shown to the admin to CONFIRM before it runs — never claim a change is done until it is confirmed and executed.`,
+    `Read-only lookups run automatically. Any change that touches money or grant decisions (approving/denying applications, deciding receipts, creating receipts, generating or marking payout batches, modifying recipients, importing families, changing team roles) is shown to the admin to CONFIRM before it runs — never claim a change is done until it is confirmed and executed.`,
+    `When the admin attaches a receipt photo, read it carefully and extract the total amount, the purchase date (YYYY-MM-DD if legible), the currency (CAD unless clearly USD), and a short description of what was purchased. Resolve which recipient it belongs to — use the name the admin gives and look it up with list_recipients; if the family is ambiguous or unstated, ask before proposing. Then propose create_receipt (it is created as 'pending' for review). State the amount, recipient, and date in your message so the admin can verify before confirming.`,
     `Be concise and concrete. Use the tools rather than guessing. When you show numbers, format currency clearly. If you're unsure which record the admin means, ask.`,
   ].join("\n");
 }
@@ -55,6 +57,28 @@ function textOf(content: Anthropic.ContentBlock[]): string {
 
 function toolUseBlocks(content: Anthropic.ContentBlock[]): Anthropic.ToolUseBlock[] {
   return content.filter((b) => b.type === "tool_use") as Anthropic.ToolUseBlock[];
+}
+
+/**
+ * Replace heavy base64 image blocks in the history with a light text marker
+ * once they've been consumed (a receipt was created from one). Without this the
+ * full image is replayed — and re-billed by the model — on every later turn.
+ * Mutates each message's content in place.
+ */
+function stripImageBlocks(messages: Anthropic.MessageParam[]): void {
+  // Strip ONLY the most-recent image (the one create_receipt just consumed),
+  // mirroring latestReceiptImage's newest-first selection — so any earlier,
+  // not-yet-entered photo in a multi-receipt session survives.
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const c = messages[i].content;
+    if (!Array.isArray(c)) continue;
+    for (let j = c.length - 1; j >= 0; j--) {
+      if ((c as any[])[j]?.type === "image") {
+        (c as any[])[j] = { type: "text", text: "[receipt photo — entered]" };
+        return;
+      }
+    }
+  }
 }
 
 /** Execute a set of tool_use blocks → tool_result content blocks (one per id). */
@@ -120,6 +144,30 @@ export async function runAdminChatTurn(args: RunArgs): Promise<TurnResult> {
     if (blocks.length > 0) {
       const results = await executeToolUses(blocks, args.ctx, { declineAll: !args.confirm.approved });
       work.push({ role: "user", content: results });
+
+      // Authoritative audit: write one row per mutating tool that actually ran
+      // and succeeded, sourced from the REAL executed block (name + input) —
+      // not the client-echoed action. No phantom rows, no spoof, outcome-aware.
+      if (args.confirm.approved) {
+        for (let i = 0; i < blocks.length; i++) {
+          const b = blocks[i];
+          if (!isMutatingTool(b.name) || results[i]?.is_error) continue;
+          await writeAudit({
+            orgId:       args.ctx.org_id,
+            actorId:     args.ctx.profile_id,
+            action:      `ai_chat:${b.name.slice(0, 60)}`,
+            targetTable: "ai_chat",
+            targetId:    args.ctx.profile_id,
+            details:     { input: b.input ?? null, confirmed: true },
+          }).catch(() => { /* never block the chat on an audit write */ });
+        }
+      }
+
+      // A receipt was just created from the attached photo → drop the now-
+      // consumed image from history so it isn't replayed + re-billed.
+      const createdReceipt = args.confirm.approved
+        && blocks.some((b, i) => b.name === "create_receipt" && !results[i]?.is_error);
+      if (createdReceipt) stripImageBlocks(work);
     }
   }
 

@@ -77,7 +77,7 @@ export async function handleRpc(req: JsonRpcRequest, ctx: ToolContext): Promise<
       case "tools/list":
         if (notification) return null;
         return ok(req.id, {
-          tools: TOOLS.map((t) => ({
+          tools: TOOLS.filter((t) => !t.chatOnly).map((t) => ({
             name:        t.name,
             description: t.description,
             inputSchema: t.inputSchema,
@@ -89,7 +89,7 @@ export async function handleRpc(req: JsonRpcRequest, ctx: ToolContext): Promise<
         const name = req.params?.name;
         const args = req.params?.arguments || {};
         if (typeof name !== "string") return err(req.id, -32602, "invalid params: missing tool name");
-        const tool = TOOLS.find((t) => t.name === name);
+        const tool = TOOLS.find((t) => t.name === name && !t.chatOnly);
         if (!tool) {
           // Surface unknown-tool via content channel so LLMs can self-correct.
           return ok(req.id, {

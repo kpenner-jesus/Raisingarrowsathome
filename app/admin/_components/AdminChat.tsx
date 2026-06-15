@@ -7,9 +7,41 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type Block = { type: string; text?: string; name?: string; input?: any; id?: string };
+type ImageSource = { type: string; media_type: string; data: string };
+type Block = { type: string; text?: string; name?: string; input?: any; id?: string; source?: ImageSource };
 type Msg = { role: "user" | "assistant"; content: string | Block[] };
 type Pending = { tool_use_id: string; name: string; input: any };
+type Attachment = { dataUrl: string; mediaType: string; data: string };
+
+/** Downscale + re-encode to JPEG so payloads stay small and OCR-friendly. */
+async function compressImage(file: File): Promise<Attachment> {
+  const dataUrl: string = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result as string);
+    fr.onerror = rej;
+    fr.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = rej;
+    im.src = dataUrl;
+  });
+  const MAX = 1600;
+  let { width, height } = img;
+  if (width > MAX || height > MAX) {
+    const s = Math.min(MAX / width, MAX / height);
+    width = Math.round(width * s);
+    height = Math.round(height * s);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
+  const cctx = canvas.getContext("2d");
+  if (!cctx) throw new Error("no canvas context");
+  cctx.drawImage(img, 0, 0, width, height);
+  const out = canvas.toDataURL("image/jpeg", 0.82);
+  return { dataUrl: out, mediaType: "image/jpeg", data: out.split(",")[1] };
+}
 
 function blocksOf(m: Msg): Block[] {
   if (typeof m.content === "string") return [{ type: "text", text: m.content }];
@@ -31,6 +63,7 @@ const PRETTY: Record<string, string> = {
   export_batch_csv: "Export a payout batch CSV",
   bulk_create_recipients: "Bulk-import recipients",
   set_user_role: "Change a team member's role",
+  create_receipt: "Create a receipt from a photo",
 };
 
 export function AdminChat() {
@@ -41,7 +74,24 @@ export function AdminChat() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [image, setImage] = useState<Attachment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const attachSeq = useRef(0);
+
+  async function attachFile(file: File) {
+    if (!file.type.startsWith("image/")) { setError("Only image files are supported (PDF not yet)."); return; }
+    const myId = ++attachSeq.current;
+    try {
+      const result = await compressImage(file);
+      if (attachSeq.current !== myId) return; // a newer attach superseded this one
+      setImage(result); setError(null);
+    } catch { setError("Couldn't read that image."); }
+  }
+  function onPaste(e: React.ClipboardEvent) {
+    const item = Array.from(e.clipboardData.items).find((it) => it.type.startsWith("image/"));
+    if (item) { const f = item.getAsFile(); if (f) { e.preventDefault(); attachFile(f); } }
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -59,8 +109,10 @@ export function AdminChat() {
       if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
       setMessages(j.messages || []);
       setPending(j.kind === "pending" ? j.pending : null);
+      return j;
     } catch (e: any) {
       setError(e?.message || "Something went wrong");
+      return undefined;
     } finally {
       setBusy(false);
     }
@@ -68,24 +120,42 @@ export function AdminChat() {
 
   function send() {
     const text = input.trim();
-    if (!text || busy) return;
-    const next: Msg[] = [...messages, { role: "user", content: text }];
+    if ((!text && !image) || busy) return;
+    if (messages.length >= 78) { setError("This chat is getting long — click ＋ (top-right) to start a new one."); return; }
+    let content: string | Block[];
+    if (image) {
+      const blocks: Block[] = [];
+      if (text) blocks.push({ type: "text", text });
+      blocks.push({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } });
+      content = blocks;
+    } else {
+      content = text;
+    }
+    const next: Msg[] = [...messages, { role: "user", content }];
     setMessages(next);
-    setInput("");
+    setInput(""); setImage(null);
     post({ messages: next });
   }
 
-  function decide(approved: boolean) {
+  async function decide(approved: boolean) {
     if (!pending || busy) return;
-    const action = { name: pending.name, input: pending.input };
+    // create_receipt needs an attached photo in the conversation; block the
+    // confirm early (with a clear message) instead of letting it fail server-side.
+    if (approved && pending.name === "create_receipt"
+        && !messages.some((m) => Array.isArray(m.content) && m.content.some((b) => b.type === "image"))) {
+      setError("Attach the receipt photo first, then ask me to enter it.");
+      setPending(null);
+      return;
+    }
     setPending(null);
-    post({ messages, confirm: { approved, action } });
-    // After an approved mutation, refresh the page so it reflects the change.
-    if (approved) setTimeout(() => router.refresh(), 1200);
+    const j = await post({ messages, confirm: { approved } });
+    // Refresh only after the mutation actually settled (not on a fixed timer
+    // that could race the in-flight turn or fire on a failed tool).
+    if (approved && j && j.kind === "final") router.refresh();
   }
 
   function reset() {
-    setMessages([]); setPending(null); setError(null); setInput("");
+    setMessages([]); setPending(null); setError(null); setInput(""); setImage(null);
   }
 
   return (
@@ -123,13 +193,27 @@ export function AdminChat() {
                 Ask me about applications, recipients, receipts, or payouts — e.g.
                 <em> &ldquo;how many applications are pending?&rdquo;</em> or
                 <em> &ldquo;approve the application from the Penner family for $1,200&rdquo;</em>.
-                I&rsquo;ll ask you to confirm anything that changes money or grant decisions.
+                You can also <strong>paste or attach a receipt photo</strong> (one per message) and I&rsquo;ll read it
+                and create the receipt entry for the family you name. I&rsquo;ll ask you to confirm anything that changes money or grant decisions.
               </div>
             )}
             {messages.map((m, i) => {
               if (m.role === "user") {
-                if (typeof m.content !== "string") return null; // tool_result plumbing
-                return <Bubble key={i} who="user">{m.content}</Bubble>;
+                if (typeof m.content === "string") return <Bubble key={i} who="user">{m.content}</Bubble>;
+                const blocks = m.content;
+                if (blocks.every((b) => b.type === "tool_result")) return null; // tool_result plumbing
+                const txt  = blocks.filter((b) => b.type === "text").map((b) => b.text || "").join("");
+                const imgs = blocks.filter((b) => b.type === "image" && b.source);
+                return (
+                  <div key={i} style={{ alignSelf: "flex-end", maxWidth: "85%", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                    {imgs.map((b, k) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={k} src={`data:${b.source!.media_type};base64,${b.source!.data}`} alt="attachment"
+                           style={{ maxWidth: 200, maxHeight: 200, borderRadius: 10, border: "1px solid rgba(0,0,0,0.1)" }} />
+                    ))}
+                    {txt && <Bubble who="user">{txt}</Bubble>}
+                  </div>
+                );
               }
               const text = textOf(m);
               const tools = toolNames(m);
@@ -150,6 +234,28 @@ export function AdminChat() {
                 <div style={{ fontWeight: 600, fontSize: "0.92rem", marginBottom: 4 }}>
                   Confirm: {PRETTY[pending.name] || pending.name.replace(/_/g, " ")}
                 </div>
+                {pending.name === "create_receipt" && (() => {
+                  // Show the exact photo that will be stored so you verify the
+                  // real evidence, not just the AI-extracted fields.
+                  let src: string | null = null;
+                  for (let i = messages.length - 1; i >= 0 && !src; i--) {
+                    const c = messages[i].content;
+                    if (!Array.isArray(c)) continue;
+                    for (let j = c.length - 1; j >= 0; j--) {
+                      const b = c[j];
+                      if (b.type === "image" && b.source) { src = `data:${b.source.media_type};base64,${b.source.data}`; break; }
+                    }
+                  }
+                  return src ? (
+                    <div style={{ margin: "0.4rem 0" }}>
+                      <div style={{ fontSize: "0.72rem", color: "#666", marginBottom: 4 }}>Photo that will be saved:</div>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={src} alt="receipt to save" style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)" }} />
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "0.78rem", color: "#a83232", margin: "0.4rem 0" }}>No photo attached — Cancel and attach the receipt photo first.</div>
+                  );
+                })()}
                 <pre style={{ fontSize: "0.74rem", background: "rgba(0,0,0,0.04)", padding: "0.5rem", borderRadius: 6, overflowX: "auto", margin: "0.4rem 0", whiteSpace: "pre-wrap" }}>
                   {JSON.stringify(pending.input, null, 2)}
                 </pre>
@@ -164,16 +270,30 @@ export function AdminChat() {
             {error && <div style={{ color: "#a83232", fontSize: "0.85rem", background: "rgba(224,80,80,0.08)", padding: "0.5rem 0.7rem", borderRadius: 8 }}>{error}</div>}
           </div>
 
-          <div style={{ padding: "0.75rem", borderTop: "1px solid rgba(0,0,0,0.08)", display: "flex", gap: "0.5rem" }}>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-              placeholder={pending ? "Confirm or cancel above first…" : "Ask the assistant…"}
-              disabled={busy || !!pending}
-              style={{ flex: 1, padding: "0.7rem 0.9rem", borderRadius: 10, border: "1px solid rgba(0,0,0,0.15)", fontSize: 15 }}
-            />
-            <button onClick={send} disabled={busy || !!pending || !input.trim()} style={primaryBtn}>Send</button>
+          <div style={{ padding: "0.75rem", borderTop: "1px solid rgba(0,0,0,0.08)", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {image && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.04)", padding: "0.4rem 0.5rem", borderRadius: 10 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={image.dataUrl} alt="receipt" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 8, border: "1px solid rgba(0,0,0,0.1)" }} />
+                <span style={{ fontSize: "0.82rem", color: "#666", flex: 1 }}>Receipt photo attached</span>
+                <button onClick={() => setImage(null)} title="Remove" style={iconBtn}>✕</button>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
+                     onChange={(e) => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = ""; }} />
+              <button onClick={() => fileRef.current?.click()} disabled={busy || !!pending} title="Attach receipt photo" style={iconBtn}>📎</button>
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+                onPaste={onPaste}
+                placeholder={pending ? "Confirm or cancel above first…" : "Ask, or paste a receipt photo…"}
+                disabled={busy || !!pending}
+                style={{ flex: 1, padding: "0.7rem 0.9rem", borderRadius: 10, border: "1px solid rgba(0,0,0,0.15)", fontSize: 15 }}
+              />
+              <button onClick={send} disabled={busy || !!pending || (!input.trim() && !image)} style={primaryBtn}>Send</button>
+            </div>
           </div>
         </div>
       )}

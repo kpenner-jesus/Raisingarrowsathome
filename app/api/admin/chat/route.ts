@@ -13,11 +13,34 @@ import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 import { aiReady } from "@/app/lib/ai/anthropic";
 import { consumeChatMessage } from "@/app/lib/ai/usage";
 import { runAdminChatTurn } from "@/app/lib/ai/run";
-import { writeAudit } from "@/app/lib/audit";
 import type { ToolContext } from "@/app/lib/mcp/tools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const MAX_IMAGE_B64 = 7_000_000; // ~5.2 MB binary; Anthropic's per-image limit is 5 MB
+
+/**
+ * Pull the most-recent base64 image block from the replayed message history.
+ * The client embeds an attached receipt photo as an Anthropic image block in
+ * the user turn; create_receipt consumes the latest one (via ctx.receiptImage)
+ * when the admin confirms. Returns null when there is no usable image.
+ */
+function latestReceiptImage(messages: any[]): { data: string; mediaType: string } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const content = messages[i]?.content;
+    if (!Array.isArray(content)) continue;
+    for (let j = content.length - 1; j >= 0; j--) {
+      const block = content[j];
+      if (block?.type === "image" && block?.source?.type === "base64"
+          && typeof block.source.data === "string" && ALLOWED_IMAGE_TYPES.has(block.source.media_type)) {
+        return { data: block.source.data, mediaType: block.source.media_type };
+      }
+    }
+  }
+  return null;
+}
 
 export async function POST(req: Request) {
   const ready = aiReady();
@@ -42,6 +65,13 @@ export async function POST(req: Request) {
     ? { approved: body.confirm.approved as boolean }
     : undefined;
 
+  // Extract the most-recent attached receipt photo (if any) and reject an
+  // oversized one BEFORE consuming quota, so a rejected upload doesn't burn a unit.
+  const receiptImage = latestReceiptImage(messages) ?? undefined;
+  if (receiptImage && receiptImage.data.length > MAX_IMAGE_B64) {
+    return NextResponse.json({ error: "Receipt image is too large — please use a smaller photo." }, { status: 413 });
+  }
+
   // Daily cap (per tenant) — bounds platform LLM spend.
   const usage = await consumeChatMessage(ctx.id);
   if (!usage.allowed) {
@@ -57,21 +87,13 @@ export async function POST(req: Request) {
     origin,
     org_id:     ctx.id,
     slug:       ctx.slug,
+    receiptImage,
   };
 
-  // Audit a confirmed mutation BEFORE it runs inside the loop (so the trail
-  // exists even if the tool later errors). The client echoes the action it's
-  // confirming so we can name it precisely.
-  if (confirm?.approved && body?.confirm?.action?.name) {
-    await writeAudit({
-      orgId:       ctx.id,
-      actorId:     user.id,
-      action:      `ai_chat:${String(body.confirm.action.name).slice(0, 60)}`,
-      targetTable: "ai_chat",
-      targetId:    user.id,
-      details:     { input: body.confirm.action.input ?? null, confirmed: true },
-    }).catch(() => { /* never block the chat on an audit write */ });
-  }
+  // The audit row for a confirmed mutation is written server-side inside
+  // runAdminChatTurn, derived from the ACTUAL executed tool_use block (not the
+  // client-echoed action) and only after it succeeds — so the trail can't be
+  // spoofed, can't record phantom mutations, and reflects real outcomes.
 
   try {
     const result = await runAdminChatTurn({
