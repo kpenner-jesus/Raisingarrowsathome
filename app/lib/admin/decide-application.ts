@@ -25,7 +25,6 @@ import { supabaseService } from "@/app/lib/supabase/server";
 import {
   notifyApplicationApproved,
   notifyApplicationDenied,
-  notifyWelcomeFamily,
 } from "@/app/lib/notify";
 
 export interface DecideArgs {
@@ -173,17 +172,11 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
     .from("tenants").select("name").eq("id", args.orgId).maybeSingle();
 
   // 4. Notify — fire-and-forget inside notify.ts (logs failures, never raises).
-  //    Two emails, two jobs: the approval carries the DECISION, the welcome
-  //    explains how the grant works and that the sign-in link comes separately.
+  //    ONE email at this moment. It was briefly two (a decision notice plus a
+  //    welcome), but they pointed at the same next action — open your portal —
+  //    and the family already gets Supabase's separate sign-in link. Three
+  //    emails in one minute means the useful one gets skipped.
   await notifyApplicationApproved({
-    to:              app.contact_email,
-    parent_names:    app.parent_names,
-    approved_amount: cap,
-    rate,
-    portal_url:      portalAbsUrl,
-    orgId:           args.orgId,
-  });
-  await notifyWelcomeFamily({
     to:              app.contact_email,
     parent_names:    app.parent_names,
     approved_amount: cap,

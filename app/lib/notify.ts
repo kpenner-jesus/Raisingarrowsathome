@@ -178,10 +178,14 @@ export async function notifyApplicationApproved(args: {
   approved_amount: number;
   rate: number;
   portal_url: string;
+  deadline?: string | null;
+  org_name?: string | null;
   orgId?: string | null;
 }) {
-  const amount = `$${args.approved_amount.toFixed(2)}`;
-  const ratePct = `${(args.rate * 100).toFixed(0)}%`;
+  const amount   = `$${args.approved_amount.toFixed(2)}`;
+  const ratePct  = `${(args.rate * 100).toFixed(0)}%`;
+  const orgName  = args.org_name || "Raising Arrows";
+  const deadline = args.deadline || "";
   await sendTemplated({
     to: args.to,
     key: "application_approved",
@@ -190,21 +194,31 @@ export async function notifyApplicationApproved(args: {
       parent_names:    args.parent_names,
       approved_amount: amount,
       rate:            ratePct,
+      deadline,
       portal_url:      args.portal_url,
+      org_name:        orgName,
     },
     fallback: () => ({
-      subject: "Your Raising Arrows grant has been approved",
+      subject: `Your grant is approved — welcome to ${orgName}`,
       html: `
         <p>Hi ${esc(args.parent_names)},</p>
-        <p>Welcome to Raising Arrows. We're excited to walk alongside your family as you start homeschooling.</p>
+        <p>Your application is approved and your portal is ready. Here is what you have to work with.</p>
         <p style="background:#fdf3e3;border-left:3px solid #e8793a;padding:12px 16px;margin:20px 0;">
-          <strong>Approved grant amount:</strong> ${esc(amount)}<br>
-          <strong>Reimbursement rate:</strong> ${esc(ratePct)} of qualifying receipts
+          <strong>Your grant:</strong> ${esc(amount)}<br>
+          <strong>You get back:</strong> ${esc(ratePct)} of what you spend on qualifying items
+          ${deadline ? `<br><strong>Send receipts by:</strong> ${esc(deadline)}` : ""}
         </p>
-        <p>Sign in to your recipient portal to upload receipts, photos, and testimonials, and track your balance.</p>
+        <p><strong>How it works</strong></p>
+        <ol>
+          <li>Buy the curriculum and supplies your family needs.</li>
+          <li>Take a photo of the receipt, or save the PDF.</li>
+          <li>Upload it in your portal. We review it and it goes into your balance.</li>
+        </ol>
+        <p>Your portal also shows what has been paid, what is still being checked, and how much of your grant is left.</p>
         ${button("Open your portal", args.portal_url)}
-        <p>You'll receive a separate email shortly with a one-click sign-in link.</p>
-        <p>In Him,<br>The Raising Arrows team</p>`,
+        <p>There is no password to remember. You will get a separate email with a sign-in link — click it and you are in.</p>
+        <p>If anything is unclear, just reply to this email. We would rather answer a small question early than have you wait.</p>
+        <p>In Him,<br>The ${esc(orgName)} team</p>`,
     }),
   });
 }
@@ -419,64 +433,3 @@ export async function notifySubmissionWindowSummary(args: {
   });
 }
 
-/**
- * Welcome a newly-approved family into their portal.
- *
- * Sent right after the approval notice, and it does a different job: the
- * approval email delivers the DECISION, this one explains how the grant
- * actually works — what they can spend, how receipts get back to them, and
- * that the sign-in link arrives separately. Before this, that moment sent a
- * bare Supabase magic link and nothing else.
- *
- * Template key: welcome_family (editable per tenant; falls back to the copy
- * below if the row is missing or archived).
- */
-export async function notifyWelcomeFamily(args: {
-  to: string;
-  parent_names: string;
-  approved_amount: number;
-  rate: number;
-  deadline: string;
-  portal_url: string;
-  org_name?: string | null;
-  orgId?: string | null;
-}) {
-  const amount   = `$${args.approved_amount.toFixed(2)}`;
-  const ratePct  = `${(args.rate * 100).toFixed(0)}%`;
-  const orgName  = args.org_name || "Raising Arrows";
-  await sendTemplated({
-    to: args.to,
-    key: "welcome_family",
-    orgId: args.orgId,
-    vars: {
-      parent_names:    args.parent_names,
-      approved_amount: amount,
-      rate:            ratePct,
-      deadline:        args.deadline,
-      portal_url:      args.portal_url,
-      org_name:        orgName,
-    },
-    fallback: () => ({
-      subject: `Welcome to ${orgName} — your portal is ready`,
-      html: `
-        <p>Hi ${esc(args.parent_names)},</p>
-        <p>Your grant is approved and your portal is ready. Here is what you have to work with.</p>
-        <p style="background:#fdf3e3;border-left:3px solid #e8793a;padding:12px 16px;margin:20px 0;">
-          <strong>Your grant:</strong> ${esc(amount)}<br>
-          <strong>You get back:</strong> ${esc(ratePct)} of what you spend on qualifying items<br>
-          <strong>Send receipts by:</strong> ${esc(args.deadline)}
-        </p>
-        <p><strong>How it works</strong></p>
-        <ol>
-          <li>Buy the curriculum and supplies your family needs.</li>
-          <li>Take a photo of the receipt, or save the PDF.</li>
-          <li>Upload it in your portal. We review it and it goes into your balance.</li>
-        </ol>
-        <p>Your portal also shows what has been paid, what is still being checked, and how much of your grant is left.</p>
-        ${button("Open your portal", args.portal_url)}
-        <p>There is no password to remember. You will get a separate email with a sign-in link — click it and you are in.</p>
-        <p>If anything is unclear, just reply to this email.</p>
-        <p>In Him,<br>The ${esc(orgName)} team</p>`,
-    }),
-  });
-}
