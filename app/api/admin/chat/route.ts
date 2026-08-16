@@ -19,34 +19,15 @@ import type { ToolContext } from "@/app/lib/mcp/tools";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-const MAX_IMAGE_B64 = 7_000_000;  // ~5.2 MB binary; Anthropic's per-image limit is 5 MB
-const MAX_PDF_B64   = 10_000_000; // ~7.5 MB binary
+import { findReceiptAttachment, totalAttachmentB64, maxB64For, MAX_TOTAL_ATTACHMENT_B64 } from "@/app/lib/ai/attachments";
 
 /**
- * Pull the most-recent base64 receipt attachment from the replayed message
- * history — a photo (image block) or a scanned receipt (PDF document block).
- * create_receipt consumes the latest one (via ctx.receiptImage) when the admin
- * confirms. Returns null when there is nothing usable attached.
+ * Vercel rejects a serverless request body over ~4.5 MB before our handler
+ * runs, so a payload past this never reaches the friendly errors below — it
+ * surfaces as an opaque platform 413. Guard well under it, and keep the
+ * client's own pre-flight check (AdminChat) in step with this number.
  */
-function latestReceiptMedia(messages: any[]): { data: string; mediaType: string } | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const content = messages[i]?.content;
-    if (!Array.isArray(content)) continue;
-    for (let j = content.length - 1; j >= 0; j--) {
-      const block = content[j];
-      const src = block?.source;
-      if (src?.type !== "base64" || typeof src.data !== "string") continue;
-      if (block.type === "image" && ALLOWED_IMAGE_TYPES.has(src.media_type)) {
-        return { data: src.data, mediaType: src.media_type };
-      }
-      if (block.type === "document" && src.media_type === "application/pdf") {
-        return { data: src.data, mediaType: "application/pdf" };
-      }
-    }
-  }
-  return null;
-}
+const MAX_BODY_CHARS = 3_800_000;
 
 export async function POST(req: Request) {
   const ready = aiReady();
@@ -62,7 +43,14 @@ export async function POST(req: Request) {
   }
   const { user, ctx } = auth;
 
-  const body = (await req.json().catch(() => ({}))) as any;
+  const raw = await req.text();
+  if (raw.length > MAX_BODY_CHARS) {
+    return NextResponse.json(
+      { error: "This chat has grown too large to send — start a new chat (＋)." },
+      { status: 413 },
+    );
+  }
+  const body = (() => { try { return JSON.parse(raw); } catch { return {}; } })() as any;
   const messages = Array.isArray(body?.messages) ? body.messages : null;
   if (!messages) return NextResponse.json({ error: "messages array required" }, { status: 400 });
   if (messages.length > 80) return NextResponse.json({ error: "conversation too long — start a new chat" }, { status: 400 });
@@ -71,18 +59,30 @@ export async function POST(req: Request) {
     ? { approved: body.confirm.approved as boolean }
     : undefined;
 
-  // Extract the most-recent attached receipt photo (if any) and reject an
-  // oversized one BEFORE consuming quota, so a rejected upload doesn't burn a unit.
-  const receiptImage = latestReceiptMedia(messages) ?? undefined;
-  if (receiptImage) {
-    const isPdf = receiptImage.mediaType === "application/pdf";
-    if (receiptImage.data.length > (isPdf ? MAX_PDF_B64 : MAX_IMAGE_B64)) {
-      return NextResponse.json(
-        { error: isPdf ? "That PDF is too large — please use one under about 7 MB." : "Receipt image is too large — please use a smaller photo." },
-        { status: 413 },
-      );
-    }
+  // Reject an oversized payload BEFORE consuming quota, so a rejected upload
+  // doesn't burn a unit. Attachments AND accumulated web-search results both
+  // grow the replayed history, so bound the whole thing, not just one block.
+  if (totalAttachmentB64(messages) > MAX_TOTAL_ATTACHMENT_B64) {
+    return NextResponse.json(
+      { error: "This chat is carrying too many attachments — start a new chat (＋) and attach just the file you need." },
+      { status: 413 },
+    );
   }
+
+  // Which attached file create_receipt will consume, if the admin confirms one.
+  // Bounded lookback: see app/lib/ai/attachments.ts for why.
+  const attachment = findReceiptAttachment(messages);
+  if (attachment && attachment.data.length > maxB64For(attachment.mediaType)) {
+    return NextResponse.json(
+      { error: attachment.mediaType === "application/pdf"
+          ? "That PDF is too large — please use one under about 2 MB."
+          : "Receipt image is too large — please use a smaller photo." },
+      { status: 413 },
+    );
+  }
+  const receiptImage = attachment
+    ? { data: attachment.data, mediaType: attachment.mediaType }
+    : undefined;
 
   // Daily cap (per tenant) — bounds platform LLM spend.
   const usage = await consumeChatMessage(ctx.id);

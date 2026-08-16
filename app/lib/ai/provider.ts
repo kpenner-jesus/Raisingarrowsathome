@@ -163,15 +163,32 @@ export function fromOpenAI(msg: any): Anthropic.ContentBlock[] {
 
 // ── Provider calls ──────────────────────────────────────────────────────
 
+/** Server tools (web_search) are the ones Anthropic runs itself. */
+function isServerTool(t: any): boolean { return !t?.input_schema; }
+
 async function anthropicCreate(req: LlmRequest, model: string): Promise<LlmResponse> {
-  const resp = await anthropic().messages.create({
+  const call = (tools?: LlmRequest["tools"]) => anthropic().messages.create({
     model,
     max_tokens: req.max_tokens,
     system:     req.system,
-    ...(req.tools?.length ? { tools: req.tools } : {}),
+    ...(tools?.length ? { tools } : {}),
     messages:   req.messages,
   });
-  return { content: resp.content, via: "anthropic" };
+
+  try {
+    const resp = await call(req.tools);
+    return { content: resp.content, via: "anthropic" };
+  } catch (e: any) {
+    // Hosted web search is an org-level opt-in in the Anthropic Console. If it
+    // isn't enabled the API rejects the whole request — which would take down
+    // every chat, not just search. Retry once without the server tools so the
+    // assistant degrades to data-only instead of going dark.
+    const hasServerTool = (req.tools ?? []).some(isServerTool);
+    if (!hasServerTool || e?.status !== 400) throw e;
+    console.warn("[ai] retrying without server tools (web search unavailable?):", e?.message || e);
+    const resp = await call((req.tools ?? []).filter((t: any) => !isServerTool(t)));
+    return { content: resp.content, via: "anthropic" };
+  }
 }
 
 async function openrouterCreate(req: LlmRequest, cfg: Extract<AiConfig, { provider: "openrouter" }>): Promise<LlmResponse> {

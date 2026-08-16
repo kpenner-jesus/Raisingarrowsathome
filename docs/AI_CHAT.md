@@ -82,15 +82,29 @@ tool_result, satisfying Anthropic's API rule — then the loop continues.
 - Anthropic's **hosted** `web_search_20250305` server tool is attached to the
   admin loop (`WEB_SEARCH_TOOL` in `run.ts`, `max_uses: 4` per turn). The API
   runs the search itself and feeds results back inside the same request, so
-  nothing executes on our side, no tenant data is sent to a search engine, and
-  it never enters the confirm gate (search can't mutate).
+  nothing executes on our side and it never enters the confirm gate (search
+  can't mutate). It does NOT follow that tenant data can't leave — see below.
 - It comes back as `server_tool_use` + `web_search_tool_result` blocks, NOT
   `tool_use` — the loop's `toolUseBlocks()` filter ignores them, so the turn
-  settles as `final`. `toolNames()` in the UI does surface them, so an admin
-  can see a lookup happened.
+  settles as `final`. `activityLines()` in the UI does surface them, with the
+  query text, so a lookup is never invisible.
 - Used for facts outside the program's data: exchange rates, supplier prices,
   charity/tax rules. The prompt forbids silently converting a receipt's
   currency — the assistant shows the rate and its date, admin decides.
+- **It is an outbound channel, and this chat is full of family PII.** The
+  model writes the query, and a query can't be intercepted mid-request, so
+  there are two controls: the system prompt forbids putting any name, email,
+  phone, address or receipt link in a search, and the UI prints the QUERY
+  TEXT next to the turn (`activityLines`) so an admin can see what left.
+  Treat the prompt rule as the real boundary and the display as the check.
+- Search results, and attached file NAMES, are declared untrusted in the
+  prompt: information to report on, never instructions to follow. A Drive
+  file is named by whoever shared it, so `safeName()` also flattens control
+  characters and strips brackets before a name enters the prompt.
+- `AI_WEB_SEARCH=0` turns it off without a code change. If Anthropic rejects
+  the request because the org hasn't enabled hosted search, `anthropicCreate`
+  retries once WITHOUT server tools — otherwise one org-level setting would
+  take down every chat, not just search.
 - **Not on the OpenRouter path.** Server tools have no `input_schema`, so
   `toOpenAITools()` filters them out; enabling OpenRouter's own web plugin
   would silently change a tenant's model + billing. Tenants on a BYO key get
@@ -102,13 +116,33 @@ tool_result, satisfying Anthropic's API rule — then the loop continues.
   image block; `create_receipt` consumes the latest one on confirm.
 - **PDFs** (scanned/emailed receipts) → sent whole as an Anthropic `document`
   block. Claude reads PDFs natively, including scans with no text layer, so
-  there is no client-side PDF parsing. Capped at `MAX_PDF_B64` (10 MB base64,
-  ~7.5 MB file). `create_receipt` stores it like a photo — `sniffReceiptMime()`
+  there is no client-side PDF parsing. Capped at `MAX_PDF_B64` (3 MB base64,
+  ~2.2 MB file) — **not** Anthropic's limit but the hosting platform's ~4.5 MB
+  request-body limit, which the whole replayed conversation shares. The size
+  is checked on `file.size` BEFORE the read, because base64-ing a 300 MB file
+  just to reject it freezes the tab. `create_receipt` stores it like a photo — `sniffReceiptMime()`
   verifies the real `%PDF-` magic bytes and it lands as `.pdf` in the receipts
   bucket. For OpenRouter, `document` is translated to OpenAI's `file` part
   rather than dropped.
-- `stripConsumedAttachment()` swaps the photo/PDF for a text marker after a
-  receipt is created, so a multi-MB file isn't replayed and re-billed each turn.
+- **`app/lib/ai/attachments.ts` is the single definition of "which attached
+  file is the receipt".** The route (feeding `create_receipt`) and the loop
+  (stripping the file afterwards) both call `findReceiptAttachment()`, which
+  returns the block's POSITION — so they cannot select different blocks and
+  either re-bill a consumed file or destroy an untouched one.
+- That lookback is **bounded** to the last 2 admin-authored messages. A photo
+  in an admin chat is nearly always a receipt; a PDF plausibly isn't. Without
+  the bound, a budget PDF attached six turns earlier could become the stored
+  evidence for a receipt created later. The window still covers attach-and-ask
+  and attach-then-clarify.
+- `stripAttachmentAt()` swaps the photo/PDF for a text marker after a receipt
+  is created, so a multi-MB file isn't replayed and re-billed each turn.
+- The route also bounds the TOTAL payload (`MAX_BODY_CHARS`, and
+  `MAX_TOTAL_ATTACHMENT_B64`), and the client pre-flights the same number, so
+  an over-large chat fails with a readable message instead of an opaque
+  platform rejection. `post()` checks the status BEFORE parsing, since a
+  platform 413 is not JSON.
+- A failed send is ROLLED BACK out of the history. Otherwise the rejected
+  turn is replayed — and fails identically — on every later message.
 - Detection (`sniffKind`) prefers MIME but falls back to the **extension** for
   images and PDFs, because some browsers hand us a blank `file.type`. The
   image-extension fallback is checked LAST so it can't shadow `.xlsx`/`.csv`.

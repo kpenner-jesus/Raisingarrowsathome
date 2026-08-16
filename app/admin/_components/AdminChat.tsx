@@ -7,9 +7,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  sniffKind, extractFileText, fileTextBlock, fileToBase64,
+  sniffKind, extractFileText, fileTextBlock, fileToBase64, safeName,
   MAX_PDF_B64, SUPPORTED_HINT, type ExtractedFile,
 } from "@/app/lib/ai/file-text";
+import { MAX_PDF_BYTES, MAX_ATTACH_BYTES, MAX_SEND_CHARS } from "@/app/lib/ai/attachments";
 import { driveConfig, pickFromDrive } from "@/app/lib/ai/google-drive";
 
 type ImageSource = { type: string; media_type: string; data: string };
@@ -56,12 +57,18 @@ function blocksOf(m: Msg): Block[] {
 function textOf(m: Msg): string {
   return blocksOf(m).filter((b) => b.type === "text").map((b) => b.text || "").join("").trim();
 }
-/** Names of everything the assistant DID this turn — our own tools plus
- *  Anthropic-run server tools (web_search), so a lookup is never invisible. */
-function toolNames(m: Msg): string[] {
+/** Everything the assistant DID this turn — our own tools plus Anthropic-run
+ *  server tools. Web searches show their QUERY: a search leaves this system,
+ *  so the admin needs to see what went out, not just that something did. */
+function activityLines(m: Msg): string[] {
   return blocksOf(m)
     .filter((b) => b.type === "tool_use" || b.type === "server_tool_use")
-    .map((b) => b.name || "")
+    .map((b) => {
+      const name = (b.name || "").replace(/_/g, " ");
+      if (!name) return "";
+      const q = b.input?.query;
+      return typeof q === "string" && q ? `${name}: "${q}"` : name;
+    })
     .filter(Boolean);
 }
 
@@ -105,6 +112,9 @@ export function AdminChat() {
     const myId = ++attachSeq.current;
     const kind = sniffKind(file.name, file.type);
     try {
+      if (file.size > MAX_ATTACH_BYTES) {
+        throw new Error(`"${file.name}" is too large to attach.`);
+      }
       if (kind === "image") {
         // canvas can't decode HEIC/HEIF, so say so rather than "couldn't read".
         const result = await compressImage(file).catch(() => {
@@ -115,10 +125,13 @@ export function AdminChat() {
         return;
       }
       if (kind === "pdf") {
+        // Check the SIZE first: base64-ing a 300 MB file to discover it's too
+        // big freezes (or kills) the tab before the message can be shown.
+        if (file.size > MAX_PDF_BYTES) throw new Error("That PDF is too large — keep it under about 2 MB.");
         // Sent to the model whole — Claude reads PDFs natively, including
         // scanned receipts with no text layer, so we don't parse it here.
         const data = await fileToBase64(file);
-        if (data.length > MAX_PDF_B64) throw new Error("That PDF is too large — keep it under about 7 MB.");
+        if (data.length > MAX_PDF_B64) throw new Error("That PDF is too large — keep it under about 2 MB.");
         if (attachSeq.current !== myId) return;
         clearAttachments(); setPdf({ name: file.name, data }); setError(null);
         return;
@@ -158,6 +171,33 @@ export function AdminChat() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, pending, busy]);
 
+  // Build a blob URL for the PDF a pending create_receipt would store, so the
+  // confirm card can actually show the evidence. Revoked when the card closes.
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pending || pending.name !== "create_receipt") { setPdfPreviewUrl(null); return; }
+    let data: string | null = null;
+    for (let i = messages.length - 1; i >= 0 && !data; i--) {
+      const c = messages[i].content;
+      if (!Array.isArray(c)) continue;
+      for (let j = c.length - 1; j >= 0; j--) {
+        const b = c[j];
+        if (b.type === "document" && b.source?.data) { data = b.source.data; break; }
+        if (b.type === "image") { return; } // a photo is newer — no PDF preview
+      }
+    }
+    if (!data) { setPdfPreviewUrl(null); return; }
+    let url: string;
+    try {
+      const bin = atob(data);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    } catch { setPdfPreviewUrl(null); return; }
+    setPdfPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pending, messages]);
+
   async function post(body: any) {
     setBusy(true); setError(null);
     try {
@@ -166,8 +206,15 @@ export function AdminChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      // A platform-level rejection (413 body too large, 504) is NOT JSON —
+      // parsing first turned a clear message into "Unexpected token".
+      const j = await r.json().catch(() => null);
+      if (!r.ok) {
+        throw new Error(j?.error
+          || (r.status === 413 ? "That was too large to send — start a new chat (＋) and attach just the file you need."
+          : `Request failed (${r.status}).`));
+      }
+      if (!j) throw new Error("Got an unreadable reply from the server.");
       setMessages(j.messages || []);
       setPending(j.kind === "pending" ? j.pending : null);
       return j;
@@ -192,8 +239,11 @@ export function AdminChat() {
     } else if (pdf) {
       // The document block carries no filename, so name it in the text — the
       // assistant quotes it back and it reads correctly in the transcript.
+      // safeName: a Drive file can be named by whoever shared it, so the name
+      // is untrusted text landing in the highest-trust slot in the prompt.
+      const label = `[Attached PDF: ${safeName(pdf.name)}]`;
       content = [
-        { type: "text", text: text ? `${text}\n\n[Attached PDF: ${pdf.name}]` : `[Attached PDF: ${pdf.name}]` },
+        { type: "text", text: text ? `${text}\n\n${label}` : label },
         { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdf.data } },
       ];
     } else if (doc) {
@@ -203,9 +253,24 @@ export function AdminChat() {
       content = text;
     }
     const next: Msg[] = [...messages, { role: "user", content }];
+    // Pre-flight the payload: past ~4.5 MB the hosting platform rejects the
+    // request before our API sees it, and the reply isn't JSON.
+    const payload = JSON.stringify({ messages: next });
+    if (payload.length > MAX_SEND_CHARS) {
+      setError("This chat has grown too large to send — click ＋ to start a new one.");
+      return;
+    }
+    const prev = messages, prevImage = image, prevDoc = doc, prevPdf = pdf, prevInput = input;
     setMessages(next);
     setInput(""); clearAttachments();
-    post({ messages: next });
+    post({ messages: next }).then((ok) => {
+      // A rejected turn must NOT stay in the history — it would be replayed,
+      // and fail identically, on every later message.
+      if (!ok) {
+        setMessages(prev); setInput(prevInput);
+        setImage(prevImage); setDoc(prevDoc); setPdf(prevPdf);
+      }
+    });
   }
 
   async function decide(approved: boolean) {
@@ -227,7 +292,11 @@ export function AdminChat() {
   }
 
   function reset() {
-    setMessages([]); setPending(null); setError(null); setInput(""); setImage(null); setDoc(null);
+    setMessages([]); setPending(null); setError(null); setInput("");
+    // clearAttachments(), not a hand-listed subset — a forgotten one here armed
+    // the previous chat's PDF onto the next conversation's receipt.
+    clearAttachments(); setAttachMenu(false); setDriveBusy(false);
+    attachSeq.current++; // abandon any attach still in flight
   }
 
   return (
@@ -290,12 +359,12 @@ export function AdminChat() {
                 );
               }
               const text = textOf(m);
-              const tools = toolNames(m);
+              const tools = activityLines(m);
               return (
                 <div key={i}>
                   {tools.length > 0 && (
                     <div style={{ fontSize: "0.72rem", color: "#999", marginBottom: 4 }}>
-                      • {tools.map((t) => t.replace(/_/g, " ")).join(", ")}
+                      • {tools.join(" · ")}
                     </div>
                   )}
                   {text && <Bubble who="assistant">{text}</Bubble>}
@@ -332,7 +401,19 @@ export function AdminChat() {
                     <div style={{ margin: "0.4rem 0" }}>
                       <div style={{ fontSize: "0.72rem", color: "#666", marginBottom: 4 }}>{isPdf ? "PDF that will be saved:" : "Photo that will be saved:"}</div>
                       {isPdf
-                        ? <iframe src={src} title="receipt PDF to save" style={{ width: "100%", height: 220, borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "#fff" }} />
+                        ? (<>
+                            {/* Blob, not a data: URL — multi-MB data: URLs are
+                                refused inline by several browsers, which would
+                                blank the very check this preview exists for. */}
+                            <iframe src={pdfPreviewUrl ?? undefined} title="receipt PDF to save"
+                                    style={{ width: "100%", height: 220, borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "#fff" }} />
+                            {pdfPreviewUrl && (
+                              <a href={pdfPreviewUrl} target="_blank" rel="noreferrer"
+                                 style={{ display: "inline-block", marginTop: 4, fontSize: "0.76rem", color: "#2a6fb0" }}>
+                                Open the PDF to check it →
+                              </a>
+                            )}
+                          </>)
                         /* eslint-disable-next-line @next/next/no-img-element */
                         : <img src={src} alt="receipt to save" style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)" }} />}
                     </div>

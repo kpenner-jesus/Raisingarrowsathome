@@ -50,7 +50,10 @@ export function driveConfig(): DriveConfig {
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID  || "";
   const apiKey   = process.env.NEXT_PUBLIC_GOOGLE_API_KEY    || "";
   const appId    = process.env.NEXT_PUBLIC_GOOGLE_PROJECT_NUMBER || "";
-  return { clientId, apiKey, appId, ready: Boolean(clientId && apiKey) };
+  // appId is required to read a picked file back under drive.file. Without it
+  // the flow would look configured, open the picker, then fail on download —
+  // so treat a partial config as not configured.
+  return { clientId, apiKey, appId, ready: Boolean(clientId && apiKey && appId) };
 }
 
 // ── Pure helpers (unit-tested) ───────────────────────────────

@@ -31,8 +31,9 @@ export interface ExtractedFile {
   truncated: boolean;
 }
 
-/** Base64 cap for a PDF attachment (~7.5 MB of actual file). */
-export const MAX_PDF_B64 = 10_000_000;
+// Attachment size ceilings live in attachments.ts so the client and the API
+// can never drift apart on what is acceptable.
+export { MAX_PDF_B64, MAX_PDF_BYTES, MAX_ATTACH_BYTES } from "./attachments";
 
 /** Shown whenever a file is rejected, so the message never implies that a
  *  supported type is unsupported. */
@@ -231,10 +232,31 @@ export async function extractFileText(file: File): Promise<ExtractedFile> {
   return { name: file.name, text, truncated };
 }
 
+/**
+ * Make a file name safe to interpolate into the prompt. A file picked out of
+ * Google Drive can be NAMED BY WHOEVER SHARED IT, so the name is untrusted
+ * text arriving in the highest-trust position — a user turn. Strip the line
+ * breaks and brackets that would let it pose as its own instruction block,
+ * flatten control characters, and cap the length.
+ */
+export function safeName(name: string): string {
+  // Char-code filter rather than a control-character regex: the class is
+  // easy to get subtly wrong, and this is a security boundary.
+  const flattened = Array.from(name || "file")
+    .map((ch) => (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? " " : ch))
+    .join("");
+  const cleaned = flattened
+    .replace(/[[\]]/g, "")   // brackets, which could fake our own [Attached ...] label
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.slice(0, 80).trim() || "file";
+}
+
 /** Wrap extracted text so the model knows it's an attached file, not user prose. */
 export function fileTextBlock(f: ExtractedFile): string {
-  const note = f.name.toLowerCase().endsWith(".xlsx")
+  const safe = safeName(f.name);
+  const note = safe.toLowerCase().endsWith(".xlsx")
     ? " (converted from a spreadsheet; numeric dates/currency appear as raw values)"
     : "";
-  return `[Attached file: ${f.name}${note}]\n\n${f.text}`;
+  return `[Attached file: ${safe}${note}]\n\n${f.text}`;
 }
