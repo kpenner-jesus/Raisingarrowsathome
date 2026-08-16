@@ -21,6 +21,7 @@ import { decideApplication as decideApp } from "@/app/lib/admin/decide-applicati
 import { generatePayoutsForOrg } from "@/app/lib/payouts";
 import { assertPathBelongsToOrg } from "@/app/lib/storage-path";
 import { DELETABLE_TABLES, specFor, assertReason, describeImpact } from "./deletable";
+import { writeAudit } from "@/app/lib/audit";
 import {
   notifyReceiptApproved,
   notifyReceiptRejected,
@@ -957,6 +958,244 @@ const setUserRole: Tool = {
 };
 
 // ──────────────────────────────────────────────────────────────
+//  EMAIL TEMPLATES
+//
+//  Templates are per-tenant, keyed (org_id, key). A key only DOES
+//  anything if some sender looks it up — creating a new key stores copy
+//  but nothing will send it until code references it. The tool
+//  descriptions say so, because a model asked to "make a reminder email"
+//  would otherwise create a row and report success.
+//
+//  Retiring a template ARCHIVES it (archived_at) rather than deleting:
+//  the copy someone wrote survives, and loadTemplate() skips archived
+//  rows so the sender falls back to its hardcoded default. Archiving a
+//  template therefore changes what is sent, but never stops the email.
+// ──────────────────────────────────────────────────────────────
+
+/** Keys the code actually looks up. Anything else is stored but never sent. */
+const WIRED_TEMPLATE_KEYS = [
+  "welcome_family",
+  "application_approved",
+  "application_denied",
+  "receipt_approved",
+  "receipt_rejected",
+  "batch_paid",
+];
+
+const MAX_SUBJECT = 200;
+const MAX_BODY    = 50_000;
+
+function validTemplateKey(key: string): string {
+  const k = String(key || "").trim().toLowerCase();
+  if (!/^[a-z0-9_]{3,60}$/.test(k)) {
+    throw new Error("key must be 3-60 characters of lowercase letters, numbers or underscores (e.g. welcome_family)");
+  }
+  return k;
+}
+
+const listEmailTemplates: Tool = {
+  name:        "list_email_templates",
+  description:
+    "List this program's email templates. Shows which are active and which are archived, and which keys the " +
+    "system actually sends. Set include_archived to see retired ones too.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      include_archived: { type: "boolean", default: false },
+    },
+  },
+  handler: async ({ include_archived = false }, ctx) => {
+    let q = supabaseService()
+      .from("email_templates")
+      .select("key, label, subject, vars, updated_at, archived_at")
+      .eq("org_id", ctx.org_id)
+      .order("label");
+    if (!include_archived) q = q.is("archived_at", null);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return (data || []).map((t: any) => ({
+      ...t,
+      archived: Boolean(t.archived_at),
+      sent_by_the_system: WIRED_TEMPLATE_KEYS.includes(t.key),
+    }));
+  },
+};
+
+const getEmailTemplate: Tool = {
+  name:        "get_email_template",
+  description: "Full contents of one email template, including the HTML and plain-text bodies.",
+  inputSchema: {
+    type: "object",
+    properties: { key: { type: "string", description: "Template key, e.g. welcome_family." } },
+    required: ["key"],
+  },
+  handler: async ({ key }, ctx) => {
+    const { data, error } = await supabaseService()
+      .from("email_templates").select("*")
+      .eq("org_id", ctx.org_id).eq("key", validTemplateKey(key)).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data)  throw new Error(`No email template with key "${key}" in this program.`);
+    return { ...data, archived: Boolean(data.archived_at), sent_by_the_system: WIRED_TEMPLATE_KEYS.includes(data.key) };
+  },
+};
+
+const createEmailTemplate: Tool = {
+  name:        "create_email_template",
+  description:
+    "Create a new email template for this program. Use {{variable}} placeholders in the subject and body. " +
+    "IMPORTANT: a new key is only stored copy — nothing sends it until the system is changed to use that key. " +
+    `The keys the system sends today are: ${WIRED_TEMPLATE_KEYS.join(", ")}. If the admin wants to change an ` +
+    "existing email, update one of those instead of creating a new one. Say this plainly rather than implying " +
+    "a new template will start going out.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      key:       { type: "string", description: "Lowercase identifier, e.g. welcome_family." },
+      label:     { type: "string", description: "Human name shown in the admin editor." },
+      subject:   { type: "string", description: "Subject line. May contain {{variables}}." },
+      body_html: { type: "string", description: "HTML body. May contain {{variables}}. Brand header/footer are added automatically." },
+      body_text: { type: "string", description: "Optional plain-text version." },
+      vars:      { type: "array", items: { type: "string" }, description: "Variable names this template uses, without braces." },
+    },
+    required: ["key", "label", "subject", "body_html"],
+  },
+  handler: async ({ key, label, subject, body_html, body_text, vars }, ctx) => {
+    const k = validTemplateKey(key);
+    if (!String(label || "").trim())   throw new Error("label is required");
+    if (!String(subject || "").trim()) throw new Error("subject is required");
+    if (String(subject).length > MAX_SUBJECT) throw new Error(`subject must be ${MAX_SUBJECT} characters or fewer`);
+    if (!String(body_html || "").trim()) throw new Error("body_html is required");
+    if (String(body_html).length > MAX_BODY) throw new Error(`body_html must be ${MAX_BODY} characters or fewer`);
+    if (body_text && String(body_text).length > MAX_BODY) throw new Error(`body_text must be ${MAX_BODY} characters or fewer`);
+
+    const { data, error } = await supabaseService()
+      .from("email_templates")
+      .insert({
+        org_id: ctx.org_id, key: k,
+        label: String(label).trim(), subject: String(subject).trim(),
+        body_html, body_text: body_text ?? null,
+        vars: Array.isArray(vars) ? vars.map(String) : [],
+        updated_by: ctx.profile_id,
+      })
+      .select("key, label, subject, vars")
+      .single();
+    if (error) {
+      if ((error as any).code === "23505") {
+        throw new Error(`A template with key "${k}" already exists here. Use update_email_template to change it.`);
+      }
+      throw new Error(error.message);
+    }
+    await writeAudit({
+      orgId: ctx.org_id, actorId: ctx.profile_id, action: "create_email_template",
+      targetTable: "email_templates", targetId: k, details: { label, subject },
+    });
+    return {
+      created: true, template: data,
+      note: WIRED_TEMPLATE_KEYS.includes(k)
+        ? "This key is one the system sends, so it will be used from now on."
+        : "Stored, but nothing sends this key yet — it will not go out until the system is changed to use it.",
+    };
+  },
+};
+
+const updateEmailTemplate: Tool = {
+  name:        "update_email_template",
+  description:
+    "Change an existing email template's wording. Pass only the fields to change. Use {{variable}} placeholders. " +
+    "Show the admin the new subject and body before proposing, so they approve the actual wording. Editing a key " +
+    "the system sends changes what families receive from the next send onward.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      key:       { type: "string" },
+      label:     { type: "string" },
+      subject:   { type: "string" },
+      body_html: { type: "string" },
+      body_text: { type: "string" },
+      vars:      { type: "array", items: { type: "string" } },
+    },
+    required: ["key"],
+  },
+  handler: async ({ key, label, subject, body_html, body_text, vars }, ctx) => {
+    const k = validTemplateKey(key);
+    const patch: Record<string, any> = { updated_at: new Date().toISOString(), updated_by: ctx.profile_id };
+    if (label     !== undefined) { if (!String(label).trim()) throw new Error("label cannot be blank"); patch.label = String(label).trim(); }
+    if (subject   !== undefined) {
+      if (!String(subject).trim()) throw new Error("subject cannot be blank");
+      if (String(subject).length > MAX_SUBJECT) throw new Error(`subject must be ${MAX_SUBJECT} characters or fewer`);
+      patch.subject = String(subject).trim();
+    }
+    if (body_html !== undefined) {
+      if (!String(body_html).trim()) throw new Error("body_html cannot be blank");
+      if (String(body_html).length > MAX_BODY) throw new Error(`body_html must be ${MAX_BODY} characters or fewer`);
+      patch.body_html = body_html;
+    }
+    if (body_text !== undefined) {
+      if (body_text && String(body_text).length > MAX_BODY) throw new Error(`body_text must be ${MAX_BODY} characters or fewer`);
+      patch.body_text = body_text || null;
+    }
+    if (vars !== undefined) patch.vars = Array.isArray(vars) ? vars.map(String) : [];
+    if (Object.keys(patch).length <= 2) throw new Error("Nothing to change — pass at least one of label, subject, body_html, body_text or vars.");
+
+    const { data, error } = await supabaseService()
+      .from("email_templates").update(patch)
+      .eq("org_id", ctx.org_id).eq("key", k)
+      .select("key, label, subject, vars, archived_at").maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data)  throw new Error(`No email template with key "${k}" in this program.`);
+
+    await writeAudit({
+      orgId: ctx.org_id, actorId: ctx.profile_id, action: "update_email_template",
+      targetTable: "email_templates", targetId: k, details: { changed: Object.keys(patch).filter((f) => f !== "updated_at" && f !== "updated_by") },
+    });
+    return {
+      updated: true, template: data,
+      note: data.archived_at ? "This template is archived, so the change won't affect anything until it is restored." : undefined,
+    };
+  },
+};
+
+const archiveEmailTemplate: Tool = {
+  name:        "archive_email_template",
+  description:
+    "Retire a template (or bring one back with restore: true). Archiving does NOT delete the wording — it can be " +
+    "restored. Be clear about the effect: if the system sends this key, archiving it means those emails go out " +
+    "with the built-in default wording instead. It does not stop the email being sent.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      key:     { type: "string" },
+      restore: { type: "boolean", description: "True to un-archive.", default: false },
+    },
+    required: ["key"],
+  },
+  handler: async ({ key, restore = false }, ctx) => {
+    const k = validTemplateKey(key);
+    const { data, error } = await supabaseService()
+      .from("email_templates")
+      .update({ archived_at: restore ? null : new Date().toISOString(), updated_by: ctx.profile_id })
+      .eq("org_id", ctx.org_id).eq("key", k)
+      .select("key, label, archived_at").maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data)  throw new Error(`No email template with key "${k}" in this program.`);
+
+    await writeAudit({
+      orgId: ctx.org_id, actorId: ctx.profile_id,
+      action: restore ? "restore_email_template" : "archive_email_template",
+      targetTable: "email_templates", targetId: k, details: {},
+    });
+    const wired = WIRED_TEMPLATE_KEYS.includes(k);
+    return {
+      [restore ? "restored" : "archived"]: true,
+      template: data,
+      effect: restore
+        ? (wired ? "This wording is in use again from the next send." : "Restored. Nothing sends this key.")
+        : (wired ? "Those emails will now go out with the built-in default wording. They are NOT stopped." : "Retired. Nothing was sending this key anyway."),
+    };
+  },
+};
+
+// ──────────────────────────────────────────────────────────────
 //  DELETE — admin-only, archived, never silent
 // ──────────────────────────────────────────────────────────────
 
@@ -1150,6 +1389,11 @@ export const TOOLS: Tool[] = [
   generatePayoutBatch,
   markBatchPaid,
   exportBatchCsv,
+  listEmailTemplates,
+  getEmailTemplate,
+  createEmailTemplate,
+  updateEmailTemplate,
+  archiveEmailTemplate,
   previewDelete,
   deleteRecord,
 ];

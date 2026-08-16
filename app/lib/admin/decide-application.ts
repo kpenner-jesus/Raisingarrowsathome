@@ -25,6 +25,7 @@ import { supabaseService } from "@/app/lib/supabase/server";
 import {
   notifyApplicationApproved,
   notifyApplicationDenied,
+  notifyWelcomeFamily,
 } from "@/app/lib/notify";
 
 export interface DecideArgs {
@@ -165,13 +166,31 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
     throw new Error(`status update failed: ${updErr.message}`);
   }
 
+  // The welcome email greets the family in the program's own name. Looked up
+  // here rather than added to DecideArgs, so every existing call site (REST
+  // route, MCP tool, admin chat) gets it right without changing.
+  const { data: tenantRow } = await supabase
+    .from("tenants").select("name").eq("id", args.orgId).maybeSingle();
+
   // 4. Notify — fire-and-forget inside notify.ts (logs failures, never raises).
+  //    Two emails, two jobs: the approval carries the DECISION, the welcome
+  //    explains how the grant works and that the sign-in link comes separately.
   await notifyApplicationApproved({
     to:              app.contact_email,
     parent_names:    app.parent_names,
     approved_amount: cap,
     rate,
     portal_url:      portalAbsUrl,
+    orgId:           args.orgId,
+  });
+  await notifyWelcomeFamily({
+    to:              app.contact_email,
+    parent_names:    app.parent_names,
+    approved_amount: cap,
+    rate,
+    deadline:        submissionDeadline,
+    portal_url:      portalAbsUrl,
+    org_name:        tenantRow?.name ?? null,
     orgId:           args.orgId,
   });
 

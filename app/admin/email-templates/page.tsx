@@ -8,9 +8,13 @@ export const dynamic = "force-dynamic";
 export default async function EmailTemplatesPage() {
   const ctx = await requireOrgContext();
   const svc = supabaseService();
+  // Archived templates are retired copy — hidden here, and skipped at send
+  // time by loadTemplate(). They can be brought back from the admin chat
+  // (archive_email_template with restore: true).
   const { data } = await svc.from("email_templates")
     .select("key, label, subject, body_html, body_text, vars, updated_at")
     .eq("org_id", ctx.id)
+    .is("archived_at", null)
     .order("label");
 
   return (

@@ -32,6 +32,11 @@ export const MUTATING_TOOLS = new Set<string>([
   // Destructive and irreversible in the UI sense — the row is archived to
   // audit_log first, but nothing in the app restores it automatically.
   "delete_record",
+  // These change what LANDS IN A FAMILY'S INBOX, so they get the same
+  // Confirm as a money change. Reading them is free (list_/get_).
+  "create_email_template",
+  "update_email_template",
+  "archive_email_template",
 ]);
 
 export function isMutatingTool(name: string): boolean {

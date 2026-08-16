@@ -109,7 +109,12 @@ async function loadTemplate(key: string, orgId?: string | null): Promise<LoadedT
     const svc = supabaseService();
     // Scope to tenant when we know which one — email_templates now has
     // a UNIQUE(org_id, key) constraint, so multiple rows could share a key.
-    let q = svc.from("email_templates").select("subject, body_html, body_text").eq("key", key);
+    let q = svc.from("email_templates")
+      .select("subject, body_html, body_text")
+      .eq("key", key)
+      // Archived templates are retired: skip them so the sender falls back to
+      // its hardcoded copy rather than mailing something withdrawn on purpose.
+      .is("archived_at", null);
     if (orgId) q = q.eq("org_id", orgId);
     const { data, error } = await q.maybeSingle();
     if (error || !data) return null;
@@ -410,5 +415,67 @@ export async function notifySubmissionWindowSummary(args: {
 
       <p>The Raising Arrows portal</p>
     `),
+  });
+}
+
+/**
+ * Welcome a newly-approved family into their portal.
+ *
+ * Sent right after the approval notice, and it does a different job: the
+ * approval email delivers the DECISION, this one explains how the grant
+ * actually works — what they can spend, how receipts get back to them, and
+ * that the sign-in link arrives separately. Before this, that moment sent a
+ * bare Supabase magic link and nothing else.
+ *
+ * Template key: welcome_family (editable per tenant; falls back to the copy
+ * below if the row is missing or archived).
+ */
+export async function notifyWelcomeFamily(args: {
+  to: string;
+  parent_names: string;
+  approved_amount: number;
+  rate: number;
+  deadline: string;
+  portal_url: string;
+  org_name?: string | null;
+  orgId?: string | null;
+}) {
+  const amount   = `$${args.approved_amount.toFixed(2)}`;
+  const ratePct  = `${(args.rate * 100).toFixed(0)}%`;
+  const orgName  = args.org_name || "Raising Arrows";
+  await sendTemplated({
+    to: args.to,
+    key: "welcome_family",
+    orgId: args.orgId,
+    vars: {
+      parent_names:    args.parent_names,
+      approved_amount: amount,
+      rate:            ratePct,
+      deadline:        args.deadline,
+      portal_url:      args.portal_url,
+      org_name:        orgName,
+    },
+    fallback: () => ({
+      subject: `Welcome to ${orgName} — your portal is ready`,
+      html: `
+        <p>Hi ${esc(args.parent_names)},</p>
+        <p>Your grant is approved and your portal is ready. Here is what you have to work with.</p>
+        <p style="background:#fdf3e3;border-left:3px solid #e8793a;padding:12px 16px;margin:20px 0;">
+          <strong>Your grant:</strong> ${esc(amount)}<br>
+          <strong>You get back:</strong> ${esc(ratePct)} of what you spend on qualifying items<br>
+          <strong>Send receipts by:</strong> ${esc(args.deadline)}
+        </p>
+        <p><strong>How it works</strong></p>
+        <ol>
+          <li>Buy the curriculum and supplies your family needs.</li>
+          <li>Take a photo of the receipt, or save the PDF.</li>
+          <li>Upload it in your portal. We review it and it goes into your balance.</li>
+        </ol>
+        <p>Your portal also shows what has been paid, what is still being checked, and how much of your grant is left.</p>
+        ${button("Open your portal", args.portal_url)}
+        <p>There is no password to remember. You will get a separate email with a sign-in link — click it and you are in.</p>
+        <p>If anything is unclear, just reply to this email.</p>
+        <p>In Him,<br>The ${esc(orgName)} team</p>`,
+    }),
   });
 }

@@ -83,6 +83,9 @@ const PRETTY: Record<string, string> = {
   set_user_role: "Change a team member's role",
   create_receipt: "Create a receipt from a photo",
   delete_record: "PERMANENTLY DELETE a record",
+  create_email_template: "Create an email template",
+  update_email_template: "Change an email template",
+  archive_email_template: "Archive / restore an email template",
 };
 
 export function AdminChat() {
