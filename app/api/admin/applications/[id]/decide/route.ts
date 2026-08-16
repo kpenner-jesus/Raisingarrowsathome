@@ -12,7 +12,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
   const { user, ctx } = auth;
 
-  const { decision, approved_amount, rate, notes } = await req.json();
+  const { decision, approved_amount, rate, notes } = await req.json().catch(() => ({} as any));
   if (!["approved", "denied"].includes(decision)) return new NextResponse("bad decision", { status: 400 });
 
   try {

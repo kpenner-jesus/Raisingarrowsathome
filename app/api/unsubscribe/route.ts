@@ -76,10 +76,20 @@ export async function GET(req: Request) {
   // email_optouts PK is now (org_id, email) — opt-outs are per-tenant, so an
   // unsubscribe from tenant A no longer suppresses tenant B's mail to the same
   // address. Upsert on the composite key.
-  await svc.from("email_optouts").upsert(
+  const { error: optoutErr } = await svc.from("email_optouts").upsert(
     { org_id: orgId, email: parsed.email, scope: "broadcasts" },
     { onConflict: "org_id,email" }
   );
+  // The result was discarded, so this page said "you've been unsubscribed"
+  // even when nothing was recorded — and the person kept receiving every
+  // broadcast with no reason to report it. This is the one-click endpoint
+  // behind the List-Unsubscribe header, so silently failing it is a legal
+  // problem as well as a rude one.
+  if (optoutErr) {
+    console.error("[unsubscribe] failed to record opt-out", optoutErr.message, { orgId, email: parsed.email });
+    return page(orgName, `<p>We couldn't record that just now. Please email <a href="mailto:register@raisingarrowsathome.com">register@raisingarrowsathome.com</a> and we'll remove you by hand — you will not be forgotten.</p>
+    <p><a href="/">Back to website</a></p>`);
+  }
 
   return page(orgName, `<p>You've been unsubscribed from program broadcasts at <strong>${parsed.email}</strong>.</p>
     <p>You'll still receive transactional messages tied to your active grant (receipt decisions, payouts) if you're a recipient — those are part of the program itself.</p>

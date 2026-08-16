@@ -15,11 +15,17 @@ import { consumeChatMessage } from "@/app/lib/ai/usage";
 import { runAdminChatTurn } from "@/app/lib/ai/run";
 import { resolveAiConfig } from "@/app/lib/ai/provider";
 import type { ToolContext } from "@/app/lib/mcp/tools";
+import { findReceiptAttachment, totalAttachmentB64, maxB64For, MAX_TOTAL_ATTACHMENT_B64 } from "@/app/lib/ai/attachments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// A confirmed mutation executes BEFORE the model loop continues. If the
+// invocation is killed after that, the change is applied but the client
+// never receives the tool_result — leaving a tool_use with no result, which
+// Anthropic rejects on every later message. The chat would be dead until the
+// admin started a new one, with no idea whether the change had landed.
+export const maxDuration = 120;
 
-import { findReceiptAttachment, totalAttachmentB64, maxB64For, MAX_TOTAL_ATTACHMENT_B64 } from "@/app/lib/ai/attachments";
 
 /**
  * Vercel rejects a serverless request body over ~4.5 MB before our handler

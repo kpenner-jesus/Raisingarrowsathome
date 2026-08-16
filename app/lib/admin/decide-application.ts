@@ -49,7 +49,9 @@ export interface DecideResult {
 
 const MAX_CAP = 50_000;   // $CAD sanity limit per recipient
 
-async function inviteOrFindUser(email: string, redirectTo: string): Promise<string | null> {
+/** Returns the profile id, or THROWS. Never resolves to null: an approved
+ *  recipient with a null profile_id is one the family can never reach. */
+async function inviteOrFindUser(email: string, redirectTo: string): Promise<string> {
   const supabase = supabaseService();
   const { data: invited, error: invErr } = await supabase.auth.admin.inviteUserByEmail(email, { redirectTo });
   if (invErr && !/already.*registered|exists/i.test(invErr.message)) {
@@ -57,8 +59,35 @@ async function inviteOrFindUser(email: string, redirectTo: string): Promise<stri
   }
   if (invited?.user?.id) return invited.user.id;
 
-  const { data: list } = await supabase.auth.admin.listUsers();
-  return list?.users.find((u) => u.email?.toLowerCase() === email.toLowerCase())?.id ?? null;
+  // The family already has an account. Find them by email in `profiles`,
+  // which a database trigger populates for every auth user (001_init.sql).
+  //
+  // This used to call listUsers() with no arguments — GoTrue returns only the
+  // newest 50 users, and auth.users is global across every tenant, so any
+  // family who signed up earlier simply wasn't in the page. profile_id was
+  // then set to null on an approved recipient: the approval email went out,
+  // the admin saw success, and the family's portal said "not linked to an
+  // approved grant" forever, with uploads rejected.
+  const { data: profile } = await supabase
+    .from("profiles").select("id").ilike("email", email).maybeSingle();
+  if (profile?.id) return profile.id;
+
+  // Fallback: page through the auth users. Bounded, but no longer capped at
+  // the first 50.
+  for (let page = 1; page <= 20; page++) {
+    const { data: list } = await supabase.auth.admin.listUsers({ page, perPage: 200 });
+    const users = list?.users ?? [];
+    const hit = users.find((u) => u.email?.toLowerCase() === email.toLowerCase());
+    if (hit) return hit.id;
+    if (users.length < 200) break; // last page
+  }
+
+  // Never proceed with a null profile_id. Approving without one produces a
+  // recipient the family can never reach. Failing here leaves the application
+  // 'pending', which this module's ordering makes safe to retry.
+  throw new Error(
+    `Could not create or find a login for ${email}. The application has NOT been approved — check the address and try again.`,
+  );
 }
 
 export async function decideApplication(args: DecideArgs): Promise<DecideResult> {

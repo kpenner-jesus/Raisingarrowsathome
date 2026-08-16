@@ -8,6 +8,12 @@ import { writeAudit } from "@/app/lib/audit";
 import { sendBroadcast } from "@/app/lib/broadcasts";
 import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
+// Broadcasts are sent one at a time inside this request. Killed mid-loop, the
+// row is stranded in state="sending" (the cron only ever retries "queued"), so
+// some families received the email and some did not — and a manual re-send
+// then re-mails everyone who already got it.
+export const maxDuration = 300;
+
 const VALID_AUDIENCES = new Set(["active_recipients", "all_recipients", "admins"]);
 
 export async function POST(req: Request) {

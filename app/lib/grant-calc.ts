@@ -65,7 +65,14 @@ type ReceiptLite = Pick<Receipt, "amount" | "status"> & {
  *   2. Else if currency is CAD → amount × rate (auto).
  *   3. Else (USD without override) → 0 (admin must set explicitly).
  */
-function receiptReimbursable(r: ReceiptLite, rate: number): number {
+/**
+ * CAD value of ONE approved receipt. Exported because two pages were reading
+ * `reimbursable_amount` directly and treating null as zero — but that column
+ * is only written when an admin types an override, so every ordinary
+ * auto-calculated CAD receipt counted as $0. A family's official statement
+ * showed $0.00 reimbursable next to a portal dashboard showing $3,000.
+ */
+export function receiptReimbursable(r: ReceiptLite, rate: number): number {
   if (r.status !== "approved") return 0;
   if (r.reimbursable_amount != null && Number.isFinite(Number(r.reimbursable_amount))) {
     return Number(r.reimbursable_amount);

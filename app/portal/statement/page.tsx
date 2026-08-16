@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { getEffectiveRecipient } from "@/app/lib/impersonation";
 import { requireOrgContext } from "@/app/lib/org-context";
+import { receiptReimbursable } from "@/app/lib/grant-calc";
 import { PrintButton } from "./PrintButton";
 
 export const dynamic = "force-dynamic";
@@ -75,7 +76,11 @@ export default async function StatementPage({ searchParams }: { searchParams?: {
   const paidPayouts      = payouts.filter((p) => p.status === "paid");
 
   const totalReceiptsAmount      = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
-  const totalReimbursableCAD     = approvedReceipts.reduce((s, r) => s + Number(r.reimbursable_amount || 0), 0);
+  // Use the shared calculation, not the override column: reimbursable_amount
+  // is null unless an admin typed a figure, so reading it directly reported
+  // $0.00 on the statement families are told to keep for their records.
+  const rate = Number((recipient as any).reimbursement_rate);
+  const totalReimbursableCAD     = approvedReceipts.reduce((s, r) => s + receiptReimbursable(r as any, rate), 0);
   const totalPaidCAD             = paidPayouts.reduce((s, p) => s + Number(p.amount || 0), 0);
 
   const yearOptions: number[] = [];

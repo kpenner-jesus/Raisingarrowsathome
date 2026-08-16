@@ -1,5 +1,6 @@
 // /admin/reports — YTD figures + CSV exports.
 import Link from "next/link";
+import { receiptReimbursable } from "@/app/lib/grant-calc";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { requireOrgContext } from "@/app/lib/org-context";
 import { YearPicker } from "./YearPicker";
@@ -21,7 +22,7 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { y
     svc.from("applications").select("id", { count: "exact", head: true }).eq("org_id", ctx.id).gte("created_at", start).lt("created_at", end),
     svc.from("applications").select("id", { count: "exact", head: true }).eq("org_id", ctx.id).eq("status", "approved").gte("created_at", start).lt("created_at", end),
     svc.from("recipients").select("id", { count: "exact", head: true }).eq("org_id", ctx.id).gte("created_at", start).lt("created_at", end),
-    svc.from("receipts").select("amount, reimbursable_amount, currency, category").eq("org_id", ctx.id).gte("created_at", start).lt("created_at", end),
+    svc.from("receipts").select("amount, reimbursable_amount, currency, category, status, recipients!inner(reimbursement_rate)").eq("org_id", ctx.id).eq("status", "approved").gte("created_at", start).lt("created_at", end),
     svc.from("payouts").select("amount, currency").eq("org_id", ctx.id).eq("status", "paid").gte("paid_at", start).lt("paid_at", end),
     svc.from("payouts").select("amount, currency").eq("org_id", ctx.id).in("status", ["scheduled", "approved"]).gte("created_at", start).lt("created_at", end),
   ]);
@@ -29,13 +30,18 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { y
   const sumPaid = (payoutsPaid.data ?? []).reduce((s: number, r: any) => s + Number(r.amount || 0), 0);
   const sumOpen = (payoutsOpen.data ?? []).reduce((s: number, r: any) => s + Number(r.amount || 0), 0);
   const sumReceiptCount = receipts.data?.length ?? 0;
-  const sumReceiptValue = (receipts.data ?? []).reduce((s: number, r: any) => s + Number(r.reimbursable_amount || 0), 0);
+  // Approved receipts only (the query used to include pending and rejected),
+  // and valued through the shared calculation — reading reimbursable_amount
+  // directly reported $0 for every auto-calculated receipt, so the page
+  // labelled "snapshot for the accountant" showed no receipt value at all.
+  const sumReceiptValue = (receipts.data ?? []).reduce(
+    (s: number, r: any) => s + receiptReimbursable(r, Number(r.recipients?.reimbursement_rate ?? 0)), 0);
 
   // Category breakdown
   const byCategory = new Map<string, number>();
   for (const r of receipts.data ?? []) {
     const c = (r as any).category || "uncategorized";
-    byCategory.set(c, (byCategory.get(c) ?? 0) + Number((r as any).reimbursable_amount || 0));
+    byCategory.set(c, (byCategory.get(c) ?? 0) + receiptReimbursable(r as any, Number((r as any).recipients?.reimbursement_rate ?? 0)));
   }
   const categoryRows = Array.from(byCategory.entries()).sort((a, b) => b[1] - a[1]);
 

@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   const recipient = ctx.recipient;
   if (!recipient) return new NextResponse("no recipient", { status: 400 });
 
-  const { body } = await req.json();
+  const { body } = await req.json().catch(() => ({} as any));
   if (!body?.trim()) return new NextResponse("empty body", { status: 400 });
 
   // org_id from the recipient row pins the testimonial to the right tenant.

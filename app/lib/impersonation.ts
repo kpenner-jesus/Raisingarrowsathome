@@ -36,9 +36,17 @@ export const IMPERSONATE_COOKIE = "ra_impersonate";
  * Returns false on production — the feature must NEVER appear there.
  */
 export function isImpersonationAllowed(): boolean {
-  const env = process.env.NEXT_PUBLIC_ENV;
-  // Allowed on staging/preview/development; never on production.
-  return env !== "production" && env !== undefined;
+  // Fail CLOSED, and require an explicit opt-in.
+  //
+  // This gated on `NEXT_PUBLIC_ENV !== "production"`, a variable documented
+  // nowhere — so "prod", "Production", or a staging value copied between
+  // environments all read as "not production" and switched the feature ON.
+  // Starting an impersonation session HARD-DELETES the test recipient's
+  // receipts, photos, testimonials and payouts, so a misspelling was a data
+  // loss button. NODE_ENV is set by the platform itself and cannot be
+  // fat-fingered; ALLOW_IMPERSONATION must then be set deliberately.
+  if (process.env.NODE_ENV === "production") return false;
+  return process.env.ALLOW_IMPERSONATION === "1";
 }
 
 /**

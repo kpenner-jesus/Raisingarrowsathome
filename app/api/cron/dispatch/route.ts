@@ -28,6 +28,12 @@ import { sendDueBroadcasts } from "@/app/lib/broadcasts";
 import { emailMonthlyBackup } from "@/app/lib/backup";
 import { processBillingReminders } from "@/app/lib/billing-reminders";
 
+// The daily cron does a database backup, all due broadcasts, billing reminders
+// and payout generation in ONE invocation. At the platform default budget the
+// work after the backup was simply never reached — silently, because the only
+// signal is a missing log line.
+export const maxDuration = 300;
+
 function constantTimeEq(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
