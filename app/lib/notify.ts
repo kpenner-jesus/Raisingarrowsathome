@@ -109,15 +109,16 @@ async function loadTemplate(key: string, orgId?: string | null): Promise<LoadedT
     const svc = supabaseService();
     // Scope to tenant when we know which one — email_templates now has
     // a UNIQUE(org_id, key) constraint, so multiple rows could share a key.
-    let q = svc.from("email_templates")
-      .select("subject, body_html, body_text")
-      .eq("key", key)
-      // Archived templates are retired: skip them so the sender falls back to
-      // its hardcoded copy rather than mailing something withdrawn on purpose.
-      .is("archived_at", null);
+    // select("*") rather than naming archived_at: migrations are applied by
+    // hand, so this may run against a database that predates that column, and
+    // naming it would error out every templated email at once.
+    let q = svc.from("email_templates").select("*").eq("key", key);
     if (orgId) q = q.eq("org_id", orgId);
     const { data, error } = await q.maybeSingle();
     if (error || !data) return null;
+    // Archived = retired on purpose: fall back to the hardcoded copy rather
+    // than sending wording someone withdrew.
+    if (data.archived_at) return null;
     return { subject: data.subject, body_html: data.body_html, body_text: data.body_text };
   } catch {
     return null;

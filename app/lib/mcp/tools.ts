@@ -1005,16 +1005,20 @@ const listEmailTemplates: Tool = {
     },
   },
   handler: async ({ include_archived = false }, ctx) => {
-    let q = supabaseService()
+    // select("*") + filter in JS: migrations are applied by hand here, so
+    // this can run against a database that predates archived_at, and naming
+    // the column would fail the whole call.
+    const { data, error } = await supabaseService()
       .from("email_templates")
-      .select("key, label, subject, vars, updated_at, archived_at")
+      .select("*")
       .eq("org_id", ctx.org_id)
       .order("label");
-    if (!include_archived) q = q.is("archived_at", null);
-    const { data, error } = await q;
     if (error) throw new Error(error.message);
-    return (data || []).map((t: any) => ({
-      ...t,
+    return (data || [])
+      .filter((t: any) => include_archived || !t.archived_at)
+      .map((t: any) => ({
+      key: t.key, label: t.label, subject: t.subject, vars: t.vars, updated_at: t.updated_at,
+      archived_at: t.archived_at ?? null,
       archived: Boolean(t.archived_at),
       sent_by_the_system: WIRED_TEMPLATE_KEYS.includes(t.key),
     }));
@@ -1140,7 +1144,7 @@ const updateEmailTemplate: Tool = {
     const { data, error } = await supabaseService()
       .from("email_templates").update(patch)
       .eq("org_id", ctx.org_id).eq("key", k)
-      .select("key, label, subject, vars, archived_at").maybeSingle();
+      .select("*").maybeSingle();
     if (error) throw new Error(error.message);
     if (!data)  throw new Error(`No email template with key "${k}" in this program.`);
 
@@ -1175,8 +1179,15 @@ const archiveEmailTemplate: Tool = {
       .from("email_templates")
       .update({ archived_at: restore ? null : new Date().toISOString(), updated_by: ctx.profile_id })
       .eq("org_id", ctx.org_id).eq("key", k)
-      .select("key, label, archived_at").maybeSingle();
-    if (error) throw new Error(error.message);
+      .select("*").maybeSingle();
+    if (error) {
+      // 42703 = column does not exist: the archiving migration hasn't been run
+      // on this database yet. Say that, rather than a raw Postgres error.
+      if ((error as any).code === "42703" || /archived_at/.test(error.message)) {
+        throw new Error("Archiving isn't set up on this site yet — the 20260616 database update still needs to be applied. Everything else about templates works.");
+      }
+      throw new Error(error.message);
+    }
     if (!data)  throw new Error(`No email template with key "${k}" in this program.`);
 
     await writeAudit({

@@ -11,11 +11,17 @@ export default async function EmailTemplatesPage() {
   // Archived templates are retired copy — hidden here, and skipped at send
   // time by loadTemplate(). They can be brought back from the admin chat
   // (archive_email_template with restore: true).
+  //
+  // select("*") + filter in JS, deliberately: migrations are applied by hand
+  // here, so this code can run against a database where archived_at does not
+  // exist yet. Naming the column in select/filter would be a hard PostgREST
+  // error and the page would render "No templates defined" — worse than
+  // showing an archived one. Undefined column reads as "not archived".
   const { data } = await svc.from("email_templates")
-    .select("key, label, subject, body_html, body_text, vars, updated_at")
+    .select("*")
     .eq("org_id", ctx.id)
-    .is("archived_at", null)
     .order("label");
+  const templates = (data as any[] ?? []).filter((t) => !t.archived_at);
 
   return (
     <div>
@@ -28,7 +34,7 @@ export default async function EmailTemplatesPage() {
           </p>
         </div>
       </header>
-      <TemplateEditor templates={(data as any[]) ?? []} />
+      <TemplateEditor templates={templates} />
     </div>
   );
 }
