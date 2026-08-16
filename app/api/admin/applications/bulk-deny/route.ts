@@ -45,23 +45,27 @@ export async function POST(req: Request) {
     });
   }
 
-  // Send rejection emails. Each send is fire-and-forget inside notify
-  // (errors logged, not raised) so a flaky inbox can't break the batch.
+  // Send rejection emails SEQUENTIALLY, and count only the ones that really
+  // went out. This used to fan out with Promise.all and count every settled
+  // promise as delivered — but Resend's default limit is 2 requests/second, so
+  // a large batch was mostly rate-limited while the admin was told every
+  // family had been notified. notifyApplicationDenied now returns whether the
+  // send actually succeeded.
   let emailed = 0, failed = 0;
-  await Promise.all((updated ?? []).map(async (u: any) => {
-    if (!u.contact_email) { failed++; return; }
+  for (const u of (updated ?? []) as any[]) {
+    if (!u.contact_email) { failed++; continue; }
     try {
-      await notifyApplicationDenied({
+      const ok = await notifyApplicationDenied({
         to:           u.contact_email,
         parent_names: u.parent_names,
         admin_notes:  notes,
         orgId:        orgCtx.id,
       });
-      emailed++;
+      if (ok) emailed++; else failed++;
     } catch {
       failed++;
     }
-  }));
+  }
 
   return NextResponse.json({
     ok: true,

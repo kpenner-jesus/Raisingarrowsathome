@@ -40,9 +40,23 @@ export interface Balance {
   eligibleForNextPayout:  number;
 }
 
+/**
+ * currency and reimbursable_amount are REQUIRED, not optional.
+ *
+ * They were optional, and a caller that forgot to select them silently paid
+ * the wrong amount: `undefined != null` is FALSE in JavaScript, so the
+ * override check fell through, and `undefined ?? "CAD"` then made every
+ * receipt look Canadian. A USD receipt was reimbursed as though it were CAD,
+ * and an admin's explicit override — including a deliberate $0 for a
+ * non-eligible item — was ignored.
+ *
+ * Requiring them turns that into a compile error at the call site instead of
+ * a wrong cheque. `| null` is allowed because the DB column is nullable; what
+ * is not allowed is failing to ask for it.
+ */
 type ReceiptLite = Pick<Receipt, "amount" | "status"> & {
-  currency?:            Receipt["currency"];
-  reimbursable_amount?: number | null;
+  currency:            Receipt["currency"] | null;
+  reimbursable_amount: number | null;
 };
 
 /**

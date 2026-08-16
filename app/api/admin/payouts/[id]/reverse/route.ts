@@ -38,6 +38,14 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     reversed_at: now,
     reversed_by: user.id,
     reversal_reason: reason,
+    // Also move it OUT of 'paid'. Every balance calculation in the app keys
+    // off `status` — committed counts everything not 'cancelled', paid counts
+    // 'paid' — and none of them look at reversed_at. Stamping reversed_at
+    // alone left a bounced payment counted as money the family had received,
+    // so the next batch paid them that much less and nothing flagged it.
+    // 'cancelled' is already in the PayoutStatus union and already excluded
+    // by all five reducers; until now no code path ever set it.
+    status: "cancelled",
   }).eq("id", id).eq("org_id", orgCtx.id).is("reversed_at", null);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

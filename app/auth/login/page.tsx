@@ -3,6 +3,7 @@ import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/app/lib/supabase/browser";
 import { KidsBehind } from "@/app/_components/Kids";
+import { safeNextParam } from "@/app/lib/safe-redirect";
 
 function LoginInner() {
   const params = useSearchParams();
@@ -13,10 +14,9 @@ function LoginInner() {
   // with nothing explaining why — a loop that looked like a broken site.
   const [error, setError] = useState(params.get("error") || "");
   const [busy,  setBusy]  = useState(false);
-  const rawNext = params.get("next");
-  const next = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") && !/^[a-z]+:/i.test(rawNext)
-    ? rawNext
-    : "/portal";
+  // Shared guard: the inline version here missed control characters, which
+  // URL parsing strips — "/<tab>//evil.com" passed and resolved off-site.
+  const next = safeNextParam(params.get("next")) ?? "/portal";
 
   const send = async () => {
     if (!email.trim()) { setError("Please enter your email."); return; }

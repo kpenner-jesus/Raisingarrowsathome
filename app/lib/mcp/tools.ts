@@ -159,7 +159,10 @@ const getRecipient: Tool = {
 
     const { data: receipts } = await supabase
       .from("receipts")
-      .select("id, amount, status, description, purchase_date, created_at")
+      // currency + reimbursable_amount feed calcBalance — without them the
+      // assistant quotes an admin a different balance than the family sees
+      // on their own portal page.
+      .select("id, amount, status, currency, reimbursable_amount, description, purchase_date, created_at")
       .eq("recipient_id", id)
       .eq("org_id", ctx.org_id)
       .order("created_at", { ascending: false });
@@ -397,35 +400,59 @@ const decideApplication: Tool = {
 
 const decideReceipt: Tool = {
   name:        "decide_receipt",
-  description: "Approve or reject a receipt. Only acts on receipts currently in 'pending' status — already-decided receipts return a 'already decided' error to prevent silent re-emails.",
+  description: "Approve or reject a receipt. Only acts on receipts currently in 'pending' status — already-decided receipts return a 'already decided' error to prevent silent re-emails. A USD receipt CANNOT be approved without reimbursable_amount: we never convert currency automatically, so the admin must say what it is worth in CAD. Use reimbursable_amount for a partial reimbursement too (e.g. excluding shipping).",
   inputSchema: {
     type: "object",
     properties: {
       id:       { type: "string" },
       decision: { type: "string", enum: ["approved", "rejected"] },
       notes:    { type: "string" },
+      reimbursable_amount: { type: "number", description: "CAD amount to reimburse. REQUIRED for a USD receipt. Omit on a CAD receipt to use the family's normal rate." },
     },
     required: ["id", "decision"],
   },
-  handler: async ({ id, decision, notes }, ctx) => {
+  handler: async ({ id, decision, notes, reimbursable_amount }, ctx) => {
     const supabase = supabaseService();
     const { data: receipt, error: loadErr } = await supabase
       .from("receipts")
-      .select("id, amount, description, status, recipients!inner(applications!inner(parent_names, contact_email))")
+      // currency is load-bearing: without it this tool approved USD receipts
+      // that the admin UI refuses, leaving reimbursable_amount NULL so the
+      // receipt was approved but worth nothing, with nothing flagging it.
+      .select("id, amount, currency, description, status, recipients!inner(applications!inner(parent_names, contact_email))")
       .eq("id", id)
       .eq("org_id", ctx.org_id)
       .single();
     if (loadErr || !receipt) throw new Error(loadErr?.message || "receipt not found");
     if (receipt.status !== "pending") throw new Error(`receipt already ${receipt.status}`);
 
+    // Same rule as the admin UI (api/admin/receipts/[id]/decide): we never
+    // convert currency ourselves, so a USD receipt needs an explicit CAD figure.
+    let cleanReimbursable: number | null = null;
+    if (reimbursable_amount !== undefined && reimbursable_amount !== null) {
+      const v = Number(reimbursable_amount);
+      if (!Number.isFinite(v) || v < 0) throw new Error("reimbursable_amount must be a positive number of CAD");
+      if (v > 50_000) throw new Error("reimbursable_amount exceeds the 50,000 sanity limit");
+      cleanReimbursable = v;
+    }
+    if (decision === "approved" && (receipt as any).currency === "USD" && cleanReimbursable === null) {
+      throw new Error(
+        "This receipt is in USD. Ask the admin what it is worth in Canadian dollars and pass that as reimbursable_amount — we never convert currency automatically.",
+      );
+    }
+
+    const update: Record<string, any> = {
+      status:      decision,
+      admin_notes: notes || null,
+      decided_at:  new Date().toISOString(),
+      decided_by:  ctx.profile_id,
+    };
+    if (decision === "approved" && cleanReimbursable !== null) {
+      update.reimbursable_amount = cleanReimbursable;
+    }
+
     const { error, data: updRow } = await supabase
       .from("receipts")
-      .update({
-        status:      decision,
-        admin_notes: notes || null,
-        decided_at:  new Date().toISOString(),
-        decided_by:  ctx.profile_id,
-      })
+      .update(update)
       .eq("id", id)
       .eq("org_id", ctx.org_id)
       .eq("status", "pending")
@@ -662,17 +689,23 @@ const markBatchPaid: Tool = {
       .neq("status", "paid");
     if (updBatch.error) throw new Error(updBatch.error.message);
 
-    await Promise.all(((payouts as any[]) || []).map((p) =>
-      notifyBatchPaid({
+    // Sequential, and count only real sends. This was Promise.all with
+    // recipients_notified = payouts.length — a ROW COUNT, not a send count —
+    // so a rate-limited or bounced batch still recorded in audit_log that
+    // every family had been told their money was on the way.
+    let notified = 0;
+    for (const p of ((payouts as any[]) || [])) {
+      const ok = await notifyBatchPaid({
         to:           p.recipients.applications.contact_email,
         parent_names: p.recipients.applications.parent_names,
         amount:       Number(p.amount),
         portal_url:   portalUrl(ctx),
         orgId:        ctx.org_id,
-      })
-    ));
+      }).catch(() => false);
+      if (ok) notified++;
+    }
 
-    return { ok: true, batch_id, recipients_notified: (payouts || []).length };
+    return { ok: true, batch_id, recipients_notified: notified, recipients_total: (payouts || []).length };
   },
 };
 
@@ -743,7 +776,7 @@ const exportBatchCsv: Tool = {
 
 const bulkCreateRecipients: Tool = {
   name:        "bulk_create_recipients",
-  description: "Bulk-import recipients (e.g. from a legacy spreadsheet). Each row creates a skeleton 'approved' application + recipient. Use for grandfathered families that predate the online funnel. The 'paid_to_date' field, if provided, creates a legacy payout row so balance math is accurate.",
+  description: "Bulk-import recipients (e.g. from a legacy spreadsheet). Each row creates a skeleton 'approved' application + recipient. Use for grandfathered families that predate the online funnel. The 'paid_to_date' field, if provided, creates a legacy payout row so balance math is accurate. Safe to re-run: a row whose contact_email already exists in this program is SKIPPED, not duplicated — report the skipped rows to the admin.",
   inputSchema: {
     type: "object",
     properties: {
@@ -783,6 +816,48 @@ const bulkCreateRecipients: Tool = {
         if (!r.parent_names || !r.contact_email || !Number.isFinite(Number(r.approved_amount))) {
           throw new Error("missing required fields");
         }
+
+        // Same limits every other write path enforces. Without them a
+        // spreadsheet cell holding 3 instead of 0.3 imported a 300%
+        // reimbursement rate: a family with a $5,000 cap and $2,000 of
+        // receipts would be paid the full cap instead of $1,500.
+        const amt = Number(r.approved_amount);
+        if (amt <= 0 || amt > MAX_RECIPIENT_CAP) {
+          throw new Error(`approved_amount must be between 0 and ${MAX_RECIPIENT_CAP}`);
+        }
+        const rateVal = Number(r.reimbursement_rate ?? 0.75);
+        if (!Number.isFinite(rateVal) || rateVal < 0 || rateVal > 1) {
+          throw new Error("reimbursement_rate must be between 0 and 1 (0.75 = 75%)");
+        }
+
+        // IDEMPOTENCY. Every row was a bare INSERT and app_ref carried a
+        // random suffix, so the (org_id, app_ref) unique index could never
+        // catch a re-run. A retried import — an operator re-clicking after a
+        // timeout — created a second application, recipient and, where
+        // paid_to_date was set, a second "paid" payout. That is exactly the
+        // production incident: 7 duplicate families and 4 phantom payouts
+        // totalling $2,190.38.
+        //
+        // A family is identified by their email within the org. Re-running
+        // the same sheet is now a no-op that reports what it skipped.
+        const email = String(r.contact_email).trim().toLowerCase();
+        const { data: existing } = await supabase
+          .from("applications")
+          .select("id, recipients(id)")
+          .eq("org_id", ctx.org_id)
+          .ilike("contact_email", email)
+          .limit(1)
+          .maybeSingle();
+        if (existing) {
+          results.push({
+            parent_names: r.parent_names,
+            contact_email: r.contact_email,
+            skipped: true,
+            reason: "already imported — a family with this email already exists in this program",
+            application_id: existing.id,
+          });
+          continue;
+        }
         const firstName = String(r.parent_names).split(/[\s&]/).filter(Boolean)[0] || "FAMILY";
         const randSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
         const app_ref = `RA-BULK-${firstName.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 12)}-${randSuffix}`;
@@ -808,8 +883,8 @@ const bulkCreateRecipients: Tool = {
           org_id:              ctx.org_id,
           application_id:      app.id,
           profile_id:          null,
-          approved_amount:     Number(r.approved_amount),
-          reimbursement_rate:  Number(r.reimbursement_rate ?? 0.75),
+          approved_amount:     amt,
+          reimbursement_rate:  rateVal,
           status:              "active",
           address_street:      r.address_street || null,
           address_city:        r.address_city || null,

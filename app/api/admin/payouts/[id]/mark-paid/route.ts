@@ -67,16 +67,21 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const portalUrl = orgCtx.prefixed
     ? `${platformOrigin}/o/${orgCtx.slug}/portal`
     : `${platformOrigin}/portal`;
-  const recipientsNotified = ((payouts as any[]) || []).length;
-  await Promise.all(((payouts as any[]) || []).map((p) =>
-    notifyBatchPaid({
+  // Sequential, and count only real sends. This was Promise.all with
+  // recipients_notified = payouts.length — a ROW COUNT, not a send count —
+  // so a rate-limited or bounced batch still recorded in audit_log that
+  // every family had been told their money was on the way.
+  let recipientsNotified = 0;
+  for (const p of ((payouts as any[]) || [])) {
+    const ok = await notifyBatchPaid({
       to:           p.recipients.applications.contact_email,
       parent_names: p.recipients.applications.parent_names,
       amount:       Number(p.amount),
       portal_url:   portalUrl,
       orgId:        orgCtx.id,
-    })
-  ));
+    }).catch(() => false);
+    if (ok) recipientsNotified++;
+  }
 
   await writeAudit({
     orgId:       orgCtx.id,

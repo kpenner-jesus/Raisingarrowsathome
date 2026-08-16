@@ -36,40 +36,77 @@ export async function middleware(req: NextRequest) {
   const fromPath = parseOrgPath(pathname);
   const slug = resolveOrgSlug(host, pathname);
 
-  // If we resolved a slug, attach headers downstream pages will read.
+  // Attach the resolved slug to the REQUEST headers that get forwarded on.
+  //
+  // This was `response.headers.set(...)`, which puts the value on the reply to
+  // the browser — server components read INCOMING request headers, so
+  // headers().get("x-ra-org-slug") was always null. getOrgContext() then fell
+  // through to its Host fallback, which maps the main domain to the
+  // raising-arrows tenant. With a single tenant that happened to be right, so
+  // nothing looked broken; a second charity on a path-routed /o/<slug>/ URL
+  // resolved to the WRONG tenant, failed the org_members check in the admin
+  // layout, and was bounced out of their own admin with no way in.
+  //
+  // NextResponse.rewrite/next snapshot whatever Headers object they are given,
+  // so the mutation has to happen on a copy BEFORE constructing the response.
+  const requestHeaders = new Headers(req.headers);
   if (slug) {
-    response.headers.set("x-ra-org-slug", slug);
-    response.headers.set("x-ra-org-prefixed", fromPath ? "1" : "0");
+    requestHeaders.set("x-ra-org-slug", slug);
+    requestHeaders.set("x-ra-org-prefixed", fromPath ? "1" : "0");
+  } else {
+    // Never let a client-supplied value through: these headers are trusted
+    // downstream as "the middleware resolved this tenant".
+    requestHeaders.delete("x-ra-org-slug");
+    requestHeaders.delete("x-ra-org-prefixed");
   }
 
-  // Rewrite /o/<slug>/rest → /rest internally so a single page tree
-  // serves every tenant. The original URL stays in the browser bar.
+  /** Pass-through response carrying the forwarded headers + session cookies. */
+  const forward = () => {
+    const r = NextResponse.next({ request: { headers: requestHeaders } });
+    response.cookies.getAll().forEach((c) => r.cookies.set(c));
+    return r;
+  };
+
+  // ── 2. Auth guard on /admin and /portal ──
+  //
+  // This runs BEFORE the rewrite returns. It used to sit after it, so the
+  // `if (fromPath) { ...return }` branch skipped the guard entirely — and
+  // /o/<slug>/... is the URL shape every SaaS tenant is given at signup.
+  // Any portal page that didn't re-check the session itself was therefore
+  // reachable signed-out. Guard on the INTERNAL path, since that is the page
+  // that will actually render.
+  const internalPath = fromPath ? fromPath.rest : pathname;
+  const guarded = internalPath.startsWith("/admin") || internalPath.startsWith("/portal");
+
+  if (guarded) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/auth/login";
+      url.search = "";
+      // `next` must be the ORIGINAL path so a path-routed tenant comes back
+      // to /o/<slug>/admin rather than bare /admin (which resolves by Host and
+      // bounces a non-member of the host-default tenant straight out again).
+      // Keep the query string too: an invite link is /admin/onboard?token=...,
+      // and dropping the token sent the invitee back to "Missing token".
+      url.searchParams.set("next", pathname + (req.nextUrl.search || ""));
+      const redirect = NextResponse.redirect(url);
+      // carry refreshed session cookies, or a token rotated by updateSession
+      // during this request is thrown away and the next request re-refreshes
+      response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+      return redirect;
+    }
+  }
+
+  // ── 3. Rewrite /o/<slug>/rest → /rest internally so a single page tree
+  //       serves every tenant. The original URL stays in the browser bar.
   if (fromPath) {
     const url = req.nextUrl.clone();
     url.pathname = fromPath.rest;
-    // Carry the headers forward so downstream sees the slug.
-    const rewritten = NextResponse.rewrite(url, { request: { headers: req.headers } });
-    rewritten.headers.set("x-ra-org-slug", slug || "");
-    rewritten.headers.set("x-ra-org-prefixed", "1");
+    const rewritten = NextResponse.rewrite(url, { request: { headers: requestHeaders } });
     // copy session cookies (response was built by updateSession)
     response.cookies.getAll().forEach((c) => rewritten.cookies.set(c));
     return rewritten;
-  }
-
-  // ── 2. Auth guards on /admin and /portal ──
-  // Use the INTERNAL pathname (post-rewrite for path-routed URLs, which we
-  // already returned above; the rest of this function only runs for non-/o/
-  // requests so pathname is the literal request path).
-  if (!pathname.startsWith("/admin") && !pathname.startsWith("/portal")) {
-    return response;
-  }
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/auth/login";
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
   }
 
   // Note: org-membership + role checks happen inside the layout server
@@ -77,7 +114,7 @@ export async function middleware(req: NextRequest) {
   // gates against anonymous access; deeper authorization needs DB lookups
   // we'd rather not do twice.
 
-  return response;
+  return forward();
 }
 
 export const config = {

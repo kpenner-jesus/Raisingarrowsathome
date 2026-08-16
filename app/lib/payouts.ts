@@ -81,7 +81,12 @@ export async function generatePayoutsForOrg(
   for (const r of recipients) {
     const { data: receipts } = await svc
       .from("receipts")
-      .select("id, amount, status")
+      // currency + reimbursable_amount are REQUIRED by the math. Without
+      // them every receipt silently reads as "CAD, no override", so USD gets
+      // paid as though it were Canadian and an admin's explicit override is
+      // ignored. Supabase types results as `any`, so the compiler cannot
+      // catch a stripped select here — this list is load-bearing.
+      .select("id, amount, status, currency, reimbursable_amount")
       .eq("org_id", orgId)
       .eq("recipient_id", r.id);
 
@@ -111,22 +116,39 @@ export async function generatePayoutsForOrg(
         .filter((x: any) => x.status === "approved")
         .map((x: any) => x.id);
 
-      await svc.from("payouts").insert({
+      // Round ONCE, then use that same figure for both the row and the
+      // running total, so the batch total is by construction the sum of its
+      // lines. Accumulating the unrounded value let the exported CSV's TOTAL
+      // disagree with the rows printed underneath it.
+      const lineAmount = Number(balance.eligibleForNextPayout.toFixed(2));
+
+      const { error: payErr } = await svc.from("payouts").insert({
         org_id:            orgId,
         batch_id:          batch.id,
         recipient_id:      r.id,
-        amount:            Number(balance.eligibleForNextPayout.toFixed(2)),
+        amount:            lineAmount,
         receipts_included: includedReceiptIds,
         status:            "scheduled",
       });
-      batchTotal += balance.eligibleForNextPayout;
+      // Was discarded entirely. A failed insert dropped the family from the
+      // batch while their money stayed in the total — the charity's finance
+      // team would receive a CSV whose TOTAL exceeded its own line items.
+      if (payErr) {
+        throw new Error(`payout line for recipient ${r.id} failed: ${payErr.message}. Batch ${batch.id} is incomplete — review it before sending.`);
+      }
+      batchTotal += lineAmount;
       lines      += 1;
     }
   }
 
-  await svc.from("payout_batches")
+  const { error: totalErr } = await svc.from("payout_batches")
     .update({ total: Number(batchTotal.toFixed(2)) })
     .eq("id", batch.id);
+  // Unchecked, this left batch.total at its default of 0 while real payout
+  // rows existed — the export CSV then printed TOTAL 0.00 above live lines.
+  if (totalErr) {
+    throw new Error(`batch ${batch.id} total failed to save: ${totalErr.message}. The payout lines exist but the batch total is wrong — fix before exporting.`);
+  }
 
   return {
     org_id:   orgId,

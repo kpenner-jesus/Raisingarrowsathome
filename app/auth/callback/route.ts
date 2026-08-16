@@ -15,15 +15,8 @@
 import { NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { supabaseService } from "@/app/lib/supabase/server";
-
-function isSafeRelativePath(raw: string | null): boolean {
-  if (!raw) return false;
-  if (!raw.startsWith("/")) return false;
-  if (raw.startsWith("//"))  return false;
-  if (raw.startsWith("/\\")) return false;
-  if (/^[a-z]+:/i.test(raw)) return false;
-  return true;
-}
+import { isSafeRelativePath, safeRedirectUrl } from "@/app/lib/safe-redirect";
+import { resolveOrgSlug } from "@/app/lib/org-routing";
 
 export async function GET(req: Request) {
   const url  = new URL(req.url);
@@ -117,29 +110,53 @@ export async function GET(req: Request) {
     return bounce;
   }
 
-  // Look up role via the service role (no RLS surprises).
-  let role: string | null = null;
-  if (userId) {
-    const svc = supabaseService();
-    const { data: profile, error: profErr } = await svc
-      .from("profiles").select("role").eq("id", userId).single();
-    if (profErr) console.error("[auth/callback] profile lookup failed:", profErr.message);
-    role = profile?.role ?? null;
+  // Where does this user belong? This has to agree with requireAdmin(), which
+  // trusts org_members.role IN ('owner','admin') OR profiles.role='super_admin'.
+  //
+  // It previously read profiles.role ALONE. Signup writes profiles.role
+  // 'recipient' and org_members.role 'owner' (api/signup/create-org), so every
+  // new SaaS tenant owner was judged "not an admin" and dropped into the family
+  // portal, which then told them their account wasn't linked to a grant. It
+  // only worked for this operator's own staff, whose legacy profiles rows
+  // happen to say 'admin'.
+  const svc = supabaseService();
+  const [{ data: memberships }, { data: profile }] = await Promise.all([
+    svc.from("org_members").select("org_id, role").eq("user_id", userId),
+    svc.from("profiles").select("role").eq("id", userId).maybeSingle(),
+  ]);
+  const adminMembership = (memberships || []).find(
+    (m: any) => m.role === "owner" || m.role === "admin",
+  );
+  const profileRole = profile?.role ?? null;
+  const isAdmin = Boolean(adminMembership)
+    || profileRole === "admin"
+    || profileRole === "super_admin";
+
+  // Send a tenant admin to THEIR tenant. On the shared domain that means the
+  // /o/<slug>/ prefix — bare /admin resolves by Host, which lands everyone on
+  // the host-default tenant and bounces non-members straight back out.
+  let adminHome = "/admin";
+  if (adminMembership) {
+    const { data: tenant } = await svc
+      .from("tenants").select("slug").eq("id", adminMembership.org_id).maybeSingle();
+    const hostDefault = resolveOrgSlug(url.host, "/");
+    if (tenant?.slug && tenant.slug !== hostDefault) adminHome = `/o/${tenant.slug}/admin`;
   }
-  const isAdmin = role === "admin" || role === "super_admin";
 
   // Decide redirect target
   let target: string;
   if (rawNext && isSafeRelativePath(rawNext) && rawNext !== "/portal" && rawNext !== "/admin") {
     const isAdminPath = rawNext === "/admin" || rawNext.startsWith("/admin/");
-    target = (!isAdminPath || isAdmin) ? rawNext : (isAdmin ? "/admin" : "/portal");
+    target = (!isAdminPath || isAdmin) ? rawNext : (isAdmin ? adminHome : "/portal");
   } else {
-    target = isAdmin ? "/admin" : "/portal";
+    target = isAdmin ? adminHome : "/portal";
   }
 
   // Build the redirect response, copying over the Set-Cookie headers the
   // supabase client wrote into `response` (origin resolved at the top).
-  const redirect = NextResponse.redirect(new URL(target, origin));
+  // safeRedirectUrl re-checks the ORIGIN after parsing, so a control
+  // character that survives the structural check still cannot leave the site.
+  const redirect = NextResponse.redirect(safeRedirectUrl(target, origin, "/portal"));
   response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
   return redirect;
 }

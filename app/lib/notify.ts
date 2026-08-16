@@ -60,18 +60,35 @@ async function resolveFrom(orgId?: string | null): Promise<string> {
   return process.env.RESEND_FROM || FROM_DEFAULT;
 }
 
-async function send({ to, subject, html, orgId }: SendOpts) {
+/**
+ * Send one email. Returns whether it ACTUALLY went out.
+ *
+ * This used to return void: the Resend SDK reports failures as `{ error }`
+ * rather than throwing, so a rejected send was logged and then reported to the
+ * caller as success. Callers that count — bulk-deny, mark-batch-paid — told the
+ * admin every family had been emailed when Resend had rate-limited almost all
+ * of them (its default is 2 requests/second, and bulk-deny fanned out with
+ * Promise.all). The audit log recorded notifications that never happened.
+ *
+ * Existing callers that ignore the return value behave exactly as before.
+ */
+async function send({ to, subject, html, orgId }: SendOpts): Promise<boolean> {
   const client = resend();
   if (!client) {
     console.warn("[notify] RESEND_API_KEY missing — skipping", { to, subject });
-    return;
+    return false;
   }
   const from = await resolveFrom(orgId);
   try {
     const { error } = await client.emails.send({ from, to, subject, html });
-    if (error) console.error("[notify] Resend error", error, { to, subject, from });
+    if (error) {
+      console.error("[notify] Resend error", error, { to, subject, from });
+      return false;
+    }
+    return true;
   } catch (err: any) {
     console.error("[notify] Resend exception", err?.message || err, { to, subject, from });
+    return false;
   }
 }
 
@@ -156,16 +173,15 @@ async function sendTemplated(opts: {
   raw?: Set<string>;
   fallback: () => { subject: string; html: string };
   orgId?: string | null;
-}) {
+}): Promise<boolean> {
   const tpl = await loadTemplate(opts.key, opts.orgId);
   if (tpl) {
     const subject = substitute(tpl.subject, opts.vars).trim();
     const innerHtml = substitute(tpl.body_html, opts.vars, opts.raw);
-    await send({ to: opts.to, subject: subject || "Raising Arrows", html: wrap(innerHtml), orgId: opts.orgId });
-    return;
+    return send({ to: opts.to, subject: subject || "Raising Arrows", html: wrap(innerHtml), orgId: opts.orgId });
   }
   const fb = opts.fallback();
-  await send({ to: opts.to, subject: fb.subject, html: wrap(fb.html), orgId: opts.orgId });
+  return send({ to: opts.to, subject: fb.subject, html: wrap(fb.html), orgId: opts.orgId });
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -186,7 +202,7 @@ export async function notifyApplicationApproved(args: {
   const ratePct  = `${(args.rate * 100).toFixed(0)}%`;
   const orgName  = args.org_name || "Raising Arrows";
   const deadline = args.deadline || "";
-  await sendTemplated({
+  return sendTemplated({
     to: args.to,
     key: "application_approved",
     orgId: args.orgId,
@@ -252,7 +268,7 @@ export async function notifyApplicationDenied(args: {
   admin_notes: string;
   orgId?: string | null;
 }) {
-  await sendTemplated({
+  return sendTemplated({
     to: args.to,
     key: "application_denied",
     orgId: args.orgId,
@@ -281,7 +297,7 @@ export async function notifyReceiptApproved(args: {
   orgId?: string | null;
 }) {
   const amount = args.amount.toFixed(2);
-  await sendTemplated({
+  return sendTemplated({
     to: args.to,
     key: "receipt_approved",
     orgId: args.orgId,
@@ -313,7 +329,7 @@ export async function notifyReceiptRejected(args: {
   orgId?: string | null;
 }) {
   const amount = args.amount.toFixed(2);
-  await sendTemplated({
+  return sendTemplated({
     to: args.to,
     key: "receipt_rejected",
     orgId: args.orgId,
@@ -346,7 +362,7 @@ export async function notifyBatchPaid(args: {
   orgId?: string | null;
 }) {
   const amount = args.amount.toFixed(2);
-  await sendTemplated({
+  return sendTemplated({
     to: args.to,
     key: "batch_paid",
     orgId: args.orgId,

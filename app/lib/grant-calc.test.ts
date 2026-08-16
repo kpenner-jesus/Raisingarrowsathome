@@ -9,6 +9,26 @@
 import { describe, it, expect } from "vitest";
 import { calcBalance, currentBucket, lastDayOfMonth, defaultGrantCap } from "./grant-calc";
 
+
+/**
+ * Build a complete receipt. Both currency and reimbursable_amount are
+ * required by the math, and the bug this suite missed was a CALLER that
+ * omitted them — so tests must never construct partial receipts either.
+ */
+function rcpt(o: {
+  amount: number;
+  status: "approved" | "pending" | "rejected";
+  currency?: "CAD" | "USD" | null;
+  reimbursable_amount?: number | null;
+}) {
+  return {
+    amount: o.amount,
+    status: o.status,
+    currency: o.currency ?? "CAD",
+    reimbursable_amount: o.reimbursable_amount ?? null,
+  } as const;
+}
+
 describe("calcBalance", () => {
   const baseOpts = { rate: 0.75, cap: 1000, paidToDate: 0 };
 
@@ -24,9 +44,9 @@ describe("calcBalance", () => {
     const r = calcBalance({
       ...baseOpts,
       receipts: [
-        { amount: 100, status: "pending" },
-        { amount: 100, status: "rejected" },
-        { amount: 100, status: "approved" },
+        rcpt({ amount: 100, status: "pending" }),
+        rcpt({ amount: 100, status: "rejected" }),
+        rcpt({ amount: 100, status: "approved" }),
       ],
     });
     expect(r.approvedReceiptTotal).toBe(100);
@@ -37,7 +57,7 @@ describe("calcBalance", () => {
     const r = calcBalance({
       ...baseOpts,
       receipts: [
-        { amount: 100, status: "approved", reimbursable_amount: 60 },
+        rcpt({ amount: 100, status: "approved", reimbursable_amount: 60 }),
       ],
     });
     // override wins over the 75% auto-calc
@@ -48,7 +68,7 @@ describe("calcBalance", () => {
     const r = calcBalance({
       ...baseOpts,
       receipts: [
-        { amount: 200, status: "approved", currency: "USD" },
+        rcpt({ amount: 200, status: "approved", currency: "USD" }),
       ],
     });
     expect(r.reimbursable).toBe(0);
@@ -58,7 +78,7 @@ describe("calcBalance", () => {
     const r = calcBalance({
       ...baseOpts,
       receipts: [
-        { amount: 200, status: "approved", currency: "USD", reimbursable_amount: 220 },
+        rcpt({ amount: 200, status: "approved", currency: "USD", reimbursable_amount: 220 }),
       ],
     });
     expect(r.reimbursable).toBe(220);
@@ -69,7 +89,7 @@ describe("calcBalance", () => {
       ...baseOpts,
       cap: 100,
       receipts: [
-        { amount: 1000, status: "approved", currency: "CAD" },
+        rcpt({ amount: 1000, status: "approved", currency: "CAD" }),
       ],
     });
     // 1000 * 0.75 = 750 but cap=100
@@ -82,7 +102,7 @@ describe("calcBalance", () => {
       paidToDate:       200,
       committedToDate:  300,  // includes a $100 scheduled payout
       receipts: [
-        { amount: 1000, status: "approved", currency: "CAD" }, // 750 reimbursable
+        rcpt({ amount: 1000, status: "approved", currency: "CAD" }), // 750 reimbursable
       ],
     });
     // reimbursable=750, committed=300 → next bucket = 450
@@ -96,7 +116,7 @@ describe("calcBalance", () => {
       paidToDate:      500,
       committedToDate: 500,
       receipts: [
-        { amount: 200, status: "approved" }, // 150 reimbursable
+        rcpt({ amount: 200, status: "approved" }), // 150 reimbursable
       ],
     });
     expect(r.eligibleForNextPayout).toBe(0);
@@ -107,7 +127,7 @@ describe("calcBalance", () => {
     const r = calcBalance({
       ...baseOpts,
       paidToDate: 250,
-      receipts:   [{ amount: 400, status: "approved" }], // 300 reimbursable
+      receipts:   [rcpt({ amount: 400, status: "approved" })], // 300 reimbursable
     });
     expect(r.committedToDate).toBe(250);
     expect(r.eligibleForNextPayout).toBe(50);
@@ -202,5 +222,53 @@ describe("defaultGrantCap", () => {
       { name: "Senior", age: 19 } as any,  // above largest tier
     ]);
     expect(total).toBe(0);
+  });
+});
+
+// ============================================================
+//  Regression: the stripped-select bug.
+//
+//  app/lib/payouts.ts selected only "id, amount, status", so currency and
+//  reimbursable_amount arrived as undefined. `undefined != null` is FALSE
+//  in JavaScript, so the override check fell through, and
+//  `undefined ?? "CAD"` then made every receipt look Canadian.
+//
+//  These lock in what SHOULD happen for each shape so the behaviour can't
+//  quietly change again.
+// ============================================================
+describe("currency + override handling (the stripped-select bug)", () => {
+  const opts = { rate: 0.75, cap: 100_000, paidToDate: 0, committedToDate: 0 };
+
+  it("a USD receipt with no override is worth ZERO, not amount x rate", () => {
+    const r = calcBalance({ ...opts, receipts: [rcpt({ amount: 500, status: "approved", currency: "USD" })] });
+    // the bug paid 500 * 0.75 = 375 CAD for 500 US dollars
+    expect(r.reimbursable).toBe(0);
+  });
+
+  it("an explicit $0 override is honoured, not overwritten by the auto-calc", () => {
+    // An admin setting 0 means "this item does not qualify". The bug ignored
+    // it and paid 1000 * 0.75 = 750.
+    const r = calcBalance({ ...opts, receipts: [rcpt({ amount: 1000, status: "approved", reimbursable_amount: 0 })] });
+    expect(r.reimbursable).toBe(0);
+  });
+
+  it("an override above the auto-calc is honoured", () => {
+    const r = calcBalance({ ...opts, receipts: [rcpt({ amount: 200, status: "approved", currency: "USD", reimbursable_amount: 250 })] });
+    expect(r.reimbursable).toBe(250);
+  });
+
+  it("null currency is treated as CAD (the column is nullable)", () => {
+    const r = calcBalance({ ...opts, receipts: [rcpt({ amount: 100, status: "approved", currency: null })] });
+    expect(r.reimbursable).toBe(75);
+  });
+
+  it("a mixed batch totals correctly", () => {
+    const r = calcBalance({ ...opts, receipts: [
+      rcpt({ amount: 100, status: "approved" }),                                        // 75
+      rcpt({ amount: 500, status: "approved", currency: "USD" }),                        // 0
+      rcpt({ amount: 200, status: "approved", reimbursable_amount: 50 }),                // 50
+      rcpt({ amount: 999, status: "pending" }),                                          // 0
+    ]});
+    expect(r.reimbursable).toBe(125);
   });
 });
