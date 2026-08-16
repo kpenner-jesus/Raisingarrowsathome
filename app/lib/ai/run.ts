@@ -29,6 +29,17 @@ import type { ToolContext } from "@/app/lib/mcp/tools";
 const MAX_STEPS = 8;          // bounds tool round-trips (and cost) per turn
 const MAX_TOKENS = 1500;
 
+/**
+ * Anthropic's hosted web search. The API runs the search itself and feeds the
+ * results back in the same request — nothing executes on our side, so it never
+ * touches tenant data and never enters the confirm gate (search can't mutate).
+ * max_uses bounds the per-turn cost (billed per search).
+ *
+ * Only sent on the platform Anthropic path; OpenRouter has no equivalent we
+ * can turn on without silently changing a tenant's own model + billing.
+ */
+const WEB_SEARCH_TOOL = { type: "web_search_20250305", name: "web_search", max_uses: 4 } as const;
+
 export interface PendingAction {
   tool_use_id: string;
   name:        string;
@@ -47,6 +58,8 @@ function systemPrompt(orgName: string, userEmail: string, todayISO: string): str
     `You can read the program's data (applications, recipients, receipts, payouts, testimonials, photos) and PROPOSE changes.`,
     `Read-only lookups run automatically. Any change that touches money or grant decisions (approving/denying applications, deciding receipts, creating receipts, generating or marking payout batches, modifying recipients, importing families, changing team roles) is shown to the admin to CONFIRM before it runs — never claim a change is done until it is confirmed and executed.`,
     `When the admin attaches a receipt photo, read it carefully and extract the total amount, the purchase date (YYYY-MM-DD if legible), the currency (CAD unless clearly USD), and a short description of what was purchased. Resolve which recipient it belongs to — use the name the admin gives and look it up with list_recipients; if the family is ambiguous or unstated, ask before proposing. Then propose create_receipt (it is created as 'pending' for review). State the amount, recipient, and date in your message so the admin can verify before confirming.`,
+    `You can search the web (web_search) for facts that are not in the program's own data — currency exchange rates, curriculum or supplier prices, tax or charity rules, a vendor's details. Use it when the answer depends on current outside information rather than guessing from memory, and say what you found and where it came from. Rates and prices move, so give the figure with its date.`,
+    `Never silently convert a receipt's currency: a receipt is stored in the currency printed on it. If a USD receipt needs a CAD figure, look up the rate, show the conversion and the rate you used, and let the admin decide.`,
     `Be concise and concrete. Use the tools rather than guessing. When you show numbers, format currency clearly. If you're unsure which record the admin means, ask.`,
   ].join("\n");
 }
@@ -60,21 +73,22 @@ function toolUseBlocks(content: Anthropic.ContentBlock[]): Anthropic.ToolUseBloc
 }
 
 /**
- * Replace heavy base64 image blocks in the history with a light text marker
- * once they've been consumed (a receipt was created from one). Without this the
- * full image is replayed — and re-billed by the model — on every later turn.
- * Mutates each message's content in place.
+ * Replace a heavy base64 attachment (photo OR PDF) in the history with a light
+ * text marker once it's been consumed (a receipt was created from it). Without
+ * this the whole file is replayed — and re-billed by the model — every later
+ * turn. Mutates the message content in place.
  */
-function stripImageBlocks(messages: Anthropic.MessageParam[]): void {
-  // Strip ONLY the most-recent image (the one create_receipt just consumed),
-  // mirroring latestReceiptImage's newest-first selection — so any earlier,
-  // not-yet-entered photo in a multi-receipt session survives.
+function stripConsumedAttachment(messages: Anthropic.MessageParam[]): void {
+  // Strip ONLY the most-recent attachment (the one create_receipt just
+  // consumed), mirroring latestReceiptMedia's newest-first selection — so an
+  // earlier, not-yet-entered receipt in a multi-receipt session survives.
   for (let i = messages.length - 1; i >= 0; i--) {
     const c = messages[i].content;
     if (!Array.isArray(c)) continue;
     for (let j = c.length - 1; j >= 0; j--) {
-      if ((c as any[])[j]?.type === "image") {
-        (c as any[])[j] = { type: "text", text: "[receipt photo — entered]" };
+      const t = (c as any[])[j]?.type;
+      if (t === "image" || t === "document") {
+        (c as any[])[j] = { type: "text", text: `[receipt ${t === "document" ? "PDF" : "photo"} — entered]` };
         return;
       }
     }
@@ -130,7 +144,9 @@ export async function runPortalChatTurn(
 
 export async function runAdminChatTurn(args: RunArgs): Promise<TurnResult> {
   const system = systemPrompt(args.orgName, args.userEmail, new Date().toISOString().split("T")[0]);
-  const tools  = anthropicToolDefs();
+  const tools: any[] = args.aiConfig.provider === "anthropic"
+    ? [...anthropicToolDefs(), WEB_SEARCH_TOOL]
+    : anthropicToolDefs();
   const work: Anthropic.MessageParam[] = [...args.messages];
 
   // ── Resume path: execute (or decline) the last assistant turn's tool_use(s). ──
@@ -161,11 +177,11 @@ export async function runAdminChatTurn(args: RunArgs): Promise<TurnResult> {
         }
       }
 
-      // A receipt was just created from the attached photo → drop the now-
-      // consumed image from history so it isn't replayed + re-billed.
+      // A receipt was just created from the attachment → drop the now-consumed
+      // photo/PDF from history so it isn't replayed + re-billed.
       const createdReceipt = args.confirm.approved
         && blocks.some((b, i) => b.name === "create_receipt" && !results[i]?.is_error);
-      if (createdReceipt) stripImageBlocks(work);
+      if (createdReceipt) stripConsumedAttachment(work);
     }
   }
 

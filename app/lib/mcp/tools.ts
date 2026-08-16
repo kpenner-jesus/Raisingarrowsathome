@@ -448,9 +448,11 @@ const decideReceipt: Tool = {
   },
 };
 
-/** Detect a raster image format from its leading magic bytes. Returns the
- *  canonical media type, or null if the bytes aren't an allowed image. */
-function sniffImageMime(buf: Buffer): string | null {
+/** Detect a receipt file's real format from its leading magic bytes. Returns
+ *  the canonical media type, or null if the bytes aren't an allowed image/PDF. */
+function sniffReceiptMime(buf: Buffer): string | null {
+  if (buf.length >= 5 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44
+      && buf[3] === 0x46 && buf[4] === 0x2d) return "application/pdf"; // "%PDF-"
   if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
   if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47
       && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a) return "image/png";
@@ -463,11 +465,11 @@ function sniffImageMime(buf: Buffer): string | null {
 const createReceipt: Tool = {
   name:        "create_receipt",
   description:
-    "Create a receipt for a recipient from the receipt photo the admin attached in this chat. " +
-    "Read the photo, then provide the recipient_id, total amount, currency, purchase date, and a short " +
+    "Create a receipt for a recipient from the receipt photo or PDF the admin attached in this chat. " +
+    "Read the attachment, then provide the recipient_id, total amount, currency, purchase date, and a short " +
     "description of what was purchased. Use list_recipients first to resolve the recipient_id from a " +
     "family name if the admin gave a name. The receipt is created as 'pending' and appears in the normal " +
-    "review queue. REQUIRES an attached image — if none was attached, ask the admin to attach the receipt photo.",
+    "review queue. REQUIRES an attached photo or PDF — if none was attached, ask the admin to attach it.",
   chatOnly: true,
   inputSchema: {
     type: "object",
@@ -475,14 +477,14 @@ const createReceipt: Tool = {
       recipient_id:  { type: "string", description: "The recipient the receipt belongs to (resolve via list_recipients if given a name)." },
       amount:        { type: "number", description: "Total amount shown on the receipt." },
       currency:      { type: "string", enum: ["CAD", "USD"], default: "CAD" },
-      purchase_date: { type: "string", description: "Purchase date in YYYY-MM-DD, if legible on the receipt." },
+      purchase_date: { type: "string", description: "Purchase date in YYYY-MM-DD as printed on the receipt. Receipts are often historical — never substitute today's date; leave it out if it isn't legible." },
       description:   { type: "string", description: "Short description of the purchase (e.g. 'Sonlight Core A curriculum')." },
     },
     required: ["recipient_id", "amount"],
   },
   handler: async ({ recipient_id, amount, currency = "CAD", purchase_date, description }, ctx) => {
     if (!ctx.receiptImage?.data) {
-      throw new Error("No receipt image is attached to this chat. Ask the admin to attach the receipt photo, then try again.");
+      throw new Error("No receipt photo or PDF is attached to this chat. Ask the admin to attach one, then try again.");
     }
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0 || amt > 50_000) {
@@ -506,12 +508,13 @@ const createReceipt: Tool = {
     // Sniff the REAL format from magic bytes — never trust the client-declared
     // media_type for the stored Content-Type or extension.
     const bytes   = Buffer.from(ctx.receiptImage.data, "base64");
-    const sniffed = sniffImageMime(bytes);
-    if (!sniffed) throw new Error("the attached file is not a valid JPEG, PNG, WebP, or GIF image");
+    const sniffed = sniffReceiptMime(bytes);
+    if (!sniffed) throw new Error("the attached file is not a valid JPEG, PNG, WebP, GIF, or PDF");
     const ext =
-      sniffed === "image/png"  ? "png" :
-      sniffed === "image/webp" ? "webp" :
-      sniffed === "image/gif"  ? "gif"  : "jpg";
+      sniffed === "application/pdf" ? "pdf"  :
+      sniffed === "image/png"       ? "png"  :
+      sniffed === "image/webp"      ? "webp" :
+      sniffed === "image/gif"       ? "gif"  : "jpg";
     const folder = recipient.profile_id || ctx.profile_id;
     const path   = `${folder}/${ctx.org_id}/${randomUUID()}.${ext}`;
     assertPathBelongsToOrg(path, ctx.org_id); // <user>/<org>/<file> with org segment == ctx.org_id

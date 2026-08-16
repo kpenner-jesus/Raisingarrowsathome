@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import JSZip from "jszip";
 import {
-  sniffKind, extOf, colToIndex, decodeXml, sheetXmlToCsv, xlsxToText, fileTextBlock, MAX_FILE_TEXT,
+  sniffKind, extOf, colToIndex, decodeXml, sheetXmlToCsv, xlsxToText, fileTextBlock, fileToBase64,
+  MAX_FILE_TEXT, MAX_PDF_B64,
 } from "./file-text";
 
 describe("sniffKind", () => {
@@ -22,9 +23,26 @@ describe("sniffKind", () => {
     expect(sniffKind("noext", "text/plain")).toBe("text");
     expect(sniffKind("noext", "application/json")).toBe("text");
   });
+  it("detects PDFs by mime or extension", () => {
+    expect(sniffKind("receipt.pdf", "application/pdf")).toBe("pdf");
+    expect(sniffKind("receipt.pdf", "")).toBe("pdf");
+    expect(sniffKind("RECEIPT.PDF", "")).toBe("pdf");
+  });
+  it("falls back to the extension when the browser reports a blank image mime", () => {
+    for (const n of ["a.jpg", "a.jpeg", "a.png", "a.gif", "a.webp"]) {
+      expect(sniffKind(n, "")).toBe("image");
+    }
+    expect(sniffKind("PHOTO.JPG", "")).toBe("image");
+  });
+  it("keeps the image fallback from shadowing data files", () => {
+    // guards ordering: these all carry a blank mime too
+    expect(sniffKind("list.xlsx", "")).toBe("xlsx");
+    expect(sniffKind("list.csv", "")).toBe("text");
+    expect(sniffKind("old.xls", "")).toBe("xls");
+  });
   it("rejects unknown binaries", () => {
-    expect(sniffKind("a.pdf", "application/pdf")).toBe("unsupported");
     expect(sniffKind("a.zip", "application/zip")).toBe("unsupported");
+    expect(sniffKind("a.heic", "")).toBe("unsupported");
   });
   it("is case-insensitive on extension", () => {
     expect(sniffKind("GRANTEES.XLSX", "")).toBe("xlsx");
@@ -126,6 +144,26 @@ describe("fileTextBlock", () => {
   it("warns about raw numeric dates for spreadsheets", () => {
     const out = fileTextBlock({ name: "list.xlsx", text: "x", truncated: false });
     expect(out).toContain("converted from a spreadsheet");
+  });
+});
+
+describe("fileToBase64", () => {
+  it("round-trips bytes", async () => {
+    const b64 = await fileToBase64(new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])]));
+    expect(b64).toBe(Buffer.from("%PDF-").toString("base64"));
+  });
+
+  it("survives a payload bigger than one chunk (no stack overflow)", async () => {
+    const big = new Uint8Array(0x8000 * 3 + 7).fill(0x41); // 3 chunks + remainder
+    const b64 = await fileToBase64(new Blob([big]));
+    expect(Buffer.from(b64, "base64").length).toBe(big.length);
+  });
+});
+
+describe("MAX_PDF_B64", () => {
+  it("leaves room for a scanned receipt without blowing the request limit", () => {
+    expect(MAX_PDF_B64).toBeGreaterThan(1_000_000);
+    expect(MAX_PDF_B64 * 0.75).toBeLessThan(32 * 1024 * 1024); // Anthropic request ceiling
   });
 });
 

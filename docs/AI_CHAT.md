@@ -78,9 +78,42 @@ tool_result, satisfying Anthropic's API rule — then the loop continues.
 - `supabase/migrations/20260614_tenant_ai_settings.sql` — `tenants.ai_model` +
   `tenant_ai_secrets` table. Applied to prod + staging.
 
+## Web search (admin chat only)
+- Anthropic's **hosted** `web_search_20250305` server tool is attached to the
+  admin loop (`WEB_SEARCH_TOOL` in `run.ts`, `max_uses: 4` per turn). The API
+  runs the search itself and feeds results back inside the same request, so
+  nothing executes on our side, no tenant data is sent to a search engine, and
+  it never enters the confirm gate (search can't mutate).
+- It comes back as `server_tool_use` + `web_search_tool_result` blocks, NOT
+  `tool_use` — the loop's `toolUseBlocks()` filter ignores them, so the turn
+  settles as `final`. `toolNames()` in the UI does surface them, so an admin
+  can see a lookup happened.
+- Used for facts outside the program's data: exchange rates, supplier prices,
+  charity/tax rules. The prompt forbids silently converting a receipt's
+  currency — the assistant shows the rate and its date, admin decides.
+- **Not on the OpenRouter path.** Server tools have no `input_schema`, so
+  `toOpenAITools()` filters them out; enabling OpenRouter's own web plugin
+  would silently change a tenant's model + billing. Tenants on a BYO key get
+  the data tools only.
+- Billed per search (platform key). Bounded by `max_uses` × the daily cap.
+
 ## File attachments (admin chat)
 - **Images** (receipt photos) → compressed client-side, sent as an Anthropic
   image block; `create_receipt` consumes the latest one on confirm.
+- **PDFs** (scanned/emailed receipts) → sent whole as an Anthropic `document`
+  block. Claude reads PDFs natively, including scans with no text layer, so
+  there is no client-side PDF parsing. Capped at `MAX_PDF_B64` (10 MB base64,
+  ~7.5 MB file). `create_receipt` stores it like a photo — `sniffReceiptMime()`
+  verifies the real `%PDF-` magic bytes and it lands as `.pdf` in the receipts
+  bucket. For OpenRouter, `document` is translated to OpenAI's `file` part
+  rather than dropped.
+- `stripConsumedAttachment()` swaps the photo/PDF for a text marker after a
+  receipt is created, so a multi-MB file isn't replayed and re-billed each turn.
+- Detection (`sniffKind`) prefers MIME but falls back to the **extension** for
+  images and PDFs, because some browsers hand us a blank `file.type`. The
+  image-extension fallback is checked LAST so it can't shadow `.xlsx`/`.csv`.
+  HEIC/HEIF is rejected with a "export it as JPG" message — canvas can't
+  decode it and Anthropic doesn't accept it.
 - **Spreadsheets / data files** (`.xlsx`, `.csv`, `.tsv`, `.txt`, `.md`,
   `.json`, `.log`) → converted to text **client-side** by
   `app/lib/ai/file-text.ts` and sent as a labelled text block

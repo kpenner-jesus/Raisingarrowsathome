@@ -23,7 +23,7 @@
  *  workbook from blowing up the prompt (and the bill). ~20k tokens. */
 export const MAX_FILE_TEXT = 80_000;
 
-export type FileKind = "image" | "text" | "xlsx" | "xls" | "unsupported";
+export type FileKind = "image" | "pdf" | "text" | "xlsx" | "xls" | "unsupported";
 
 export interface ExtractedFile {
   name:      string;
@@ -31,23 +31,51 @@ export interface ExtractedFile {
   truncated: boolean;
 }
 
+/** Base64 cap for a PDF attachment (~7.5 MB of actual file). */
+export const MAX_PDF_B64 = 10_000_000;
+
+/** Shown whenever a file is rejected, so the message never implies that a
+ *  supported type is unsupported. */
+export const SUPPORTED_HINT =
+  "Attach a photo (JPG, PNG, WebP, GIF), a PDF, a spreadsheet (.xlsx), .csv, or a text file.";
+
 const TEXT_EXTS  = ["csv", "tsv", "txt", "md", "json", "log"];
 const TEXT_MIMES = ["text/", "application/json"];
+/** Fallback for files whose MIME the browser reports as "" — happens with
+ *  drag-drop from some cloud-sync folders and with a few Windows setups. */
+const IMAGE_EXTS = ["jpg", "jpeg", "png", "gif", "webp"];
 
 export function extOf(name: string): string {
   const i = name.lastIndexOf(".");
   return i === -1 ? "" : name.slice(i + 1).toLowerCase();
 }
 
-/** Decide how to handle a file from its name + reported MIME type. */
+/** Decide how to handle a file from its name + reported MIME type.
+ *  MIME wins where it's specific; extension is the fallback for the cases
+ *  where a browser hands us a blank type. The image-extension fallback is
+ *  LAST so it can never shadow a spreadsheet or text match. */
 export function sniffKind(name: string, mime: string): FileKind {
   const ext = extOf(name);
   if (mime.startsWith("image/")) return "image";
+  if (mime === "application/pdf" || ext === "pdf") return "pdf";
   if (ext === "xlsx") return "xlsx";
   if (ext === "xls")  return "xls";
   if (TEXT_EXTS.includes(ext)) return "text";
   if (TEXT_MIMES.some((m) => mime.startsWith(m))) return "text";
+  if (IMAGE_EXTS.includes(ext)) return "image";
   return "unsupported";
+}
+
+/** Read a File to base64 without a data-URL round-trip. Chunked because
+ *  String.fromCharCode(...bytes) blows the call stack on multi-MB files. */
+export async function fileToBase64(file: File | Blob): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK)));
+  }
+  return btoa(binary);
 }
 
 function clamp(text: string): { text: string; truncated: boolean } {
@@ -184,8 +212,10 @@ export async function extractFileText(file: File): Promise<ExtractedFile> {
   if (kind === "xls") {
     throw new Error("Old .xls files can't be read directly — open it and save as .xlsx or .csv, then attach that.");
   }
-  if (kind === "image" || kind === "unsupported") {
-    throw new Error("Unsupported file type. Attach a spreadsheet (.xlsx), .csv, or a text file.");
+  // Images and PDFs are sent to the model as-is (they never reach here from
+  // the UI) — this branch only fires on a direct misuse of the helper.
+  if (kind === "image" || kind === "pdf" || kind === "unsupported") {
+    throw new Error(`Can't read "${file.name}" as text. ${SUPPORTED_HINT}`);
   }
 
   let raw: string;

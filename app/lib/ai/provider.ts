@@ -24,7 +24,9 @@ export type AiConfig =
 export interface LlmRequest {
   system:      string;
   messages:    Anthropic.MessageParam[];
-  tools?:      Anthropic.Tool[];
+  /** Client tools AND Anthropic server tools (e.g. web_search), which the API
+   *  runs itself. Server tools carry a `type` and no `input_schema`. */
+  tools?:      Anthropic.MessageCreateParams["tools"];
   max_tokens:  number;
 }
 
@@ -57,10 +59,14 @@ export async function resolveAiConfig(orgId: string): Promise<AiConfig> {
 
 // ── Anthropic → OpenAI (OpenRouter) translation ─────────────────────────
 
-/** Anthropic tool defs → OpenAI function-tool defs. */
-export function toOpenAITools(tools?: Anthropic.Tool[]): any[] | undefined {
-  if (!tools?.length) return undefined;
-  return tools.map((t) => ({
+/** Anthropic tool defs → OpenAI function-tool defs.
+ *  Anthropic SERVER tools (web_search) are dropped: they're executed by
+ *  Anthropic's API, so they have no schema to translate and no meaning on
+ *  OpenRouter. Tenants on their own OpenRouter key get the data tools only. */
+export function toOpenAITools(tools?: LlmRequest["tools"]): any[] | undefined {
+  const fns = (tools ?? []).filter((t: any) => t?.input_schema);
+  if (!fns.length) return undefined;
+  return fns.map((t: any) => ({
     type: "function",
     function: { name: t.name, description: t.description, parameters: t.input_schema },
   }));
@@ -83,6 +89,13 @@ export function toOpenAIMessages(system: string, messages: Anthropic.MessagePara
           parts.push({ type: "text", text: b.text });
         } else if (b?.type === "image" && b.source?.type === "base64") {
           parts.push({ type: "image_url", image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` } });
+        } else if (b?.type === "document" && b.source?.type === "base64") {
+          // OpenRouter's PDF shape. Never drop it silently — a dropped
+          // attachment would leave the model guessing at a receipt it can't see.
+          parts.push({
+            type: "file",
+            file: { filename: "attachment.pdf", file_data: `data:${b.source.media_type};base64,${b.source.data}` },
+          });
         } else if (b?.type === "tool_result") {
           const raw = typeof b.content === "string" ? b.content : JSON.stringify(b.content);
           toolMsgs.push({

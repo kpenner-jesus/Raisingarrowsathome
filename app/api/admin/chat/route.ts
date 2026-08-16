@@ -20,23 +20,28 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-const MAX_IMAGE_B64 = 7_000_000; // ~5.2 MB binary; Anthropic's per-image limit is 5 MB
+const MAX_IMAGE_B64 = 7_000_000;  // ~5.2 MB binary; Anthropic's per-image limit is 5 MB
+const MAX_PDF_B64   = 10_000_000; // ~7.5 MB binary
 
 /**
- * Pull the most-recent base64 image block from the replayed message history.
- * The client embeds an attached receipt photo as an Anthropic image block in
- * the user turn; create_receipt consumes the latest one (via ctx.receiptImage)
- * when the admin confirms. Returns null when there is no usable image.
+ * Pull the most-recent base64 receipt attachment from the replayed message
+ * history — a photo (image block) or a scanned receipt (PDF document block).
+ * create_receipt consumes the latest one (via ctx.receiptImage) when the admin
+ * confirms. Returns null when there is nothing usable attached.
  */
-function latestReceiptImage(messages: any[]): { data: string; mediaType: string } | null {
+function latestReceiptMedia(messages: any[]): { data: string; mediaType: string } | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const content = messages[i]?.content;
     if (!Array.isArray(content)) continue;
     for (let j = content.length - 1; j >= 0; j--) {
       const block = content[j];
-      if (block?.type === "image" && block?.source?.type === "base64"
-          && typeof block.source.data === "string" && ALLOWED_IMAGE_TYPES.has(block.source.media_type)) {
-        return { data: block.source.data, mediaType: block.source.media_type };
+      const src = block?.source;
+      if (src?.type !== "base64" || typeof src.data !== "string") continue;
+      if (block.type === "image" && ALLOWED_IMAGE_TYPES.has(src.media_type)) {
+        return { data: src.data, mediaType: src.media_type };
+      }
+      if (block.type === "document" && src.media_type === "application/pdf") {
+        return { data: src.data, mediaType: "application/pdf" };
       }
     }
   }
@@ -68,9 +73,15 @@ export async function POST(req: Request) {
 
   // Extract the most-recent attached receipt photo (if any) and reject an
   // oversized one BEFORE consuming quota, so a rejected upload doesn't burn a unit.
-  const receiptImage = latestReceiptImage(messages) ?? undefined;
-  if (receiptImage && receiptImage.data.length > MAX_IMAGE_B64) {
-    return NextResponse.json({ error: "Receipt image is too large — please use a smaller photo." }, { status: 413 });
+  const receiptImage = latestReceiptMedia(messages) ?? undefined;
+  if (receiptImage) {
+    const isPdf = receiptImage.mediaType === "application/pdf";
+    if (receiptImage.data.length > (isPdf ? MAX_PDF_B64 : MAX_IMAGE_B64)) {
+      return NextResponse.json(
+        { error: isPdf ? "That PDF is too large — please use one under about 7 MB." : "Receipt image is too large — please use a smaller photo." },
+        { status: 413 },
+      );
+    }
   }
 
   // Daily cap (per tenant) — bounds platform LLM spend.

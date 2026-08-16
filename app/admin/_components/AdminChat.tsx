@@ -6,13 +6,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { sniffKind, extractFileText, fileTextBlock, type ExtractedFile } from "@/app/lib/ai/file-text";
+import {
+  sniffKind, extractFileText, fileTextBlock, fileToBase64,
+  MAX_PDF_B64, SUPPORTED_HINT, type ExtractedFile,
+} from "@/app/lib/ai/file-text";
 
 type ImageSource = { type: string; media_type: string; data: string };
 type Block = { type: string; text?: string; name?: string; input?: any; id?: string; source?: ImageSource };
 type Msg = { role: "user" | "assistant"; content: string | Block[] };
 type Pending = { tool_use_id: string; name: string; input: any };
 type Attachment = { dataUrl: string; mediaType: string; data: string };
+type PdfAttachment = { name: string; data: string };
 
 /** Downscale + re-encode to JPEG so payloads stay small and OCR-friendly. */
 async function compressImage(file: File): Promise<Attachment> {
@@ -51,8 +55,13 @@ function blocksOf(m: Msg): Block[] {
 function textOf(m: Msg): string {
   return blocksOf(m).filter((b) => b.type === "text").map((b) => b.text || "").join("").trim();
 }
+/** Names of everything the assistant DID this turn — our own tools plus
+ *  Anthropic-run server tools (web_search), so a lookup is never invisible. */
 function toolNames(m: Msg): string[] {
-  return blocksOf(m).filter((b) => b.type === "tool_use").map((b) => b.name || "").filter(Boolean);
+  return blocksOf(m)
+    .filter((b) => b.type === "tool_use" || b.type === "server_tool_use")
+    .map((b) => b.name || "")
+    .filter(Boolean);
 }
 
 const PRETTY: Record<string, string> = {
@@ -77,29 +86,45 @@ export function AdminChat() {
   const [error, setError] = useState<string | null>(null);
   const [image, setImage] = useState<Attachment | null>(null);
   const [doc, setDoc] = useState<ExtractedFile | null>(null);
+  const [pdf, setPdf] = useState<PdfAttachment | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const attachSeq = useRef(0);
+
+  /** Only one attachment rides along at a time — attaching replaces. */
+  function clearAttachments() { setImage(null); setDoc(null); setPdf(null); }
 
   async function attachFile(file: File) {
     const myId = ++attachSeq.current;
     const kind = sniffKind(file.name, file.type);
     try {
       if (kind === "image") {
-        const result = await compressImage(file);
+        // canvas can't decode HEIC/HEIF, so say so rather than "couldn't read".
+        const result = await compressImage(file).catch(() => {
+          throw new Error(`Couldn't open "${file.name}". If it's a HEIC photo from an iPhone, export it as JPG and attach that.`);
+        });
         if (attachSeq.current !== myId) return; // a newer attach superseded this one
-        setDoc(null); setImage(result); setError(null);
+        clearAttachments(); setImage(result); setError(null);
+        return;
+      }
+      if (kind === "pdf") {
+        // Sent to the model whole — Claude reads PDFs natively, including
+        // scanned receipts with no text layer, so we don't parse it here.
+        const data = await fileToBase64(file);
+        if (data.length > MAX_PDF_B64) throw new Error("That PDF is too large — keep it under about 7 MB.");
+        if (attachSeq.current !== myId) return;
+        clearAttachments(); setPdf({ name: file.name, data }); setError(null);
         return;
       }
       // Spreadsheet / CSV / text → extracted to text client-side, so the
       // converted content lives in the replayed history (see file-text.ts).
       const extracted = await extractFileText(file);
       if (attachSeq.current !== myId) return;
-      setImage(null); setDoc(extracted);
+      clearAttachments(); setDoc(extracted);
       setError(extracted.truncated ? `Attached "${extracted.name}" — it was long, so only the first part is included.` : null);
     } catch (e: any) {
       if (attachSeq.current !== myId) return;
-      setError(e?.message || "Couldn't read that file.");
+      setError(e?.message || `Couldn't read that file. ${SUPPORTED_HINT}`);
     }
   }
   function onPaste(e: React.ClipboardEvent) {
@@ -134,7 +159,7 @@ export function AdminChat() {
 
   function send() {
     const text = input.trim();
-    if ((!text && !image && !doc) || busy) return;
+    if ((!text && !image && !doc && !pdf) || busy) return;
     if (messages.length >= 78) { setError("This chat is getting long — click ＋ (top-right) to start a new one."); return; }
     let content: string | Block[];
     if (image) {
@@ -142,6 +167,13 @@ export function AdminChat() {
       if (text) blocks.push({ type: "text", text });
       blocks.push({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } });
       content = blocks;
+    } else if (pdf) {
+      // The document block carries no filename, so name it in the text — the
+      // assistant quotes it back and it reads correctly in the transcript.
+      content = [
+        { type: "text", text: text ? `${text}\n\n[Attached PDF: ${pdf.name}]` : `[Attached PDF: ${pdf.name}]` },
+        { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdf.data } },
+      ];
     } else if (doc) {
       // Data files ride along as text so they replay cleanly on later turns.
       content = text ? `${text}\n\n${fileTextBlock(doc)}` : fileTextBlock(doc);
@@ -150,7 +182,7 @@ export function AdminChat() {
     }
     const next: Msg[] = [...messages, { role: "user", content }];
     setMessages(next);
-    setInput(""); setImage(null); setDoc(null);
+    setInput(""); clearAttachments();
     post({ messages: next });
   }
 
@@ -159,8 +191,9 @@ export function AdminChat() {
     // create_receipt needs an attached photo in the conversation; block the
     // confirm early (with a clear message) instead of letting it fail server-side.
     if (approved && pending.name === "create_receipt"
-        && !messages.some((m) => Array.isArray(m.content) && m.content.some((b) => b.type === "image"))) {
-      setError("Attach the receipt photo first, then ask me to enter it.");
+        && !messages.some((m) => Array.isArray(m.content)
+             && m.content.some((b) => b.type === "image" || b.type === "document"))) {
+      setError("Attach the receipt photo or PDF first, then ask me to enter it.");
       setPending(null);
       return;
     }
@@ -211,7 +244,7 @@ export function AdminChat() {
                 <em> &ldquo;how many applications are pending?&rdquo;</em> or
                 <em> &ldquo;approve the application from the Penner family for $1,200&rdquo;</em>.
                 You can also <strong>attach a spreadsheet (.xlsx), .csv or text file</strong> — e.g. your existing grantee
-                list — and I&rsquo;ll read it and propose a bulk import. Or <strong>paste a receipt photo</strong> and
+                list — and I&rsquo;ll read it and propose a bulk import. Or <strong>attach a receipt photo or PDF</strong> and
                 I&rsquo;ll create the receipt entry for the family you name. I&rsquo;ll ask you to confirm anything that
                 changes money or grant decisions.
               </div>
@@ -254,25 +287,33 @@ export function AdminChat() {
                   Confirm: {PRETTY[pending.name] || pending.name.replace(/_/g, " ")}
                 </div>
                 {pending.name === "create_receipt" && (() => {
-                  // Show the exact photo that will be stored so you verify the
+                  // Show the exact file that will be stored so you verify the
                   // real evidence, not just the AI-extracted fields.
                   let src: string | null = null;
+                  let isPdf = false;
                   for (let i = messages.length - 1; i >= 0 && !src; i--) {
                     const c = messages[i].content;
                     if (!Array.isArray(c)) continue;
                     for (let j = c.length - 1; j >= 0; j--) {
                       const b = c[j];
-                      if (b.type === "image" && b.source) { src = `data:${b.source.media_type};base64,${b.source.data}`; break; }
+                      if ((b.type === "image" || b.type === "document") && b.source) {
+                        src = `data:${b.source.media_type};base64,${b.source.data}`;
+                        isPdf = b.type === "document";
+                        break;
+                      }
                     }
                   }
-                  return src ? (
+                  if (!src) {
+                    return <div style={{ fontSize: "0.78rem", color: "#a83232", margin: "0.4rem 0" }}>Nothing attached — Cancel and attach the receipt photo or PDF first.</div>;
+                  }
+                  return (
                     <div style={{ margin: "0.4rem 0" }}>
-                      <div style={{ fontSize: "0.72rem", color: "#666", marginBottom: 4 }}>Photo that will be saved:</div>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={src} alt="receipt to save" style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)" }} />
+                      <div style={{ fontSize: "0.72rem", color: "#666", marginBottom: 4 }}>{isPdf ? "PDF that will be saved:" : "Photo that will be saved:"}</div>
+                      {isPdf
+                        ? <iframe src={src} title="receipt PDF to save" style={{ width: "100%", height: 220, borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)", background: "#fff" }} />
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        : <img src={src} alt="receipt to save" style={{ maxWidth: "100%", maxHeight: 220, borderRadius: 8, border: "1px solid rgba(0,0,0,0.12)" }} />}
                     </div>
-                  ) : (
-                    <div style={{ fontSize: "0.78rem", color: "#a83232", margin: "0.4rem 0" }}>No photo attached — Cancel and attach the receipt photo first.</div>
                   );
                 })()}
                 <pre style={{ fontSize: "0.74rem", background: "rgba(0,0,0,0.04)", padding: "0.5rem", borderRadius: 6, overflowX: "auto", margin: "0.4rem 0", whiteSpace: "pre-wrap" }}>
@@ -298,6 +339,16 @@ export function AdminChat() {
                 <button onClick={() => setImage(null)} title="Remove" style={iconBtn}>✕</button>
               </div>
             )}
+            {pdf && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.04)", padding: "0.4rem 0.5rem", borderRadius: 10 }}>
+                <span style={{ fontSize: 22, lineHeight: 1 }}>📕</span>
+                <span style={{ fontSize: "0.82rem", color: "#666", flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontWeight: 600, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pdf.name}</span>
+                  PDF · {Math.max(1, Math.round(pdf.data.length * 0.75 / 1024)).toLocaleString()} KB
+                </span>
+                <button onClick={() => setPdf(null)} title="Remove" style={iconBtn}>✕</button>
+              </div>
+            )}
             {doc && (
               <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.04)", padding: "0.4rem 0.5rem", borderRadius: 10 }}>
                 <span style={{ fontSize: 22, lineHeight: 1 }}>📄</span>
@@ -310,20 +361,20 @@ export function AdminChat() {
             )}
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <input ref={fileRef} type="file"
-                     accept="image/*,.csv,.tsv,.txt,.md,.json,.xlsx,.xls"
+                     accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.pdf,.csv,.tsv,.txt,.md,.json,.xlsx,.xls"
                      style={{ display: "none" }}
                      onChange={(e) => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = ""; }} />
-              <button onClick={() => fileRef.current?.click()} disabled={busy || !!pending} title="Attach a photo, spreadsheet (.xlsx), or .csv" style={iconBtn}>📎</button>
+              <button onClick={() => fileRef.current?.click()} disabled={busy || !!pending} title="Attach a photo, PDF, spreadsheet (.xlsx), or .csv" style={iconBtn}>📎</button>
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                 onPaste={onPaste}
-                placeholder={pending ? "Confirm or cancel above first…" : "Ask, or attach a spreadsheet or photo…"}
+                placeholder={pending ? "Confirm or cancel above first…" : "Ask, or attach a photo, PDF or spreadsheet…"}
                 disabled={busy || !!pending}
                 style={{ flex: 1, padding: "0.7rem 0.9rem", borderRadius: 10, border: "1px solid rgba(0,0,0,0.15)", fontSize: 15 }}
               />
-              <button onClick={send} disabled={busy || !!pending || (!input.trim() && !image && !doc)} style={primaryBtn}>Send</button>
+              <button onClick={send} disabled={busy || !!pending || (!input.trim() && !image && !doc && !pdf)} style={primaryBtn}>Send</button>
             </div>
           </div>
         </div>
