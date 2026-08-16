@@ -5,11 +5,14 @@ import { supabaseBrowser } from "@/app/lib/supabase/browser";
 import { KidsBehind } from "@/app/_components/Kids";
 
 function LoginInner() {
+  const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [sent,  setSent]  = useState(false);
-  const [error, setError] = useState("");
+  // The callback bounces failed sign-ins back here WITH a reason. Before, a
+  // dead link silently redirected to the portal, which bounced to login again
+  // with nothing explaining why — a loop that looked like a broken site.
+  const [error, setError] = useState(params.get("error") || "");
   const [busy,  setBusy]  = useState(false);
-  const params = useSearchParams();
   const rawNext = params.get("next");
   const next = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") && !/^[a-z]+:/i.test(rawNext)
     ? rawNext
@@ -24,7 +27,22 @@ function LoginInner() {
       options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}` },
     });
     setBusy(false);
-    if (error) { setError(error.message); return; }
+    if (error) {
+      // Supabase sometimes returns an empty or opaque body ("{}"), which was
+      // rendered verbatim and told the user nothing. Keep the real text when
+      // it says something; otherwise explain what actually tends to be wrong.
+      const raw = (error.message || "").trim();
+      const useless = !raw || raw === "{}" || /^\{\s*\}$/.test(raw);
+      console.error("[auth/login] signInWithOtp failed:", error);
+      if (useless) {
+        setError("We couldn't reach the sign-in service just now. Please try again in a moment — if it keeps happening, let us know.");
+      } else if (/rate|too many/i.test(raw)) {
+        setError("Too many sign-in emails were requested. Please wait a few minutes and try again.");
+      } else {
+        setError(raw);
+      }
+      return;
+    }
     setSent(true);
   };
 
