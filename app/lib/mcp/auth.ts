@@ -63,8 +63,16 @@ export async function authBearer(authHeader: string | null): Promise<AuthedToken
     if (membership.role !== "owner" && membership.role !== "admin") return null;
   }
 
-  // Fire-and-forget last_used update
-  supabase.from("api_tokens").update({ last_used_at: new Date().toISOString() }).eq("id", token.id).then(() => {});
+  // Await the last-used stamp. It was fire-and-forget, but on serverless the
+  // invocation can be torn down as soon as the response is sent, so the update
+  // frequently never reached the database — tokens showed as never-used even
+  // when in daily use, which is exactly the signal an operator relies on to
+  // decide a token is stale and safe to revoke. One indexed UPDATE.
+  const { error: stampErr } = await supabase
+    .from("api_tokens")
+    .update({ last_used_at: new Date().toISOString() })
+    .eq("id", token.id);
+  if (stampErr) console.error("[mcp/auth] last_used_at update failed:", stampErr.message);
 
   return {
     token_id:   token.id,

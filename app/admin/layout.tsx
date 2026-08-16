@@ -14,14 +14,18 @@ import "./admin.css";
 export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  // Resolve the tenant BEFORE the session check, so a signed-out admin is
+  // sent back to THEIR org's admin. This hardcoded next=%2Fadmin, and bare
+  // /admin resolves by Host — so a path-routed tenant signed in, landed on the
+  // host-default org they aren't a member of, and was bounced to the portal.
+  const orgCtx = await getOrgContext();
+
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    redirect("/auth/login?next=%2Fadmin");
+    redirect(`/auth/login?next=${encodeURIComponent(orgPath(orgCtx, "/admin"))}`);
   }
 
-  // Resolve the tenant for this request (set by middleware via header).
-  const orgCtx = await getOrgContext();
   if (!orgCtx) {
     // No org resolved — bare admin URL on an unknown host. Send to signup
     // which can either route to their org or create a new one.

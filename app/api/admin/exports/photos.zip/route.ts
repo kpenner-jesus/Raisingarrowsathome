@@ -29,9 +29,13 @@ export async function GET(req: Request) {
   const startISO = `${year}-01-01T00:00:00Z`;
   const endISO   = `${year + 1}-01-01T00:00:00Z`;
 
-  // Memory + Vercel-timeout cap. ~30 photos × ~1MB = ~30MB zip at most.
-  // Above this we ask admin to paginate via ?offset=.
-  const MAX_PER_ZIP = 30;
+  // TWO caps, and the byte one is the real constraint. The count cap alone
+  // budgeted "~30 photos x ~1MB = ~30MB", but the hosting platform refuses a
+  // response body over ~4.5 MB — so a year with even a few phone photos
+  // produced an opaque 500 and no zip, while working fine locally. Photos are
+  // already-compressed JPEGs, so raw bytes ≈ zipped bytes.
+  const MAX_PER_ZIP   = 30;
+  const MAX_ZIP_BYTES = 3_500_000;
   const offsetRaw = url.searchParams.get("offset");
   const offset = offsetRaw && /^\d+$/.test(offsetRaw) ? Number(offsetRaw) : 0;
 
@@ -57,6 +61,10 @@ export async function GET(req: Request) {
   // Manifest of which photo came from which family
   const manifest: string[] = ["filename,family,app_ref,caption,created_at"];
 
+  let bytes = 0;
+  let included = 0;
+  let stoppedForSize = false;
+
   for (const p of (photos as any[]) ?? []) {
     try {
       const { data: file } = await svc.storage.from("photos").download(p.image_path);
@@ -65,6 +73,11 @@ export async function GET(req: Request) {
       const fam = safeName(p.recipients.applications.parent_names || "unknown");
       const filename = `${fam}-${p.id.slice(0,8)}.${ext}`;
       const buf = Buffer.from(await file.arrayBuffer());
+      // Stop BEFORE crossing the budget, but always include at least one photo
+      // so a single large image still downloads rather than returning nothing.
+      if (included > 0 && bytes + buf.length > MAX_ZIP_BYTES) { stoppedForSize = true; break; }
+      bytes += buf.length;
+      included += 1;
       folder.file(filename, buf);
       manifest.push(`${filename},"${p.recipients.applications.parent_names}",${p.recipients.applications.app_ref},"${(p.caption||"").replace(/"/g,'""')}",${p.created_at}`);
     } catch (e) {
@@ -79,8 +92,10 @@ export async function GET(req: Request) {
     "Content-Disposition": `attachment; filename="${orgCtx.slug}-photos-${year}-from-${offset}.zip"`,
     "Cache-Control": "no-store",
   };
-  // Surface pagination guidance in custom header if more remain.
-  const nextOffset = offset + photos.length;
+  // Pagination must count what was actually PUT IN the zip, not what was
+  // fetched — otherwise a size-truncated batch silently skips photos.
+  const nextOffset = offset + included;
+  if (stoppedForSize) headers["X-Stopped-For-Size"] = "1";
   if ((total ?? 0) > nextOffset) {
     headers["X-Next-Offset"] = String(nextOffset);
     headers["X-Total-Photos"] = String(total);

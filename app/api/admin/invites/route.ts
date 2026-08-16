@@ -51,10 +51,12 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Build the absolute invite URL from PLATFORM_URL + orgPath so the link
-  // lands the invitee at THIS tenant's /admin/onboard, not the host-default.
+  // lands the invitee at THIS tenant's accept-invite page, not the host-default.
+  // NOT under /admin: that layout bounces anyone without a membership, which
+  // is precisely what an invitee lacks until this page runs.
   const platformOrigin = process.env.NEXT_PUBLIC_PLATFORM_URL || new URL(req.url).origin;
   const orgPathPrefix  = orgCtx.prefixed ? `/o/${orgCtx.slug}` : "";
-  const inviteUrl = `${platformOrigin}${orgPathPrefix}/admin/onboard?token=${encodeURIComponent(token)}`;
+  const inviteUrl = `${platformOrigin}${orgPathPrefix}/auth/accept-invite?token=${encodeURIComponent(token)}`;
 
   // Email the invite (best-effort). Use the tenant's verified sender when
   // available so the email comes from "<charity name> <register@charity.org>"
