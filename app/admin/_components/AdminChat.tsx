@@ -82,6 +82,7 @@ const PRETTY: Record<string, string> = {
   bulk_create_recipients: "Bulk-import recipients",
   set_user_role: "Change a team member's role",
   create_receipt: "Create a receipt from a photo",
+  delete_record: "PERMANENTLY DELETE a record",
 };
 
 export function AdminChat() {
@@ -372,11 +373,31 @@ export function AdminChat() {
               );
             })}
 
-            {pending && (
-              <div style={{ border: "1.5px solid var(--ra-accent, #e8793a)", borderRadius: 12, padding: "0.85rem", background: "rgba(232,121,58,0.06)" }}>
-                <div style={{ fontWeight: 600, fontSize: "0.92rem", marginBottom: 4 }}>
-                  Confirm: {PRETTY[pending.name] || pending.name.replace(/_/g, " ")}
+            {pending && (() => {
+            // A delete must not look like every other confirm. Red frame,
+            // explicit "permanent", and the reason shown back to the admin.
+            const destructive = pending.name === "delete_record";
+            return (
+              <div style={{
+                border: `1.5px solid ${destructive ? "#c0392b" : "var(--ra-accent, #e8793a)"}`,
+                borderRadius: 12, padding: "0.85rem",
+                background: destructive ? "rgba(192,57,43,0.07)" : "rgba(232,121,58,0.06)",
+              }}>
+                <div style={{ fontWeight: 600, fontSize: "0.92rem", marginBottom: 4, color: destructive ? "#a5281c" : undefined }}>
+                  {destructive ? "⚠ " : ""}Confirm: {PRETTY[pending.name] || pending.name.replace(/_/g, " ")}
                 </div>
+                {destructive && (
+                  <div style={{ fontSize: "0.8rem", color: "#a5281c", marginBottom: 6, lineHeight: 1.45 }}>
+                    This permanently removes the record below. A copy is kept in the audit log,
+                    but nothing in the app puts it back — restoring it means going into the database by hand.
+                    {pending.input?.cascade
+                      ? <><br /><strong>Related records will be deleted with it.</strong></>
+                      : null}
+                    {pending.input?.reason
+                      ? <><br />Reason recorded: “{String(pending.input.reason).slice(0, 200)}”</>
+                      : null}
+                  </div>
+                )}
                 {pending.name === "create_receipt" && (() => {
                   // Show the exact file that will be stored so you verify the
                   // real evidence, not just the AI-extracted fields.
@@ -423,11 +444,24 @@ export function AdminChat() {
                   {JSON.stringify(pending.input, null, 2)}
                 </pre>
                 <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
-                  <button onClick={() => decide(true)} disabled={busy} style={{ ...primaryBtn, flex: 1 }}>Confirm</button>
-                  <button onClick={() => decide(false)} disabled={busy} style={{ ...ghostBtn, flex: 1 }}>Cancel</button>
+                  {/* Cancel FIRST on a delete, and it takes the primary style —
+                      the safe choice should be the one under your thumb. */}
+                  {destructive ? (
+                    <>
+                      <button onClick={() => decide(false)} disabled={busy} style={{ ...primaryBtn, flex: 1 }}>Cancel</button>
+                      <button onClick={() => decide(true)} disabled={busy}
+                              style={{ ...ghostBtn, flex: 1, color: "#a5281c", borderColor: "#c0392b" }}>Delete permanently</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => decide(true)} disabled={busy} style={{ ...primaryBtn, flex: 1 }}>Confirm</button>
+                      <button onClick={() => decide(false)} disabled={busy} style={{ ...ghostBtn, flex: 1 }}>Cancel</button>
+                    </>
+                  )}
                 </div>
               </div>
-            )}
+            );
+            })()}
 
             {busy && <div style={{ color: "#999", fontSize: "0.85rem" }}>Thinking…</div>}
             {driveBusy && <div style={{ color: "#999", fontSize: "0.85rem" }}>Opening Google Drive…</div>}

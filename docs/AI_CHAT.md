@@ -78,6 +78,40 @@ tool_result, satisfying Anthropic's API rule — then the loop continues.
 - `supabase/migrations/20260614_tenant_ai_settings.sql` — `tenants.ai_model` +
   `tenant_ai_secrets` table. Applied to prod + staging.
 
+## Deleting records (admin chat only)
+Bad data gets in — a double import can stamp payouts as "paid" that never
+happened — and nothing could remove them. `delete_record` can, loudly.
+
+- `preview_delete` (read-only, auto-runs) reports the row, how many related
+  rows would go with it, whether it changes what a family is owed, and any
+  stored file. The prompt requires it BEFORE a delete is proposed.
+- `delete_record` is a mutating tool, so it halts for Confirm. The card is
+  red, says "permanent", shows the recorded reason, and puts **Cancel first
+  in the primary style** — the safe choice should be under your thumb.
+- **Archive first, fail closed.** The full row is inserted into `audit_log`
+  BEFORE the delete and the delete is abandoned if that write fails.
+  `writeAudit()` deliberately swallows its errors so an audit hiccup can't
+  break a normal request; that trade is wrong here, so this insert is done
+  directly. A mistaken delete is recoverable by hand from the audit row.
+- **Whitelist** (`app/lib/mcp/deletable.ts`): payouts, receipts, photos,
+  testimonials, payout_batches, recipients, applications. `audit_log`,
+  `tenants`, `org_members` and `profiles` are absent on purpose — nothing in
+  a chat should be able to delete the record of what a chat did.
+- **No silent cascades.** Deleting a recipient also destroys their receipts,
+  photos, testimonials, payouts and notes; the counts must be shown and
+  `cascade: true` passed. An application is BLOCKED by its recipients
+  (ON DELETE RESTRICT), caught here so the admin gets a sentence rather than
+  a Postgres error.
+- The cascade map was read from the LIVE database (`pg_constraint`), not the
+  repo migrations. `recipient_notes`, `application_notes` and the
+  `receipts.duplicate_of_id` self-link are all missing from the checked-in
+  SQL, and each would have been under-reported. Verify against the DB when
+  adding a table.
+- **`chatOnly: true`** — hidden from the external MCP server. The Confirm
+  step IS the safeguard and it only exists in the chat UI; over MCP a token
+  holder would delete instantly. `preview_delete` stays exposed (read-only).
+- One record per call. A written reason (>=10 chars) is required and stored.
+
 ## Web search (admin chat only)
 - Anthropic's **hosted** `web_search_20250305` server tool is attached to the
   admin loop (`WEB_SEARCH_TOOL` in `run.ts`, `max_uses: 4` per turn). The API

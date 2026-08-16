@@ -29,6 +29,9 @@ export const MUTATING_TOOLS = new Set<string>([
   "export_batch_csv",
   "bulk_create_recipients",
   "set_user_role",
+  // Destructive and irreversible in the UI sense — the row is archived to
+  // audit_log first, but nothing in the app restores it automatically.
+  "delete_record",
 ]);
 
 export function isMutatingTool(name: string): boolean {

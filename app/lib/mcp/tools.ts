@@ -20,6 +20,7 @@ import { calcBalance } from "@/app/lib/grant-calc";
 import { decideApplication as decideApp } from "@/app/lib/admin/decide-application";
 import { generatePayoutsForOrg } from "@/app/lib/payouts";
 import { assertPathBelongsToOrg } from "@/app/lib/storage-path";
+import { DELETABLE_TABLES, specFor, assertReason, describeImpact } from "./deletable";
 import {
   notifyReceiptApproved,
   notifyReceiptRejected,
@@ -955,6 +956,179 @@ const setUserRole: Tool = {
   },
 };
 
+// ──────────────────────────────────────────────────────────────
+//  DELETE — admin-only, archived, never silent
+// ──────────────────────────────────────────────────────────────
+
+/** Count each child row that points at this record, org-scoped. */
+async function countChildren(
+  rels: { table: string; fk: string }[],
+  id: string,
+  orgId: string,
+): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const rel of rels) {
+    const { count } = await supabaseService()
+      .from(rel.table)
+      .select("id", { count: "exact", head: true })
+      .eq(rel.fk, id)
+      .eq("org_id", orgId);
+    counts[`${rel.table}.${rel.fk}`] = count ?? 0;
+  }
+  return counts;
+}
+
+/** Fetch the row, org-scoped. Throws a plain-English error if it isn't there. */
+async function fetchDeletable(table: string, id: string, orgId: string): Promise<any> {
+  const { data, error } = await supabaseService()
+    .from(table).select("*").eq("id", id).eq("org_id", orgId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data)  throw new Error(`No ${specFor(table).label} with id ${id} in this program.`);
+  return data;
+}
+
+const previewDelete: Tool = {
+  name:        "preview_delete",
+  description:
+    "Show exactly what deleting a record would destroy, WITHOUT deleting anything. Always call this before " +
+    "proposing delete_record, and tell the admin what it says — the record's own details, how many related " +
+    "rows would be destroyed with it, and whether it changes what a family is owed. Read-only and safe.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      table: { type: "string", enum: DELETABLE_TABLES, description: "Which kind of record." },
+      id:    { type: "string", description: "The record's id." },
+    },
+    required: ["table", "id"],
+  },
+  handler: async ({ table, id }, ctx) => {
+    const spec = specFor(table);
+    const row  = await fetchDeletable(table, id, ctx.org_id);
+    const counts = await countChildren(
+      [...spec.cascades, ...spec.restricts, ...spec.unlinks], id, ctx.org_id);
+    const impact = describeImpact(spec, counts);
+
+    return {
+      table,
+      label: spec.label,
+      record: row,
+      will_also_delete:  impact.destroys.length ? impact.destroys : "nothing",
+      will_unlink:       impact.unlinks.length  ? impact.unlinks  : "nothing",
+      blocked_by:        impact.blockedBy.length ? impact.blockedBy : null,
+      deletes_stored_file: spec.storage ? (row[spec.storage.column] || null) : null,
+      changes_family_balance: Boolean(spec.affectsBalance),
+      recoverable: "The full record is copied into the audit log before deletion, so it can be restored by hand.",
+      cascade_required: impact.destroys.length > 0,
+    };
+  },
+};
+
+const deleteRecord: Tool = {
+  name:        "delete_record",
+  description:
+    "PERMANENTLY delete one record. Use only when the admin has clearly asked for a deletion — for example " +
+    "duplicate rows from a bad import, or a payout marked paid that never actually happened. Call preview_delete " +
+    "FIRST and state plainly what will be destroyed, including any related rows and any change to what a family " +
+    "is owed. One record per call. A written reason is required and is stored in the audit log. If the record " +
+    "has related rows that would be destroyed too, you must pass cascade: true, and you must have told the " +
+    "admin the counts before they confirm. Never guess at an id — look it up first.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      table:   { type: "string", enum: DELETABLE_TABLES, description: "Which kind of record." },
+      id:      { type: "string", description: "The record's id." },
+      reason:  { type: "string", description: "Why it is being deleted, in a short sentence. Written to the audit log." },
+      cascade: { type: "boolean", description: "Required true when related rows would be destroyed with it.", default: false },
+    },
+    required: ["table", "id", "reason"],
+  },
+  // IN-APP CHAT ONLY. The loudness of this tool IS the Confirm step, and that
+  // lives in the chat UI — over the external MCP server a token holder would
+  // delete instantly, with no human between the request and the row going
+  // away. An API token is also a weaker credential than a signed-in admin.
+  // Without the gate the tool shouldn't exist, so it is hidden there.
+  chatOnly: true,
+  handler: async ({ table, id, reason, cascade = false }, ctx) => {
+    const spec     = specFor(table);
+    const why      = assertReason(reason);
+    const supabase = supabaseService();
+
+    const row    = await fetchDeletable(table, id, ctx.org_id);
+    const counts = await countChildren(
+      [...spec.cascades, ...spec.restricts, ...spec.unlinks], id, ctx.org_id);
+    const impact = describeImpact(spec, counts);
+
+    if (impact.blockedBy.length) {
+      throw new Error(
+        `This ${spec.label} still has ${impact.blockedBy.join(", ")} attached to it. ` +
+        `Delete those first — the database will not allow this one to go while they exist.`,
+      );
+    }
+    if (impact.destroys.length && !cascade) {
+      throw new Error(
+        `Deleting this ${spec.label} would also permanently delete ${impact.destroys.join(", ")}. ` +
+        `Tell the admin that, and only re-propose with cascade: true if they still want it.`,
+      );
+    }
+
+    // ARCHIVE FIRST, and fail closed. writeAudit() deliberately swallows its
+    // errors so an audit hiccup can't break a normal request — that trade is
+    // wrong here: no archive means an unrecoverable delete, so this insert is
+    // done directly and the delete is abandoned if it fails.
+    const { data: archive, error: archiveErr } = await supabase
+      .from("audit_log")
+      .insert({
+        org_id:       ctx.org_id,
+        actor_id:     ctx.profile_id,
+        action:       `delete_${table}`,
+        target_table: table,
+        target_id:    id,
+        details: {
+          source: "ai_chat",
+          reason: why,
+          deleted_row: row,
+          cascade_counts: counts,
+          also_deleted: impact.destroys,
+          also_unlinked: impact.unlinks,
+        },
+      })
+      .select("id")
+      .single();
+    if (archiveErr || !archive) {
+      throw new Error(
+        `Refusing to delete: couldn't write the recovery copy to the audit log (${archiveErr?.message || "no row returned"}).`,
+      );
+    }
+
+    const { error: delErr } = await supabase
+      .from(table).delete().eq("id", id).eq("org_id", ctx.org_id);
+    if (delErr) throw new Error(`Delete failed: ${delErr.message}`);
+
+    // Best-effort file cleanup. The row is already gone, so a storage failure
+    // must not read as "the delete failed" — report it instead.
+    let storageNote: string | null = null;
+    if (spec.storage && row[spec.storage.column]) {
+      const { error: sErr } = await supabase.storage
+        .from(spec.storage.bucket).remove([row[spec.storage.column]]);
+      storageNote = sErr
+        ? `The record is deleted, but its stored file could not be removed (${sErr.message}).`
+        : null;
+    }
+
+    return {
+      deleted: true,
+      table,
+      id,
+      what: `${spec.label} deleted`,
+      also_deleted: impact.destroys.length ? impact.destroys : "nothing",
+      also_unlinked: impact.unlinks.length ? impact.unlinks : "nothing",
+      reason: why,
+      recovery: `A full copy is in the audit log (entry ${archive.id}) if this needs to be undone.`,
+      warning: storageNote,
+    };
+  },
+};
+
 export const TOOLS: Tool[] = [
   listApplications,
   getApplication,
@@ -976,4 +1150,6 @@ export const TOOLS: Tool[] = [
   generatePayoutBatch,
   markBatchPaid,
   exportBatchCsv,
+  previewDelete,
+  deleteRecord,
 ];
