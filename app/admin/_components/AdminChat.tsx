@@ -10,6 +10,7 @@ import {
   sniffKind, extractFileText, fileTextBlock, fileToBase64,
   MAX_PDF_B64, SUPPORTED_HINT, type ExtractedFile,
 } from "@/app/lib/ai/file-text";
+import { driveConfig, pickFromDrive } from "@/app/lib/ai/google-drive";
 
 type ImageSource = { type: string; media_type: string; data: string };
 type Block = { type: string; text?: string; name?: string; input?: any; id?: string; source?: ImageSource };
@@ -87,6 +88,12 @@ export function AdminChat() {
   const [image, setImage] = useState<Attachment | null>(null);
   const [doc, setDoc] = useState<ExtractedFile | null>(null);
   const [pdf, setPdf] = useState<PdfAttachment | null>(null);
+  const [attachMenu, setAttachMenu] = useState(false);
+  const [driveBusy, setDriveBusy] = useState(false);
+  // Read once: NEXT_PUBLIC_* are build-time constants, and reading during
+  // render would differ between the server and client passes.
+  const [driveReady, setDriveReady] = useState(false);
+  useEffect(() => { setDriveReady(driveConfig().ready); }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const attachSeq = useRef(0);
@@ -127,6 +134,21 @@ export function AdminChat() {
       setError(e?.message || `Couldn't read that file. ${SUPPORTED_HINT}`);
     }
   }
+  /** Pick a file out of Google Drive, then hand it to the SAME path a local
+   *  file takes — so Drive adds a source, not a second set of rules. */
+  async function attachFromDrive() {
+    setError(null);
+    setDriveBusy(true);
+    try {
+      const file = await pickFromDrive();
+      if (file) await attachFile(file); // null = the admin cancelled the picker
+    } catch (e: any) {
+      setError(e?.message || "Couldn't get that file from Google Drive.");
+    } finally {
+      setDriveBusy(false);
+    }
+  }
+
   function onPaste(e: React.ClipboardEvent) {
     const item = Array.from(e.clipboardData.items).find((it) => it.type.startsWith("image/"));
     if (item) { const f = item.getAsFile(); if (f) { e.preventDefault(); attachFile(f); } }
@@ -327,6 +349,7 @@ export function AdminChat() {
             )}
 
             {busy && <div style={{ color: "#999", fontSize: "0.85rem" }}>Thinking…</div>}
+            {driveBusy && <div style={{ color: "#999", fontSize: "0.85rem" }}>Opening Google Drive…</div>}
             {error && <div style={{ color: "#a83232", fontSize: "0.85rem", background: "rgba(224,80,80,0.08)", padding: "0.5rem 0.7rem", borderRadius: 8 }}>{error}</div>}
           </div>
 
@@ -364,7 +387,36 @@ export function AdminChat() {
                      accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.pdf,.csv,.tsv,.txt,.md,.json,.xlsx,.xls"
                      style={{ display: "none" }}
                      onChange={(e) => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = ""; }} />
-              <button onClick={() => fileRef.current?.click()} disabled={busy || !!pending} title="Attach a photo, PDF, spreadsheet (.xlsx), or .csv" style={iconBtn}>📎</button>
+              {/* One attach control. With Drive configured it opens a two-way
+                  menu; without it, it goes straight to the file picker so the
+                  click count is unchanged for tenants that don't use Drive. */}
+              <div style={{ position: "relative" }}>
+                <button
+                  onClick={() => (driveReady ? setAttachMenu((v) => !v) : fileRef.current?.click())}
+                  disabled={busy || driveBusy || !!pending}
+                  title={driveReady ? "Attach a file" : "Attach a photo, PDF, spreadsheet (.xlsx), or .csv"}
+                  style={iconBtn}
+                >📎</button>
+                {attachMenu && (
+                  <>
+                    {/* click-away catcher */}
+                    <div onClick={() => setAttachMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                    <div style={{
+                      position: "absolute", bottom: "calc(100% + 6px)", left: 0, zIndex: 41,
+                      background: "#fff", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 10,
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.14)", overflow: "hidden", minWidth: 190,
+                    }}>
+                      <button style={menuItem} onClick={() => { setAttachMenu(false); fileRef.current?.click(); }}>
+                        💻&nbsp; From my computer
+                      </button>
+                      <button style={{ ...menuItem, borderTop: "1px solid rgba(0,0,0,0.07)" }}
+                              onClick={() => { setAttachMenu(false); attachFromDrive(); }}>
+                        🔵&nbsp; From Google Drive
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -396,6 +448,11 @@ function Bubble({ who, children }: { who: "user" | "assistant"; children: React.
     }}>{children}</div>
   );
 }
+
+const menuItem: React.CSSProperties = {
+  display: "block", width: "100%", textAlign: "left", padding: "0.6rem 0.8rem",
+  background: "transparent", border: "none", cursor: "pointer", fontSize: "0.88rem", color: "#333",
+};
 
 const iconBtn: React.CSSProperties = { background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#666", width: 28, height: 28 };
 const primaryBtn: React.CSSProperties = { background: "linear-gradient(180deg, var(--ra-accent, #e8793a), #c45f20)", color: "#fff", border: "none", borderRadius: 10, padding: "0.7rem 1rem", fontWeight: 600, cursor: "pointer", fontSize: 14 };

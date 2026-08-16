@@ -130,6 +130,11 @@ tool_result, satisfying Anthropic's API rule — then the loop continues.
   clear "re-save as .xlsx or .csv" message instead of a cryptic failure.
 - Extracted text is capped at `MAX_FILE_TEXT` (80k chars) and flagged as
   truncated in the UI.
+- **From Google Drive** — 📎 opens a two-option menu when Drive is configured
+  (local file / Drive), and goes straight to the local picker when it isn't, so
+  the click count is unchanged for tenants not using it. The picked file is
+  handed to the same `attachFile()` path. Client-side only, `drive.file` scope,
+  no server-side Google credential — see `docs/GOOGLE_DRIVE.md`.
 
 ## Follow-ups (not in v1)
 - Token streaming (v1 is request/response — text appears when the turn
