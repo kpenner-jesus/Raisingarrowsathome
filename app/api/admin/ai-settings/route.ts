@@ -11,7 +11,7 @@ import { encryptSecret, secretsReady } from "@/app/lib/crypto";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MODEL_RE = /^[A-Za-z0-9._:\/-]{1,100}$/; // OpenRouter slug, e.g. anthropic/claude-sonnet-4.6
+const MODEL_RE = /^[A-Za-z0-9._:\/-]{1,100}$/; // OpenRouter slug, e.g. anthropic/claude-sonnet-5
 
 function has(body: Record<string, unknown>, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(body, key);
@@ -35,7 +35,7 @@ export async function PATCH(req: Request) {
     } else if (typeof v === "string") {
       const m = v.trim();
       if (!MODEL_RE.test(m)) {
-        return NextResponse.json({ error: "Model must be an OpenRouter slug like anthropic/claude-sonnet-4.6" }, { status: 400 });
+        return NextResponse.json({ error: "Model must be an OpenRouter slug like anthropic/claude-sonnet-5" }, { status: 400 });
       }
       modelUpdate = m;
     } else {

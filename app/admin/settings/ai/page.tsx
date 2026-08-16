@@ -1,6 +1,6 @@
 // /admin/settings/ai — owner sets their own OpenRouter key + model so the
 // tenant carries its own LLM cost. When unset, the assistant runs on the
-// platform Anthropic model (Sonnet 4.6), which is also the auto-failover.
+// platform Anthropic model (Sonnet 5), which is also the auto-failover.
 
 import { redirect } from "next/navigation";
 import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
@@ -32,7 +32,7 @@ export default async function AiSettings() {
           <h1 className="ra-h1">AI assistant</h1>
           <p className="ra-quiet" style={{ marginTop: "0.15rem" }}>
             Run the in-app assistant on your own OpenRouter account + model. Leave it empty to use the
-            platform default (Claude Sonnet 4.6) — which is also the automatic backup if your OpenRouter call fails.
+            platform default (Claude Sonnet 5) — which is also the automatic backup if your OpenRouter call fails.
           </p>
         </div>
       </header>

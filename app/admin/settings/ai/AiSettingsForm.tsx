@@ -2,7 +2,7 @@
 // Owner-only form: choose the OpenRouter model + paste an OpenRouter API key.
 // The key is write-only (never sent back from the server). When both a key and
 // a model are set, the assistant runs on OpenRouter (tenant pays); otherwise it
-// uses the platform Anthropic model (Sonnet 4.6), which is also the failover.
+// uses the platform Anthropic model (Sonnet 5), which is also the failover.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -10,8 +10,8 @@ import { useRouter } from "next/navigation";
 // Curated suggestions. The admin chat uses tool-calling + image input, so the
 // chosen model must support BOTH. Pick any model from openrouter.ai/models via "Custom".
 const CURATED = [
-  { value: "",                            label: "Platform default — Claude Sonnet 4.6 (no OpenRouter)" },
-  { value: "anthropic/claude-sonnet-4.6", label: "Claude Sonnet 4.6 — Anthropic (tools + vision)" },
+  { value: "",                            label: "Platform default — Claude Sonnet 5 (no OpenRouter)" },
+  { value: "anthropic/claude-sonnet-5",   label: "Claude Sonnet 5 — Anthropic (tools + vision)" },
   { value: "openai/gpt-4o",               label: "GPT-4o — OpenAI (tools + vision)" },
   { value: "google/gemini-2.5-pro",       label: "Gemini 2.5 Pro — Google (tools + vision)" },
   { value: "__custom__",                  label: "Custom model slug…" },
@@ -93,14 +93,14 @@ export function AiSettingsForm({
             type="text"
             value={customModel}
             onChange={(e) => { setCustomModel(e.target.value); dirtyClear(); }}
-            placeholder="provider/model-slug  (e.g. anthropic/claude-sonnet-4.6)"
+            placeholder="provider/model-slug  (e.g. anthropic/claude-sonnet-5)"
             className="ra-input"
             style={{ width: "100%", fontFamily: "ui-monospace, monospace" }}
           />
         )}
         {effectiveModel === "" && (
           <p className="ra-quiet" style={{ fontSize: "0.82rem", marginTop: "0.6rem" }}>
-            With no model selected, the assistant uses the platform default (Claude Sonnet 4.6) at no cost to you.
+            With no model selected, the assistant uses the platform default (Claude Sonnet 5) at no cost to you.
           </p>
         )}
       </section>

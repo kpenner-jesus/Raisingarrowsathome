@@ -8,7 +8,7 @@
 //  - When a tenant has configured an OpenRouter key + model, calls go to
 //    OpenRouter (their key, their cost) via an Anthropic→OpenAI adapter.
 //    On ANY OpenRouter failure we auto-fail-over to the platform Anthropic
-//    model (Sonnet 4.6) so the chat never hard-fails.
+//    model (Sonnet 5) so the chat never hard-fails.
 //  - When no tenant key is configured, the platform Anthropic model is used.
 // ============================================================
 

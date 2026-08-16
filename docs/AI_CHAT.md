@@ -29,7 +29,7 @@ everybooking Rails assistant — that was the behavior reference only).
 
 ## Engine
 - `app/lib/ai/anthropic.ts` — lazy client + `aiReady()` guard +
-  `DEFAULT_CHAT_MODEL = claude-sonnet-4-6` (override `ANTHROPIC_MODEL`).
+  `DEFAULT_CHAT_MODEL = claude-sonnet-5` (override `ANTHROPIC_MODEL`).
 - `app/lib/ai/tool-bridge.ts` — maps `TOOLS` → Anthropic tool defs +
   read/mutating classification.
 - `app/lib/ai/run.ts` — `runAdminChatTurn` (tool loop, confirm-gating,
@@ -65,7 +65,7 @@ tool_result, satisfying Anthropic's API rule — then the loop continues.
 - `createMessage()` is the single provider-agnostic call the loop uses. The loop
   stays in Anthropic Messages shape; provider.ts translates Anthropic↔OpenAI
   (tools, tool_use/tool_result, base64 images) for the OpenRouter path. **Any**
-  OpenRouter error (incl. a 45s timeout) auto-fails-over to platform Sonnet 4.6.
+  OpenRouter error (incl. a 45s timeout) auto-fails-over to platform Sonnet 5.
 - Keys are AES-256-GCM encrypted (`app/lib/crypto.ts`, env
   `AI_KEY_ENCRYPTION_SECRET` — `openssl rand -hex 32`) and stored in the
   service-role-only `tenant_ai_secrets` table (RLS on, no policies); the model
