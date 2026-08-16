@@ -78,6 +78,26 @@ tool_result, satisfying Anthropic's API rule — then the loop continues.
 - `supabase/migrations/20260614_tenant_ai_settings.sql` — `tenants.ai_model` +
   `tenant_ai_secrets` table. Applied to prod + staging.
 
+## File attachments (admin chat)
+- **Images** (receipt photos) → compressed client-side, sent as an Anthropic
+  image block; `create_receipt` consumes the latest one on confirm.
+- **Spreadsheets / data files** (`.xlsx`, `.csv`, `.tsv`, `.txt`, `.md`,
+  `.json`, `.log`) → converted to text **client-side** by
+  `app/lib/ai/file-text.ts` and sent as a labelled text block
+  (`[Attached file: name]`). Client-side is deliberate: the server is
+  stateless and the client replays the message array each turn, so converting
+  once puts the text in the history instead of re-converting every turn.
+- `.xlsx` is parsed with **JSZip** (already a dependency) by reading
+  `sharedStrings.xml` + `worksheets/sheetN.xml` directly — we avoid the npm
+  `xlsx`/SheetJS package because 0.18.5 carries a prototype-pollution
+  advisory (CVE-2023-30533). Numeric dates/currency come through as Excel's
+  raw serial values; the attachment label says so so the model asks rather
+  than guessing.
+- Legacy `.xls` (binary BIFF) is **not** parseable this way — the user gets a
+  clear "re-save as .xlsx or .csv" message instead of a cryptic failure.
+- Extracted text is capped at `MAX_FILE_TEXT` (80k chars) and flagged as
+  truncated in the UI.
+
 ## Follow-ups (not in v1)
 - Token streaming (v1 is request/response — text appears when the turn
   settles). Streaming a multi-step tool loop is the main lift.

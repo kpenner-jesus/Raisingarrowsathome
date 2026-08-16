@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { sniffKind, extractFileText, fileTextBlock, type ExtractedFile } from "@/app/lib/ai/file-text";
 
 type ImageSource = { type: string; media_type: string; data: string };
 type Block = { type: string; text?: string; name?: string; input?: any; id?: string; source?: ImageSource };
@@ -75,18 +76,31 @@ export function AdminChat() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [image, setImage] = useState<Attachment | null>(null);
+  const [doc, setDoc] = useState<ExtractedFile | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const attachSeq = useRef(0);
 
   async function attachFile(file: File) {
-    if (!file.type.startsWith("image/")) { setError("Only image files are supported (PDF not yet)."); return; }
     const myId = ++attachSeq.current;
+    const kind = sniffKind(file.name, file.type);
     try {
-      const result = await compressImage(file);
-      if (attachSeq.current !== myId) return; // a newer attach superseded this one
-      setImage(result); setError(null);
-    } catch { setError("Couldn't read that image."); }
+      if (kind === "image") {
+        const result = await compressImage(file);
+        if (attachSeq.current !== myId) return; // a newer attach superseded this one
+        setDoc(null); setImage(result); setError(null);
+        return;
+      }
+      // Spreadsheet / CSV / text → extracted to text client-side, so the
+      // converted content lives in the replayed history (see file-text.ts).
+      const extracted = await extractFileText(file);
+      if (attachSeq.current !== myId) return;
+      setImage(null); setDoc(extracted);
+      setError(extracted.truncated ? `Attached "${extracted.name}" — it was long, so only the first part is included.` : null);
+    } catch (e: any) {
+      if (attachSeq.current !== myId) return;
+      setError(e?.message || "Couldn't read that file.");
+    }
   }
   function onPaste(e: React.ClipboardEvent) {
     const item = Array.from(e.clipboardData.items).find((it) => it.type.startsWith("image/"));
@@ -120,7 +134,7 @@ export function AdminChat() {
 
   function send() {
     const text = input.trim();
-    if ((!text && !image) || busy) return;
+    if ((!text && !image && !doc) || busy) return;
     if (messages.length >= 78) { setError("This chat is getting long — click ＋ (top-right) to start a new one."); return; }
     let content: string | Block[];
     if (image) {
@@ -128,12 +142,15 @@ export function AdminChat() {
       if (text) blocks.push({ type: "text", text });
       blocks.push({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } });
       content = blocks;
+    } else if (doc) {
+      // Data files ride along as text so they replay cleanly on later turns.
+      content = text ? `${text}\n\n${fileTextBlock(doc)}` : fileTextBlock(doc);
     } else {
       content = text;
     }
     const next: Msg[] = [...messages, { role: "user", content }];
     setMessages(next);
-    setInput(""); setImage(null);
+    setInput(""); setImage(null); setDoc(null);
     post({ messages: next });
   }
 
@@ -155,7 +172,7 @@ export function AdminChat() {
   }
 
   function reset() {
-    setMessages([]); setPending(null); setError(null); setInput(""); setImage(null);
+    setMessages([]); setPending(null); setError(null); setInput(""); setImage(null); setDoc(null);
   }
 
   return (
@@ -193,8 +210,10 @@ export function AdminChat() {
                 Ask me about applications, recipients, receipts, or payouts — e.g.
                 <em> &ldquo;how many applications are pending?&rdquo;</em> or
                 <em> &ldquo;approve the application from the Penner family for $1,200&rdquo;</em>.
-                You can also <strong>paste or attach a receipt photo</strong> (one per message) and I&rsquo;ll read it
-                and create the receipt entry for the family you name. I&rsquo;ll ask you to confirm anything that changes money or grant decisions.
+                You can also <strong>attach a spreadsheet (.xlsx), .csv or text file</strong> — e.g. your existing grantee
+                list — and I&rsquo;ll read it and propose a bulk import. Or <strong>paste a receipt photo</strong> and
+                I&rsquo;ll create the receipt entry for the family you name. I&rsquo;ll ask you to confirm anything that
+                changes money or grant decisions.
               </div>
             )}
             {messages.map((m, i) => {
@@ -279,20 +298,32 @@ export function AdminChat() {
                 <button onClick={() => setImage(null)} title="Remove" style={iconBtn}>✕</button>
               </div>
             )}
+            {doc && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(0,0,0,0.04)", padding: "0.4rem 0.5rem", borderRadius: 10 }}>
+                <span style={{ fontSize: 22, lineHeight: 1 }}>📄</span>
+                <span style={{ fontSize: "0.82rem", color: "#666", flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontWeight: 600, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</span>
+                  {doc.text.split("\n").length.toLocaleString()} lines{doc.truncated ? " (truncated)" : ""}
+                </span>
+                <button onClick={() => setDoc(null)} title="Remove" style={iconBtn}>✕</button>
+              </div>
+            )}
             <div style={{ display: "flex", gap: "0.5rem" }}>
-              <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
+              <input ref={fileRef} type="file"
+                     accept="image/*,.csv,.tsv,.txt,.md,.json,.xlsx,.xls"
+                     style={{ display: "none" }}
                      onChange={(e) => { const f = e.target.files?.[0]; if (f) attachFile(f); e.target.value = ""; }} />
-              <button onClick={() => fileRef.current?.click()} disabled={busy || !!pending} title="Attach receipt photo" style={iconBtn}>📎</button>
+              <button onClick={() => fileRef.current?.click()} disabled={busy || !!pending} title="Attach a photo, spreadsheet (.xlsx), or .csv" style={iconBtn}>📎</button>
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                 onPaste={onPaste}
-                placeholder={pending ? "Confirm or cancel above first…" : "Ask, or paste a receipt photo…"}
+                placeholder={pending ? "Confirm or cancel above first…" : "Ask, or attach a spreadsheet or photo…"}
                 disabled={busy || !!pending}
                 style={{ flex: 1, padding: "0.7rem 0.9rem", borderRadius: 10, border: "1px solid rgba(0,0,0,0.15)", fontSize: 15 }}
               />
-              <button onClick={send} disabled={busy || !!pending || (!input.trim() && !image)} style={primaryBtn}>Send</button>
+              <button onClick={send} disabled={busy || !!pending || (!input.trim() && !image && !doc)} style={primaryBtn}>Send</button>
             </div>
           </div>
         </div>
