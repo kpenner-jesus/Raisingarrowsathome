@@ -56,7 +56,7 @@ Server-side handlers usually call `supabaseService()` which bypasses RLS.
 `/api/cron/dispatch` fires daily at 12:00 UTC. It:
 
 1. Always runs `sendDueBroadcasts` + `processBillingReminders`.
-2. On day 1: monthly backup + summary-email mid.
+2. On day 1: summary-email mid.
 3. On day 15: generate-payouts mid.
 4. On day 17: summary-email end.
 5. On day 28-last: generate-payouts end.

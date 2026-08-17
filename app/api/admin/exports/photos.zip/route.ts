@@ -4,7 +4,8 @@
 import { NextResponse } from "next/server";
 import JSZip from "jszip";
 import { supabaseService } from "@/app/lib/supabase/server";
-import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
+import { requireAdminForDataExport, AdminAuthError } from "@/app/lib/admin/require-admin";
+import { csvRow } from "@/app/lib/csv";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Vercel: max 60s on Pro; on Hobby this is ignored
@@ -15,7 +16,9 @@ function safeName(s: string): string {
 
 export async function GET(req: Request) {
   let auth;
-  try { auth = await requireAdmin(); }
+  // Relaxed gate: a paused or canceled tenant must still be able to take a
+  // copy of its own photos. Identity checks are unchanged.
+  try { auth = await requireAdminForDataExport(); }
   catch (e) {
     if (e instanceof AdminAuthError) return new NextResponse(e.message, { status: e.status });
     throw e;
@@ -59,7 +62,7 @@ export async function GET(req: Request) {
   const folder = zip.folder(`${orgCtx.slug}-photos-${year}`)!;
 
   // Manifest of which photo came from which family
-  const manifest: string[] = ["filename,family,app_ref,caption,created_at"];
+  const manifest: string[] = [csvRow(["filename", "family", "app_ref", "caption", "created_at"]).trimEnd()];
 
   let bytes = 0;
   let included = 0;
@@ -79,7 +82,13 @@ export async function GET(req: Request) {
       bytes += buf.length;
       included += 1;
       folder.file(filename, buf);
-      manifest.push(`${filename},"${p.recipients.applications.parent_names}",${p.recipients.applications.app_ref},"${(p.caption||"").replace(/"/g,'""')}",${p.created_at}`);
+      manifest.push(csvRow([
+        filename,
+        p.recipients.applications.parent_names,
+        p.recipients.applications.app_ref,
+        p.caption || "",
+        p.created_at,
+      ]).trimEnd());
     } catch (e) {
       // Skip individual failures, continue with rest
     }

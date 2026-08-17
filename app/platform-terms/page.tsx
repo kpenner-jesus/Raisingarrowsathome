@@ -37,7 +37,7 @@ export default function PlatformTermsPage() {
         </Section>
 
         <Section title="Your data">
-          <p>You own your data. We store it in Supabase (US region) on your behalf. We never sell it, never share it with other tenants, never train AI on it without explicit opt-in. Daily backups are encrypted. You can export your data as CSV anytime from <code>/admin/reports</code>.</p>
+          <p>You own your data. We store it in Supabase (US region) on your behalf. We never sell it, never share it with other tenants, never train AI on it without explicit opt-in. Daily backups are encrypted. You can export your data as CSV anytime from <code>/admin/data</code>, including while your subscription is paused or after you cancel.</p>
           <p>Cross-tenant isolation is enforced at the database level (row-level security on every table). A bug or misconfiguration that leaked data across tenants would be treated as a security incident — disclosure within 72 hours.</p>
         </Section>
 

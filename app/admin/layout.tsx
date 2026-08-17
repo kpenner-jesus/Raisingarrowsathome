@@ -76,6 +76,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: op("/admin/email-templates"), label: "Templates",    glyph: "◫" },
     { href: op("/admin/categories"),      label: "Categories",   glyph: "⌗" },
     { href: op("/admin/audit-log"),       label: "Audit log",    glyph: "⌖" },
+    { href: op("/admin/data"),            label: "Your data",    glyph: "⇩" },
     { href: op("/admin/settings"),        label: "Settings",     glyph: "⚙" },
     ...(isSuper ? [{ href: op("/admin/team"), label: "Team", glyph: "◉" }] : []),
     { href: op("/admin/mcp"),             label: "AI / MCP",     glyph: "✦" },
@@ -129,6 +130,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <NavLink href={op("/admin/email-templates")} label="Templates"    icon="◫" />
             <NavLink href={op("/admin/categories")}      label="Categories"   icon="⌗" />
             <NavLink href={op("/admin/audit-log")}       label="Audit log"    icon="⌖" />
+            <NavLink href={op("/admin/data")}            label="Your data"    icon="⇩" />
             <NavLink href={op("/admin/settings")}        label="Settings"     icon="⚙" />
             {isSuper && <NavLink href={op("/admin/team")} label="Team"        icon="◉" />}
             <NavLink href={op("/admin/mcp")}             label="AI / MCP"     icon="✦" />

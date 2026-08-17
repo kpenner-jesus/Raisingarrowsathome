@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { receiptReimbursable } from "@/app/lib/grant-calc";
 import { supabaseService } from "@/app/lib/supabase/server";
-import { requireOrgContext } from "@/app/lib/org-context";
+import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 import { YearPicker } from "./YearPicker";
 
 export const dynamic = "force-dynamic";
@@ -119,6 +119,9 @@ export default async function ReportsPage({ searchParams }: { searchParams?: { y
           <Link href={`/api/admin/exports/receipts?year=${year}`}     className="ra-btn">⬇ All receipts ({year})</Link>
           <Link href={`/api/admin/exports/payouts?year=${year}`}      className="ra-btn">⬇ All payouts ({year})</Link>
           <Link href={`/api/admin/exports/recipients`}                className="ra-btn">⬇ All recipients (current)</Link>
+          <Link href={orgPath(ctx, "/admin/data")} className="ra-quiet" style={{ fontSize: "0.82rem", alignSelf: "center" }}>
+            Looking for applications, photos or older years? → Download your data
+          </Link>
         </div>
       </section>
     </div>

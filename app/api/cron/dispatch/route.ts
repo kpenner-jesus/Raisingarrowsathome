@@ -7,7 +7,7 @@
 //  Schedule (vercel.json): "0 12 * * *"   — daily at 12:00 UTC.
 //
 //  Date-routed jobs (only fire on specific days):
-//    day 1   → summary-email    bucket=mid + monthly-backup
+//    day 1   → summary-email    bucket=mid
 //    day 15  → generate-payouts bucket=mid
 //    day 17  → summary-email    bucket=end
 //    day 28..last-of-month → generate-payouts bucket=end
@@ -25,14 +25,14 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { sendDueBroadcasts } from "@/app/lib/broadcasts";
-import { emailMonthlyBackup } from "@/app/lib/backup";
 import { processBillingReminders } from "@/app/lib/billing-reminders";
 import { supabaseService } from "@/app/lib/supabase/server";
 
-// The daily cron does a database backup, all due broadcasts, billing reminders
-// and payout generation in ONE invocation. At the platform default budget the
-// work after the backup was simply never reached — silently, because the only
-// signal is a missing log line.
+// The daily cron does all due broadcasts, billing reminders and payout
+// generation in ONE invocation, so each job has to leave time for the next.
+// (It used to email a full database backup first, and the work after that was
+// simply never reached — silently, because the only signal is a missing log
+// line. Tenants now self-serve their data from /admin/data instead.)
 export const maxDuration = 300;
 
 function constantTimeEq(a: string, b: string): boolean {
@@ -42,8 +42,8 @@ function constantTimeEq(a: string, b: string): boolean {
 
 export async function GET(req: Request) {
   // One deadline for the whole invocation. The platform ceiling is 60s here
-  // regardless of maxDuration, and the backup, broadcasts and billing
-  // reminders all share it - so each job has to yield time to the next.
+  // regardless of maxDuration, and broadcasts and billing reminders share it -
+  // so each job has to yield time to the next.
   const startedAt = Date.now();
   const auth   = req.headers.get("authorization") || "";
   const secret = process.env.CRON_SECRET || "";
@@ -76,8 +76,6 @@ export async function GET(req: Request) {
   type FireSpec = { label: string; path: string; query: string; method: "POST" | "GET" };
   const fires: FireSpec[] = [];
   if (day === 1)  fires.push({ label: "summary-email mid",   path: "/api/cron/summary-email",    query: "bucket=mid", method: "GET" });
-  // Monthly backup: also fires on day 1.
-  const backupResult = day === 1 ? await emailMonthlyBackup().catch((e) => ({ ok: false, error: e?.message })) : null;
   if (day === 15) fires.push({ label: "generate-payouts mid", path: "/api/cron/generate-payouts", query: "bucket=mid", method: "GET" });
   if (day === 17) fires.push({ label: "summary-email end",   path: "/api/cron/summary-email",    query: "bucket=end", method: "GET" });
   if (day >= 28 && day <= 31) {
@@ -93,7 +91,7 @@ export async function GET(req: Request) {
   const reminderResults = await processBillingReminders(now).catch((e) => ({ error: e?.message ?? "failed" } as any));
 
   if (fires.length === 0) {
-    return NextResponse.json({ ok: true, day, fired: [], broadcasts: broadcastResults, billing_reminders: reminderResults, backup: backupResult, note: "no date-specific job scheduled" });
+    return NextResponse.json({ ok: true, day, fired: [], broadcasts: broadcastResults, billing_reminders: reminderResults, note: "no date-specific job scheduled" });
   }
 
   const results: any[] = [];
@@ -112,7 +110,7 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, day, fired: results, broadcasts: broadcastResults, billing_reminders: reminderResults, backup: backupResult });
+  return NextResponse.json({ ok: true, day, fired: results, broadcasts: broadcastResults, billing_reminders: reminderResults });
 }
 
 function safeJson(s: string): any {

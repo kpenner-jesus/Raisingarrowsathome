@@ -9,8 +9,12 @@
 
 import { supabaseService } from "@/app/lib/supabase/server";
 import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
+import { csvRow, csvBody, csvHeaders } from "@/app/lib/csv";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
+  // requireAdmin, NOT requireAdminForDataExport — despite the name this route
+  // WRITES (it flips the batch to 'exported' below), so a paused tenant must
+  // still be blocked. Pinned by export-auth-allowlist.test.ts.
   let auth;
   try { auth = await requireAdmin(); }
   catch (e) {
@@ -54,10 +58,11 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     ["", "", "", "", "TOTAL", "", "", Number(batch.total).toFixed(2)],
   ];
 
-  const csv = rows.map((r) => r.map((c) => {
-    const s = String(c ?? "");
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  }).join(",")).join("\n");
+  // Shared helper, which adds the formula guard this route never had. It emits
+  // parent_names and contact_email — values a FAMILY controls — into the CSV
+  // that goes to the accountant, so a name beginning `=` was a live formula in
+  // their finance spreadsheet. The old hand-rolled escape also missed \r.
+  const csv = rows.map((r) => csvRow(r).trimEnd()).join("\n");
 
   if (batch.status === "draft") {
     await service
@@ -66,11 +71,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       .eq("id", batch.id).eq("org_id", orgCtx.id);
   }
 
-  return new Response(csv, {
+  return new Response(csvBody(csv), {
     status: 200,
-    headers: {
-      "Content-Type":        "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${orgCtx.slug}-payout-${batch.scheduled_date}.csv"`,
-    },
+    headers: csvHeaders(`${orgCtx.slug}-payout-${batch.scheduled_date}.csv`),
   });
 }
