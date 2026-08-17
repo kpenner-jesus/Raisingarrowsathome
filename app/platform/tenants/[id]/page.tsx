@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { TenantActions } from "./TenantActions";
+import { CustomDomainField } from "./CustomDomainField";
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +83,17 @@ export default async function TenantDetail({ params }: { params: { id: string } 
         <div style={{ marginTop: "1.25rem" }}>
           <TenantActions orgId={tenant.id} currentStatus={tenant.status} />
         </div>
+      </section>
+
+      {/* Their own web address. Until now this column was displayed but could
+          not be set, and nothing read it for routing. */}
+      <section style={sectionStyle}>
+        <h2 style={{ fontSize: "1rem", marginTop: 0 }}>Web address</h2>
+        <p style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.55)", margin: "0 0 0.85rem" }}>
+          This charity is reachable at <code>/o/{tenant.slug}/</code>. Give them their own
+          domain here and requests to it resolve straight to them, with no <code>/o/</code> prefix.
+        </p>
+        <CustomDomainField orgId={tenant.id} currentDomain={tenant.custom_domain ?? null} />
       </section>
 
       {/* Stats */}

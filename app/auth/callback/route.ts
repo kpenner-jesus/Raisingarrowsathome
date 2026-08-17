@@ -16,7 +16,7 @@ import { NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { isSafeRelativePath, safeRedirectUrl } from "@/app/lib/safe-redirect";
-import { resolveOrgSlug } from "@/app/lib/org-routing";
+import { resolveOrgSlug, normalizeHost } from "@/app/lib/org-routing";
 
 export async function GET(req: Request) {
   const url  = new URL(req.url);
@@ -138,9 +138,18 @@ export async function GET(req: Request) {
   let adminHome = "/admin";
   if (adminMembership) {
     const { data: tenant } = await svc
-      .from("tenants").select("slug").eq("id", adminMembership.org_id).maybeSingle();
-    const hostDefault = resolveOrgSlug(url.host, "/");
-    if (tenant?.slug && tenant.slug !== hostDefault) adminHome = `/o/${tenant.slug}/admin`;
+      .from("tenants").select("slug, custom_domain").eq("id", adminMembership.org_id).maybeSingle();
+    const host = normalizeHost(url.host);
+    // The tenant this HOST already serves, without any /o/ prefix: either one
+    // of the platform's own hosts, or the tenant's own custom domain. If the
+    // admin belongs to that tenant, bare /admin is correct and adding the
+    // prefix would be wrong — a charity paying for their own domain should
+    // never be bounced onto /o/<slug>/ right after signing in.
+    const hostDefault = resolveOrgSlug(host, "/");
+    const servedByThisHost =
+      (hostDefault && tenant?.slug === hostDefault) ||
+      (!!tenant?.custom_domain && normalizeHost(tenant.custom_domain) === host);
+    if (tenant?.slug && !servedByThisHost) adminHome = `/o/${tenant.slug}/admin`;
   }
 
   // Decide redirect target

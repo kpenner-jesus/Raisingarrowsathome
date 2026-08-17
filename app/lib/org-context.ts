@@ -34,7 +34,12 @@ export {
   LEGACY_RAISING_ARROWS_HOSTS,
   isLegacyRaisingArrowsHost,
 } from "./org-routing";
-import { resolveOrgSlug as resolveOrgSlugPure, parseOrgPath } from "./org-routing";
+import {
+  resolveOrgSlug as resolveOrgSlugPure,
+  parseOrgPath,
+  isCandidateCustomDomain,
+  normalizeHost,
+} from "./org-routing";
 
 export type OrgContext = {
   id: string;
@@ -56,13 +61,44 @@ export type OrgContext = {
 // Per-request DB lookup. React's cache() dedupes calls within a single RSC
 // render and is automatically scoped to the request — no cross-request leak
 // in serverless lambda warm-reuse, unlike a module-level Map.
+const TENANT_SELECT =
+  "id, slug, name, status, plan, brand_color, logo_url, custom_domain, sender_email, sender_domain, sender_verified";
+
 const fetchTenantBySlug = cache(async (slug: string) => {
   const svc = supabaseService();
   const { data } = await svc
     .from("tenants")
-    .select("id, slug, name, status, plan, brand_color, logo_url, custom_domain, sender_email, sender_domain, sender_verified")
+    .select(TENANT_SELECT)
     .eq("slug", slug)
     .maybeSingle();
+  return data;
+});
+
+/**
+ * Resolve a tenant by their OWN domain (tenants.custom_domain).
+ *
+ * This is why the custom-domain lookup lives here and not in middleware:
+ * middleware only runs for /admin, /portal and /o/*, so every /api/* handler
+ * resolves its tenant through this function's Host branch anyway. Doing it in
+ * middleware would be duplicate work AND would put a service-role key in the
+ * edge bundle — and the tenants table is unreadable by an anonymous client
+ * (RLS: is_org_member(id) or is_platform_super()), so an anon lookup there
+ * would return nothing at all.
+ *
+ * Stored values are canonical (bare lowercase host — enforced by a CHECK
+ * constraint), so a plain equality match is correct and uses the index.
+ */
+const fetchTenantByCustomDomain = cache(async (domain: string) => {
+  const svc = supabaseService();
+  const { data, error } = await svc
+    .from("tenants")
+    .select(TENANT_SELECT)
+    .eq("custom_domain", domain)
+    .maybeSingle();
+  if (error) {
+    console.error("[org-context] custom_domain lookup failed:", error.message, { domain });
+    return null;
+  }
   return data;
 });
 
@@ -105,9 +141,23 @@ export async function getOrgContext(): Promise<OrgContext | null> {
   }
 
   if (!slug) {
+    // Use `host`, not `x-forwarded-host`: middleware resolves from `host`, and
+    // diverging here would make a request resolve differently depending on
+    // whether middleware ran for it.
     const host = h.get("host") || "";
     slug = resolveOrgSlugPure(host, "/");
     prefixed = false;
+
+    // Not one of the platform's own hosts — it may be a tenant's custom
+    // domain. The shape guard keeps junk Host headers away from Postgres.
+    if (!slug && isCandidateCustomDomain(host)) {
+      // normalizeHost, not a hand-rolled copy: it also handles a pasted
+      // scheme, an IPv6 literal and a trailing FQDN dot.
+      const byDomain = await fetchTenantByCustomDomain(normalizeHost(host));
+      // Early return: we already have the whole row, so don't pay a second
+      // query re-fetching it by slug below.
+      if (byDomain) return { ...(byDomain as any), prefixed: false };
+    }
   }
   if (!slug) return null;
 
