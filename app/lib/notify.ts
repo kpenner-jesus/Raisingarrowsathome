@@ -14,6 +14,7 @@
 // ============================================================
 
 import { Resend } from "resend";
+import { envTags } from "@/app/lib/email-env";
 import { supabaseService } from "./supabase/server";
 
 const FROM_DEFAULT = "Raising Arrows <onboarding@resend.dev>";
@@ -80,7 +81,7 @@ async function send({ to, subject, html, orgId }: SendOpts): Promise<boolean> {
   }
   const from = await resolveFrom(orgId);
   try {
-    const { error } = await client.emails.send({ from, to, subject, html });
+    const { error } = await client.emails.send({ from, to, subject, html, tags: envTags() });
     if (error) {
       console.error("[notify] Resend error", error, { to, subject, from });
       return false;

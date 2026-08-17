@@ -5,6 +5,7 @@
 // Does NOT write a broadcasts row.
 import { NextResponse } from "next/server";
 import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
+import { envTags } from "@/app/lib/email-env";
 
 export async function POST(req: Request) {
   let auth;
@@ -36,6 +37,7 @@ export async function POST(req: Request) {
         to: [user.email],
         subject: `[TEST] ${subject}`,
         html: personalized,
+        tags: envTags(),
       }),
     });
     if (!res.ok) {

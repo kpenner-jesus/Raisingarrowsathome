@@ -10,6 +10,7 @@
 import { NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { shouldRecordEvent, emailEnv } from "@/app/lib/email-env";
 
 export const runtime = "nodejs";
 // Need raw body for signature check
@@ -67,6 +68,25 @@ export async function POST(req: Request) {
   const evt: string = String(payload?.type || "");
   const data: any   = payload?.data || {};
   const event_type  = TYPE_MAP[evt] ?? evt.replace(/^email\./, "") ?? "unknown";
+
+  // Production and staging share ONE Resend account, and a Resend webhook can
+  // only be filtered by EVENT TYPE — not by sender, key, or environment. So
+  // this endpoint (registered at the production URL) is fired for every email
+  // the account sends, staging's included, and used to write them all into
+  // whichever database this deployment talks to.
+  //
+  // Every send now carries an `env` tag; anything stamped with a DIFFERENT
+  // environment is not ours to record. Untagged events are still recorded —
+  // see shouldRecordEvent for why losing real history would be the worse bug.
+  const decision = shouldRecordEvent(data);
+  if (!decision.record) {
+    console.log("[webhook/resend] ignoring event from another environment", {
+      from: decision.from, self: emailEnv(), event: event_type,
+    });
+    // 200, not an error: the delivery succeeded, we simply have nothing to do.
+    // A non-2xx would make Resend retry it forever.
+    return NextResponse.json({ ok: true, ignored: "foreign-environment" });
+  }
 
   const svc = supabaseService();
   const recipientEmail = Array.isArray(data.to) ? data.to[0] : (data.to ?? "");

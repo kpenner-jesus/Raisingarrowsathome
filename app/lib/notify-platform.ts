@@ -9,6 +9,7 @@
 // ============================================================
 
 import { Resend } from "resend";
+import { envTags } from "@/app/lib/email-env";
 
 function resend() {
   const key = process.env.RESEND_API_KEY;
@@ -49,7 +50,7 @@ async function platformSend(to: string, subject: string, html: string) {
     return;
   }
   try {
-    const { error } = await client.emails.send({ from: PLATFORM_FROM, to, subject, html });
+    const { error } = await client.emails.send({ from: PLATFORM_FROM, to, subject, html, tags: envTags() });
     if (error) console.error("[notify-platform] Resend error", error, { to, subject });
   } catch (err: any) {
     console.error("[notify-platform] Resend exception", err?.message || err, { to, subject });

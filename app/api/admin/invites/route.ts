@@ -7,6 +7,7 @@ import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
 import { Resend } from "resend";
 import { getOrgContext } from "@/app/lib/org-context";
+import { envTags } from "@/app/lib/email-env";
 
 export async function POST(req: Request) {
   // Resolve tenant first — the invite is scoped to whichever org the
@@ -75,6 +76,7 @@ export async function POST(req: Request) {
     try {
       const client = new Resend(RESEND_KEY);
       await client.emails.send({
+        tags: envTags(),
         from: FROM, to: email,
         subject: `You've been invited as a ${role.replace("_", " ")} on ${orgCtx.name}`,
         html: `<p>${(profile?.email || "An owner")} invited you to join ${orgCtx.name} as <strong>${role}</strong>.</p>

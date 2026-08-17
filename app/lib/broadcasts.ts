@@ -36,6 +36,7 @@
 import { randomUUID } from "crypto";
 import { supabaseService } from "./supabase/server";
 import { signToken, signTokenWithExpiry } from "./hmac";
+import { envTags } from "./email-env";
 import {
   buildLedgerRows, classifyResendOutcome, idempotencyKey,
   unsubExpiryFor, shouldStopSlice, normalizeEmail,
@@ -421,6 +422,10 @@ export async function runBroadcastSlice(args: {
             body: JSON.stringify({
               from: FROM_EMAIL, to: [row.email],
               subject: (claimed as any).subject, html,
+              // Marks which environment sent this, so the shared Resend
+              // account's webhook can drop foreign events instead of writing
+              // them into the wrong database.
+              tags: envTags(),
               headers: {
                 "List-Unsubscribe":      `<${unsubUrl}>`,
                 "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -556,6 +561,7 @@ async function sendLegacy({ broadcastId }: { broadcastId: string }): Promise<{ s
         headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           from: FROM_EMAIL, to: [r.email], subject: (claimed as any).subject, html,
+          tags: envTags(),
           headers: { "List-Unsubscribe": `<${unsubUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
         }),
       });

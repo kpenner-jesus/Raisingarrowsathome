@@ -1,48 +1,22 @@
 // /admin/emails
 //
-// Two sources, in order of reliability:
-//  1. Webhook events from the email_events table (Resend → POST our
-//     /api/webhooks/resend → row inserted). Captures delivery /
-//     bounce / open / click reliably regardless of API key scope.
-//  2. Resend REST list (last 100 sends). REQUIRES a full-access API
-//     key; sending-only restricted keys 401. Failure is non-fatal —
-//     we surface a hint and let the webhook section carry the page.
+// ONE source: webhook events from the email_events table (Resend → POST our
+// /api/webhooks/resend → row inserted), scoped to the signed-in tenant.
+//
+// There used to be a second panel that listed the last 100 sends straight from
+// GET https://api.resend.com/emails. It was removed because that endpoint is
+// scoped to the RESEND ACCOUNT, not to a tenant and not to an environment:
+//   - every charity on the platform shares one Resend account, so it showed
+//     one tenant's admin the recipients and subjects of every OTHER tenant's
+//     mail — a cross-tenant disclosure with no filter available on the API;
+//   - production and staging share that account too, so each environment's
+//     admin page listed the other's mail.
+// The webhook table above carries the same information (and more: opens,
+// clicks, bounces) already filtered by org_id, so nothing of value was lost.
 import { supabaseService } from "@/app/lib/supabase/server";
 import { requireOrgContext } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
-
-interface ResendEmail {
-  id: string;
-  to: string[];
-  from: string;
-  subject: string;
-  last_event: string;
-  created_at: string;
-}
-
-async function fetchEmails(): Promise<{ data: ResendEmail[]; error?: string; restricted?: boolean }> {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return { data: [], error: "RESEND_API_KEY not set" };
-  try {
-    const res = await fetch("https://api.resend.com/emails?limit=100", {
-      headers: { Authorization: `Bearer ${key}` },
-      cache: "no-store",
-    });
-    if (res.status === 401) {
-      const j = await res.json().catch(() => ({} as any));
-      return { data: [], restricted: true, error: j?.message || "API key restricted" };
-    }
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      return { data: [], error: `Resend returned ${res.status}: ${t.slice(0, 200)}` };
-    }
-    const j = await res.json();
-    return { data: j.data ?? [] };
-  } catch (e: any) {
-    return { data: [], error: e?.message ?? "fetch failed" };
-  }
-}
 
 async function fetchWebhookEvents(orgId: string) {
   const svc = supabaseService();
@@ -62,7 +36,7 @@ function eventTint(ev: string): string {
 
 export default async function EmailsPage() {
   const ctx = await requireOrgContext();
-  const [{ data, error, restricted }, events] = await Promise.all([fetchEmails(), fetchWebhookEvents(ctx.id)]);
+  const events = await fetchWebhookEvents(ctx.id);
 
   // Webhook is configured at the deploy level — assume reachable. Empty state
   // is "nothing yet" not "set up the webhook".
@@ -121,39 +95,6 @@ export default async function EmailsPage() {
         )}
       </section>
 
-      {/* SECONDARY: live Resend API list (optional) */}
-      <section className="ra-card">
-        <h2 className="ra-section-title">Recent sends (Resend API)</h2>
-        {restricted ? (
-          <div className="ra-empty">
-            <div className="ra-empty-icon">🔑</div>
-            <div className="ra-empty-title">This list needs a full-access Resend key</div>
-            <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-              The send-only key in use right now can&apos;t list emails. Webhook events above still flow normally.
-            </div>
-          </div>
-        ) : error ? (
-          <div className="ra-alert-error">{error}</div>
-        ) : data.length === 0 ? (
-          <div className="ra-quiet">No sends in the last 100 messages.</div>
-        ) : (
-          <table className="ra-table ra-table-mobile">
-            <thead>
-              <tr><th>When</th><th>To</th><th>Subject</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              {data.map((e) => (
-                <tr key={e.id}>
-                  <td data-label="When"    style={{ whiteSpace: "nowrap" }}>{new Date(e.created_at).toLocaleString()}</td>
-                  <td data-label="To">{(e.to ?? []).join(", ")}</td>
-                  <td data-label="Subject">{e.subject}</td>
-                  <td data-label="Status"><span style={{ color: eventTint(e.last_event), fontWeight: 500 }}>{e.last_event}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
     </div>
   );
 }
