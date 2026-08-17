@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export function BroadcastForm({ counts }: { counts: { active: number; all: number } }) {
@@ -15,11 +15,17 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
 
   const targetCount = audience === "all_recipients" ? counts.all : audience === "active_recipients" ? counts.active : 0;
 
+  // Navigating away must stop the pump. Without this the loop keeps POSTing
+  // against an unmounted component, and the Send button - re-enabled while the
+  // send was still running - invites a second broadcast of the same content.
+  const stopped = useRef(false);
+  useEffect(() => () => { stopped.current = true; }, []);
+
   /** Drive further slices from the browser. A serverless function can't keep
    *  working after it has replied, so the tab is the loop. Closing it just
    *  pauses the send — Resume in Recent broadcasts picks it back up. */
   async function pump(broadcastId: string) {
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 200 && !stopped.current; i++) {
       try {
         const r = await fetch(`/api/admin/broadcasts/${broadcastId}`, { method: "POST" });
         const j = await r.json().catch(() => ({}));
@@ -29,6 +35,10 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
           break;
         }
         setMsg({ kind: "ok", text: `Sending — ${j.sent} of ${j.total ?? "?"} so far.` });
+        if (j.aborted === "provider_auth") {
+          setMsg({ kind: "err", text: "Stopped: the email service rejected our credentials. Nobody was marked undeliverable - fix the key and press Resume below." });
+          break;
+        }
         if (j.skipped === "locked") break;
       } catch {
         setMsg({ kind: "err", text: "Paused — use Resume in Recent broadcasts to finish." });
@@ -65,7 +75,9 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
         // going below; the row in Recent broadcasts shows live progress and a
         // Resume button if this tab is closed.
         setMsg({ kind: "ok", text: `Sending — ${j.sent} of ${j.total ?? "?"} so far. Keep this tab open, or use Resume in Recent broadcasts.` });
-        pump(j.broadcast_id);
+        // Awaited: the finally block below re-enables Send, and re-enabling it
+        // mid-send is what invites a duplicate broadcast.
+        await pump(j.broadcast_id);
       }
       if (j.degraded === "ledger_missing") {
         setMsg({ kind: "err", text: "Sent the old way — this send can't be resumed if it's interrupted. The 20260617b database update hasn't been applied yet." });

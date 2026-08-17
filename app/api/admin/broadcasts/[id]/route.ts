@@ -32,10 +32,13 @@ async function counts(id: string) {
   const one = async (status: string) => {
     const { count, error } = await svc.from("broadcast_sends")
       .select("id", { head: true, count: "exact" }).eq("broadcast_id", id).eq("status", status);
-    return error ? 0 : (count ?? 0);
+    // null, not 0: the caller distinguishes "none" from "we don't know", so a
+    // failed query can't render as confident progress.
+    if (error) { console.error("[broadcasts] count failed", status, error.message); return null; }
+    return count ?? 0;
   };
   const [sent, failed, pending] = await Promise.all([one("sent"), one("failed"), one("pending")]);
-  return { sent, failed, pending };
+  return { sent: sent ?? 0, failed: failed ?? 0, pending: pending ?? 0, unknown: sent === null || failed === null || pending === null };
 }
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
@@ -82,9 +85,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     // to prevent.
     const svc = supabaseService();
     const { data: reset, error } = await svc.from("broadcast_sends")
-      .update({ status: "pending", last_error: null })
+      // attempts reset to 0: a family that hit the cap did so almost always
+      // through rate limiting or a network blip, and leaving the cap in place
+      // made a transient problem permanent with no way back.
+      .update({ status: "pending", last_error: null, attempts: 0 })
       .eq("broadcast_id", params.id).eq("org_id", orgId)
-      .eq("status", "failed").lt("attempts", MAX_ATTEMPTS)
+      .eq("status", "failed")
       .select("id");
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     await writeAudit({
@@ -92,13 +98,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       targetTable: "broadcasts", targetId: params.id, details: { requeued: reset?.length ?? 0 },
     }).catch(() => {});
     if ((reset?.length ?? 0) === 0) {
-      return NextResponse.json({ ok: true, requeued: 0, note: "Nothing to retry — those addresses have already been tried the maximum number of times." });
+      return NextResponse.json({ ok: true, requeued: 0, note: "Nothing to retry - there are no failed addresses on this broadcast." });
     }
   }
 
   const r = await runBroadcastSlice({ broadcastId: params.id, orgId });
   return NextResponse.json({
     ok: true, done: r.done, sent: r.sent, failed: r.failed, pending: r.pending,
-    total: r.total, skipped: r.skipped, degraded: r.degraded,
+    total: r.total, skipped: r.skipped, degraded: r.degraded, aborted: r.aborted,
   }, { status: r.done ? 200 : 202 });
 }

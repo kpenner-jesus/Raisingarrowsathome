@@ -47,7 +47,11 @@ export async function POST(req: Request) {
   }
 
   // Insert row first (queued or sending), then send if not scheduled.
-  const initState = scheduled_for ? "queued" : "sending";
+  // Always 'queued', never 'sending'. The claim inside runBroadcastSlice
+  // flips it. That distinction is load-bearing: a row sitting in 'sending'
+  // with no progress_at is how we recognise a broadcast stranded before
+  // per-recipient tracking existed, which must never be auto-resumed.
+  const initState = "queued";
   const { data: row, error: insErr } = await svc.from("broadcasts").insert({
     org_id: orgCtx.id,
     sent_by: user.id, subject, body_html: html, audience,

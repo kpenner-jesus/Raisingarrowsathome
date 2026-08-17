@@ -11,7 +11,12 @@
 //  3. Path-based: /o/<slug>/... → tenant with that slug.
 //  4. None of the above → null (marketing / signup pages render).
 //
-//  Middleware writes the resolved slug into an `x-ra-org-slug` header.
+//  Middleware writes the resolved slug into an `x-ra-org-slug` header, and
+//  strips any client-supplied one. NOTE: middleware's matcher does not cover
+//  /api/*, so on those routes the header IS client-supplied - treat it as a
+//  hint, exactly like Referer below. Every consumer must still verify the
+//  caller's membership of the resolved org (requireAdmin / getEffectiveRecipient
+//  do). Never read ctx.id in an /api route without that check.
 //  Server components call getOrgContext() to read it.
 //
 //  PER-REQUEST CACHING

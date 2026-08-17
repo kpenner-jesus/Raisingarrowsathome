@@ -189,3 +189,35 @@ describe("network failures", () => {
     expect(classifyResendOutcome({ status: 0, bodyText: "fetch failed" }).outcome).toBe("retryable");
   });
 });
+
+// ============================================================
+//  Regressions from the adversarial audit.
+// ============================================================
+describe("audit regressions", () => {
+  const now = Date.UTC(2026, 7, 17, 12, 0, 0);
+  const base = { nowMs: now, sent: 0, failed: 0, pending: 0 };
+
+  it("a terminal broadcast with pending rows still offers Resume", () => {
+    // The claim used to reject state 'sent', so this button was a permanent
+    // no-op and those families were unreachable by any path in the product.
+    const s = deriveBroadcastStatus({ ...base, state: "sent", total: 50, sent: 47, failed: 3, pending: 3 });
+    expect(s.canResume).toBe(true);
+  });
+
+  it("a broadcast interrupted while BUILDING its list is not mistaken for pre-ledger", () => {
+    // It has progress_at but no total yet. Treating it as pre-ledger would
+    // mean nothing could ever resume it — it has emailed nobody.
+    const s = deriveBroadcastStatus({
+      ...base, state: "sending", materialized_at: null,
+      progress_at: new Date(now - 30 * 60_000).toISOString(), total: null,
+    });
+    expect(s.isLegacy).toBe(false);
+    expect(s.canResume).toBe(true);
+  });
+
+  it("a genuinely pre-ledger row stays unresumable", () => {
+    const s = deriveBroadcastStatus({ ...base, state: "sending", materialized_at: null, progress_at: null, total: null });
+    expect(s.isLegacy).toBe(true);
+    expect(s.canResume).toBe(false);
+  });
+});

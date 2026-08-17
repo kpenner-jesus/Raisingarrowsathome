@@ -16,7 +16,7 @@ import { NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { isSafeRelativePath, safeRedirectUrl } from "@/app/lib/safe-redirect";
-import { resolveOrgSlug, normalizeHost } from "@/app/lib/org-routing";
+import { resolveOrgSlug, normalizeHost, isLegacyRaisingArrowsHost } from "@/app/lib/org-routing";
 
 export async function GET(req: Request) {
   const url  = new URL(req.url);
@@ -27,10 +27,16 @@ export async function GET(req: Request) {
   // the failure bounce need it. Behind a reverse proxy / Cloudflare tunnel
   // req.url resolves to http://localhost:3000, which would send the user to
   // a host that isn't the one they are browsing.
+  // x-forwarded-host is set by the platform in front of us, but a proxy that
+  // passes a client-supplied value through would turn every redirect out of
+  // this handler into an open redirect - and safeRedirectUrl's same-origin
+  // check can't catch it, because it validates against THIS origin. So only
+  // honour a forwarded host we actually recognise.
   const forwardedHost  = req.headers.get("x-forwarded-host");
   const forwardedProto = req.headers.get("x-forwarded-proto");
-  const origin = forwardedHost
-    ? `${forwardedProto || "https"}://${forwardedHost}`
+  const forwardedOk = !!forwardedHost && isLegacyRaisingArrowsHost(forwardedHost);
+  const origin = forwardedOk
+    ? `${forwardedProto || "https"}://${normalizeHost(forwardedHost!)}`
     : url.origin;
 
   // Build the response up front so the Supabase client can attach

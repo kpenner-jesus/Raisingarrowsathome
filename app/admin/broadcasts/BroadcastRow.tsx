@@ -15,6 +15,7 @@ export interface BroadcastRowData {
   subject: string;
   audience: string;
   created_at: string;
+  created_label: string;
   sent_by_email: string | null;
   state: string;
   scheduled_for: string | null;
@@ -34,7 +35,7 @@ const TONE: Record<BroadcastStatus["tone"], { bg: string; fg: string }> = {
   bad:      { bg: "rgba(192,57,43,0.12)",   fg: "#a5281c" },
 };
 
-export function BroadcastRow({ row }: { row: BroadcastRowData }) {
+export function BroadcastRow({ row, nowMs: serverNow }: { row: BroadcastRowData; nowMs: number }) {
   const router = useRouter();
   const [live, setLive] = useState({ sent: row.sent, failed: row.failed, pending: row.pending, total: row.total_count });
   const [state, setState] = useState(row.state);
@@ -45,13 +46,23 @@ export function BroadcastRow({ row }: { row: BroadcastRowData }) {
   const [failures, setFailures] = useState<{ email: string; last_error: string | null }[]>([]);
   const [showFailures, setShowFailures] = useState(false);
   const stop = useRef(false);
+  // "Is this stalled?" depends on the clock, and this component is rendered on
+  // the server as well as in the browser. Calling Date.now() during render
+  // would make those two disagree near the staleness boundary and produce a
+  // hydration mismatch — so the first render uses the SERVER's clock, and the
+  // browser takes over afterwards.
+  const [nowMs, setNowMs] = useState(serverNow);
 
-  useEffect(() => () => { stop.current = true; }, []);
+  useEffect(() => {
+    setNowMs(Date.now());
+    const t = setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => { stop.current = true; clearInterval(t); };
+  }, []);
 
   const status = deriveBroadcastStatus({
     state, materialized_at: materializedAt, progress_at: progressAt,
     scheduled_for: row.scheduled_for, total: live.total,
-    sent: live.sent, failed: live.failed, pending: live.pending, nowMs: Date.now(),
+    sent: live.sent, failed: live.failed, pending: live.pending, nowMs,
   });
 
   const refresh = useCallback(async () => {
@@ -76,6 +87,10 @@ export function BroadcastRow({ row }: { row: BroadcastRowData }) {
         setState(j.done ? "sent" : "sending");
         setProgressAt(new Date().toISOString());
         setMaterializedAt((m) => m ?? new Date().toISOString());
+        if (j.aborted === "provider_auth") {
+          setNote("Stopped: the email service rejected our credentials. Nobody was marked undeliverable - fix the key and press Resume.");
+          break;
+        }
         if (j.skipped === "locked") { setNote("Someone else is sending this right now."); break; }
         if (j.done) break;
       }
@@ -109,7 +124,7 @@ export function BroadcastRow({ row }: { row: BroadcastRowData }) {
   return (
     <>
       <tr>
-        <td style={{ whiteSpace: "nowrap" }}>{new Date(row.created_at).toLocaleString()}</td>
+        <td style={{ whiteSpace: "nowrap" }}>{row.created_label}</td>
         <td>{row.sent_by_email ?? "—"}</td>
         <td>{row.subject}</td>
         <td className="ra-tiny">{row.audience}</td>

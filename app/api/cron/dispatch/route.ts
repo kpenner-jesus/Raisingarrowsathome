@@ -40,6 +40,10 @@ function constantTimeEq(a: string, b: string): boolean {
 }
 
 export async function GET(req: Request) {
+  // One deadline for the whole invocation. The platform ceiling is 60s here
+  // regardless of maxDuration, and the backup, broadcasts and billing
+  // reminders all share it - so each job has to yield time to the next.
+  const startedAt = Date.now();
   const auth   = req.headers.get("authorization") || "";
   const secret = process.env.CRON_SECRET || "";
   if (!secret) return new NextResponse("server misconfigured: CRON_SECRET unset", { status: 500 });
@@ -66,7 +70,7 @@ export async function GET(req: Request) {
 
   // Always process scheduled broadcasts whose time has come, regardless
   // of the date-specific jobs above.
-  const broadcastResults = await sendDueBroadcasts().catch((e) => ({ error: e?.message ?? "failed" } as any));
+  const broadcastResults = await sendDueBroadcasts({ totalBudgetMs: Math.max(5_000, 45_000 - (Date.now() - startedAt)) }).catch((e) => ({ error: e?.message ?? "failed" } as any));
 
   // Platform-level billing reminders (trial-ending + past-due nudges).
   // Runs every day; per-tenant logic decides whether anyone gets emailed.

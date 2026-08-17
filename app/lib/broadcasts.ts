@@ -16,8 +16,12 @@
 //       would have skipped or repeated families.
 //    2. Send in TIME-BOXED slices under a lease, recording each row's outcome
 //       as it goes. An interrupted slice loses at most the row in flight.
-//    3. Every send carries a provider Idempotency-Key, so even a crash between
-//       sending and recording can't produce a second email.
+//    3. Every send carries a provider Idempotency-Key, so a crash between
+//       sending and recording is replayed rather than re-sent - for as long as
+//       the provider retains that key (about a day). Past that window, a
+//       broadcast stranded and recovered only by the next daily cron could
+//       produce at most ONE duplicate, for the single row that was in flight.
+//       Resuming promptly avoids it entirely.
 //
 //  Rate limiting matters here: the provider's default is 2 requests/second and
 //  the old loop fired as fast as the network allowed, then recorded every 429
@@ -43,8 +47,10 @@ const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://raisingarrowsathome.co
 /** How long one slice may run. Deliberately NOT derived from maxDuration:
  *  this account's real ceiling is 60s regardless of what maxDuration says. */
 const SLICE_MS = Number(process.env.BROADCAST_SLICE_MS || 20_000);
-/** Lease length. Longer than a slice so a slow slice never loses its lease. */
-const LEASE_MS = 120_000;
+/** Lease length. DERIVED from the slice budget, never a bare constant: if an
+ *  operator raises BROADCAST_SLICE_MS past a fixed lease, the lease expires
+ *  mid-slice, a second worker claims the row, and both send the same rows. */
+const LEASE_MS = Math.max(120_000, SLICE_MS * 3);
 /** Spacing between sends — the provider's default allowance is 2/second. */
 const SEND_SPACING_MS = Number(process.env.BROADCAST_SPACING_MS || 600);
 /** A row is retried at most this many times before it counts as failed. */
@@ -62,6 +68,9 @@ export interface SliceResult {
   skipped?: "locked" | "not_found";
   /** Set when the ledger table isn't there yet. */
   degraded?: "ledger_missing";
+  /** Set when the run stopped for a reason retrying won't fix. Clients MUST
+   *  stop pumping when they see this. */
+  aborted?: "provider_auth";
 }
 
 function escapeHtml(s: string): string {
@@ -71,11 +80,22 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ── Does the ledger exist? ───────────────────────────────────
 
-let ledgerReady: boolean | null = null;
-/** Memoized for the life of the lambda, which is the right TTL: a migration
- *  lands between deploys, not between requests. */
+let ledgerReady = false;
+let ledgerProbedAt = 0;
+const LEDGER_RECHECK_MS = 30_000;
+/**
+ * Only a POSITIVE result is cached for good. A negative one is re-checked.
+ *
+ * Caching "missing" for the life of the lambda was wrong and dangerous:
+ * migrations in this project are applied BY HAND, often minutes after the
+ * deploy. A warm instance that probed before the migration would keep taking
+ * the leaseless legacy path afterwards, and that path re-derives the whole
+ * audience and mails everyone a second time.
+ */
 async function hasLedger(): Promise<boolean> {
-  if (ledgerReady !== null) return ledgerReady;
+  if (ledgerReady) return true;
+  if (Date.now() - ledgerProbedAt < LEDGER_RECHECK_MS) return false;
+  ledgerProbedAt = Date.now();
   const { error } = await supabaseService()
     .from("broadcast_sends").select("broadcast_id", { head: true, count: "exact" }).limit(1);
   // 42P01 = undefined_table. PGRST205 = PostgREST doesn't know the table yet,
@@ -152,7 +172,7 @@ async function loadAudience(orgId: string, audience: string): Promise<LedgerRow[
  * under-send and report success. Upsert-ignore makes a re-run after an
  * interrupted materialization safe — it never clobbers a row already sent.
  */
-async function materializeAudience(claimed: any): Promise<number> {
+async function materializeAudience(claimed: any, leaseToken: string): Promise<number> {
   const svc = supabaseService();
   const rows = await loadAudience(claimed.org_id, claimed.audience);
 
@@ -169,21 +189,38 @@ async function materializeAudience(claimed: any): Promise<number> {
     if (error) throw new Error(`could not build the recipient list: ${error.message}`);
   }
 
-  const { error: stampErr } = await svc.from("broadcasts")
+  // Fenced like every other write-back: building a large audience can outlive
+  // the lease, and an unfenced stamp would land on a broadcast another worker
+  // had already finished, rewriting its denominator after the fact.
+  const { data: stamped, error: stampErr } = await svc.from("broadcasts")
     .update({ materialized_at: new Date().toISOString(), total_count: rows.length })
-    .eq("id", claimed.id);
+    .eq("id", claimed.id).eq("lease_owner", leaseToken).select("id");
   if (stampErr) throw new Error(`could not finalise the recipient list: ${stampErr.message}`);
+  if (!stamped || stamped.length === 0) {
+    throw new Error("lost the lease while building the recipient list - it will resume");
+  }
   return rows.length;
 }
 
 // ── Counting, always from the ledger ─────────────────────────
 
+/**
+ * Counts straight from the ledger. THROWS on failure — never returns zero.
+ *
+ * This previously discarded the error and returned `count ?? 0`, which was a
+ * silent-skip waiting to happen: a transient failure on the pending count
+ * makes pending === 0, the slice concludes it is finished, and the broadcast
+ * is marked 'sent' having emailed nobody. Failing loudly leaves the row in
+ * 'sending', which is resumable; guessing zero is not recoverable because
+ * nothing afterwards knows anything went wrong.
+ */
 async function ledgerCounts(broadcastId: string) {
   const svc = supabaseService();
   const one = async (status: string) => {
-    const { count } = await svc.from("broadcast_sends")
+    const { count, error } = await svc.from("broadcast_sends")
       .select("id", { head: true, count: "exact" })
       .eq("broadcast_id", broadcastId).eq("status", status);
+    if (error) throw new Error(`could not count ${status} recipients: ${error.message}`);
     return count ?? 0;
   };
   const [sent, failed, pending] = await Promise.all([one("sent"), one("failed"), one("pending")]);
@@ -211,6 +248,33 @@ export async function runBroadcastSlice(args: {
     };
   }
 
+  // Snapshot BEFORE the claim. The claim is an UPDATE ... RETURNING, so its
+  // result already carries our own state='sending' and progress_at=now - which
+  // is exactly the pair the pre-ledger test below depends on.
+  let before = svc.from("broadcasts")
+    .select("state, materialized_at, progress_at, total_count")
+    .eq("id", args.broadcastId);
+  if (args.orgId) before = before.eq("org_id", args.orgId);
+  const { data: prior } = await before.maybeSingle();
+
+  // A broadcast from before the ledger existed has NO record of who already
+  // received it, so "resuming" it would mail the whole audience a second time.
+  // The cron filtered these out and the UI hid the button, but a direct POST
+  // reached neither guard - and this is the one place every caller passes
+  // through. A brand-new send is inserted as 'queued', and a send interrupted
+  // while building its list already has progress_at, so neither is caught here.
+  if (prior
+      && (prior as any).state !== "queued"
+      && (prior as any).total_count == null
+      && !(prior as any).materialized_at
+      && !(prior as any).progress_at) {
+    console.warn("[broadcasts] refusing to resume a pre-ledger broadcast", args.broadcastId);
+    return {
+      broadcast_id: args.broadcastId, done: true,
+      sent: 0, failed: 0, pending: 0, total: null, skipped: "not_found",
+    };
+  }
+
   // Take the lease. Single statement, so two workers can't both win: the
   // .or() only matches a free or expired lease.
   const token = randomUUID();
@@ -223,12 +287,17 @@ export async function runBroadcastSlice(args: {
       progress_at: now.toISOString(),
     })
     .eq("id", args.broadcastId)
-    .in("state", ["queued", "sending"])
+    // 'sent'/'failed' are included on purpose. Retry-failed puts rows back to
+    // pending on a broadcast that already reached a terminal state, and the UI
+    // offers Resume for it. Without these the claim could never match, so the
+    // button was a permanent no-op and those families were unreachable.
+    // Re-entry is safe because the LEDGER decides who gets mail, not the state.
+    .in("state", ["queued", "sending", "sent", "failed"])
     .or(`lease_expires_at.is.null,lease_expires_at.lt.${now.toISOString()}`);
   if (args.orgId) claim = claim.eq("org_id", args.orgId);
 
   const { data: claimed, error: claimErr } = await claim
-    .select("id, org_id, subject, body_html, audience, created_at, materialized_at, total_count")
+    .select("id, org_id, subject, body_html, audience, created_at, materialized_at, total_count, progress_at")
     .maybeSingle();
   if (claimErr) throw new Error(claimErr.message);
   if (!claimed) {
@@ -250,27 +319,36 @@ export async function runBroadcastSlice(args: {
       .eq("id", args.broadcastId)
       .eq("lease_owner", token);   // fencing: never stomp a newer owner
   };
+  /** Release WITHOUT refreshing progress_at, so the row reads as stale and the
+   *  operator gets a Resume button immediately instead of a 10-minute wait. */
+  const releaseKeepingProgress = async () => {
+    await svc.from("broadcasts")
+      .update({ lease_owner: null, lease_expires_at: null })
+      .eq("id", args.broadcastId).eq("lease_owner", token);
+  };
 
   try {
-    let total = (claimed as any).total_count as number | null;
-    if (!(claimed as any).materialized_at) {
-      total = await materializeAudience(claimed);
-    }
-
+    // Check the environment BEFORE materializing. Aborting afterwards wrote a
+    // terminal state over a freshly-built list of pending recipients, and
+    // nothing would ever send them.
     const RESEND_KEY = process.env.RESEND_API_KEY;
     const FROM_EMAIL = process.env.RESEND_FROM || "Raising Arrows <register@raisingarrowsathome.com>";
     if (!RESEND_KEY) {
+      console.error("[broadcasts] RESEND_API_KEY is not set - nothing sent");
       await release({ state: "failed", sent_at: new Date().toISOString() });
-      const c = await ledgerCounts(args.broadcastId);
-      return { broadcast_id: args.broadcastId, done: true, ...c, total };
+      return { broadcast_id: args.broadcastId, done: true, sent: 0, failed: 0, pending: 0, total: null };
     }
     // CASL / CAN-SPAM: never mass-mail without a working unsubscribe path.
     try { signToken("probe", 60); }
     catch (e: any) {
-      console.error("[broadcasts] aborting — HMAC secret missing, cannot sign unsubscribe links:", e?.message ?? e);
+      console.error("[broadcasts] aborting - HMAC secret missing, cannot sign unsubscribe links:", e?.message ?? e);
       await release({ state: "failed", sent_at: new Date().toISOString() });
-      const c = await ledgerCounts(args.broadcastId);
-      return { broadcast_id: args.broadcastId, done: true, ...c, total };
+      return { broadcast_id: args.broadcastId, done: true, sent: 0, failed: 0, pending: 0, total: null };
+    }
+
+    let total = (claimed as any).total_count as number | null;
+    if (!(claimed as any).materialized_at) {
+      total = await materializeAudience(claimed, token);
     }
 
     const unsubExpiry = unsubExpiryFor((claimed as any).created_at, Date.now());
@@ -287,8 +365,22 @@ export async function runBroadcastSlice(args: {
         .order("id").limit(25);
       if (!batch || batch.length === 0) break;
 
+      // Someone who unsubscribes mid-send must not still receive it. The
+      // audience is frozen, but consent is not - so re-check this batch.
+      const batchEmails = (batch as any[]).map((r) => r.email);
+      const { data: optedNow } = await svc.from("email_optouts")
+        .select("email").eq("org_id", orgId).in("email", batchEmails);
+      const optedSet = new Set((optedNow ?? []).map((o: any) => String(o.email).toLowerCase()));
+
       for (const row of batch as any[]) {
         if (Date.now() - started >= budgetMs) break;
+
+        if (optedSet.has(String(row.email).toLowerCase())) {
+          await svc.from("broadcast_sends")
+            .update({ status: "failed", last_error: "unsubscribed before this was sent" })
+            .eq("id", row.id);
+          continue;
+        }
 
         const unsubToken = signTokenWithExpiry(`unsub:${orgId}:${row.email}`, unsubExpiry);
         const unsubUrl = `${SITE}/api/unsubscribe?token=${encodeURIComponent(unsubToken)}`;
@@ -299,11 +391,26 @@ export async function runBroadcastSlice(args: {
                <a href="${unsubUrl}" style="color:#aaa;">Unsubscribe</a>
              </p>`;
 
+        // Increment BEFORE the request. If we die between sending and
+        // recording, the retry is bounded instead of unbounded. The provider's
+        // idempotency key covers the duplicate, but only for about a day (see
+        // the note at the top of this file).
+        const attempts = (row.attempts ?? 0) + 1;
+        {
+          const { error } = await svc.from("broadcast_sends").update({ attempts }).eq("id", row.id);
+          if (error) throw new Error(`could not claim ${row.email}: ${error.message}`);
+        }
+
         let verdict;
         let providerId: string | null = null;
         try {
           const res = await fetch("https://api.resend.com/emails", {
             method: "POST",
+            // The budget is only checked BETWEEN rows, so one stalled request
+            // could run past the platform's hard 60s ceiling and kill the
+            // invocation before the lease is released. A timeout turns that
+            // into an ordinary retryable network error instead.
+            signal: AbortSignal.timeout(8_000),
             headers: {
               Authorization: `Bearer ${RESEND_KEY}`,
               "Content-Type": "application/json",
@@ -332,37 +439,55 @@ export async function runBroadcastSlice(args: {
           verdict = classifyResendOutcome({ status: 0, bodyText: e?.message || "network error" });
         }
 
-        const attempts = (row.attempts ?? 0) + 1;
+        const write = async (patch: Record<string, any>) => {
+          const { error } = await svc.from("broadcast_sends").update(patch).eq("id", row.id);
+          // Discarding this was an unbounded re-send: the row stays pending,
+          // the next pass picks the same head-of-queue batch, and the slice
+          // burns its whole budget re-mailing the same addresses while the
+          // counter sits still.
+          if (error) throw new Error(`could not record the result for ${row.email}: ${error.message}`);
+        };
+
         if (verdict.outcome === "sent") {
-          await svc.from("broadcast_sends").update({
-            status: "sent", attempts, sent_at: new Date().toISOString(),
-            provider_id: providerId, last_error: null,
-          }).eq("id", row.id);
+          await write({ status: "sent", sent_at: new Date().toISOString(), provider_id: providerId, last_error: null });
           sentThisSlice++;
+        } else if ((verdict as any).alert) {
+          // Our credentials are wrong. Nothing about THIS family is
+          // undeliverable, so leave the row pending, and release WITHOUT
+          // touching progress_at so the broadcast is resumable the moment the
+          // key is fixed rather than reading as "Sending" for ten minutes.
+          await write({ last_error: verdict.error });
+          console.error("[broadcasts] provider rejected our credentials - stopping this slice");
+          await releaseKeepingProgress();
+          const c = await ledgerCounts(args.broadcastId);
+          // `aborted` is what stops the client pump. Without it the browser
+          // just asks for another slice and burns one family per round trip.
+          return { broadcast_id: args.broadcastId, done: false, ...c, total, aborted: "provider_auth" };
         } else if (verdict.outcome === "retryable" && attempts < MAX_ATTEMPTS) {
-          // Stays pending on purpose — a rate-limited family has NOT failed.
-          await svc.from("broadcast_sends").update({ attempts, last_error: verdict.error }).eq("id", row.id);
+          // Stays pending on purpose - a rate-limited family has NOT failed.
+          await write({ last_error: verdict.error });
           if (verdict.retryAfterMs) await sleep(Math.min(verdict.retryAfterMs, 5_000));
         } else {
-          await svc.from("broadcast_sends").update({ status: "failed", attempts, last_error: verdict.error }).eq("id", row.id);
-          if ((verdict as any).alert) {
-            console.error("[broadcasts] provider rejected our credentials — stopping this slice");
-            await release();
-            const c = await ledgerCounts(args.broadcastId);
-            return { broadcast_id: args.broadcastId, done: false, ...c, total };
-          }
+          await write({ status: "failed", last_error: verdict.error });
         }
 
         await sleep(SEND_SPACING_MS);
       }
 
       // Renew the lease so a long slice never loses it mid-flight.
-      await svc.from("broadcasts")
+      const { data: renewed } = await svc.from("broadcasts")
         .update({
           progress_at: new Date().toISOString(),
           lease_expires_at: new Date(Date.now() + LEASE_MS).toISOString(),
         })
-        .eq("id", args.broadcastId).eq("lease_owner", token);
+        .eq("id", args.broadcastId).eq("lease_owner", token).select("id");
+      // Zero rows means someone else took over. Carrying on would put two
+      // senders on the same head of the queue.
+      if (!renewed || renewed.length === 0) {
+        console.warn("[broadcasts] lost the lease mid-slice, stopping", args.broadcastId);
+        const c = await ledgerCounts(args.broadcastId);
+        return { broadcast_id: args.broadcastId, done: false, ...c, total, skipped: "locked" };
+      }
     }
 
     const counts = await ledgerCounts(args.broadcastId);
@@ -473,7 +598,11 @@ export async function sendDueBroadcasts(opts: { totalBudgetMs?: number } = {}): 
     (await hasLedger())
       ? svc.from("broadcasts").select("id")
           .eq("state", "sending")
-          .not("materialized_at", "is", null)
+          // No materialized_at filter: a broadcast killed while BUILDING its
+          // recipient list has none, has emailed nobody, and would otherwise
+          // never be picked up at all. Pre-ledger rows stay excluded by the
+          // progress_at test below - they have NULL there, and NULL never
+          // satisfies `lt`, which is what keeps them from being auto-resumed.
           .lt("progress_at", staleIso)
           .or(`lease_expires_at.is.null,lease_expires_at.lt.${nowIso}`)
       : Promise.resolve({ data: [] as any[] }),
@@ -486,7 +615,13 @@ export async function sendDueBroadcasts(opts: { totalBudgetMs?: number } = {}): 
     // before eating the whole budget.
     if (Date.now() - started > budget) break;
     try {
-      const r = await runBroadcastSlice({ broadcastId: id, budgetMs: Math.min(SLICE_MS, budget - (Date.now() - started)) });
+      // Keep slicing THIS broadcast while budget remains. One slice per cron
+      // run would mean one slice per DAY - a few hundred families would have
+      // taken a fortnight, with nothing saying so.
+      let r = await runBroadcastSlice({ broadcastId: id, budgetMs: Math.min(SLICE_MS, budget - (Date.now() - started)) });
+      while (!r.done && !r.skipped && !r.aborted && Date.now() - started < budget) {
+        r = await runBroadcastSlice({ broadcastId: id, budgetMs: Math.min(SLICE_MS, budget - (Date.now() - started)) });
+      }
       out.push({ id, sent: r.sent, failed: r.failed, done: r.done });
     } catch (e: any) {
       console.error("[broadcasts] slice failed for", id, e?.message || e);
