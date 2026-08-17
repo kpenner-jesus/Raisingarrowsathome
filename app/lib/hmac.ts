@@ -14,7 +14,20 @@ function secret(): Buffer {
  *  when the payload itself contains '.' (e.g. `unsub:user@gmail.com`).
  *  Signature is computed over the RAW (decoded) payload + expiry. */
 export function signToken(payload: string, ttlSeconds: number): string {
-  const expiry = Math.floor(Date.now() / 1000) + ttlSeconds;
+  return signTokenWithExpiry(payload, Math.floor(Date.now() / 1000) + ttlSeconds);
+}
+
+/**
+ * Same, but with an ABSOLUTE expiry instead of a TTL — so the same inputs
+ * always produce the same token.
+ *
+ * Broadcasts need this. A retried send must render byte-identical html, or the
+ * provider's idempotency key is handed a changed payload and rejects it
+ * instead of deduping — which would turn a safe retry into a second email.
+ * Deriving the expiry from the broadcast's created_at makes the token stable.
+ */
+export function signTokenWithExpiry(payload: string, expiryUnixSeconds: number): string {
+  const expiry = Math.floor(expiryUnixSeconds);
   const b64    = Buffer.from(payload, "utf8").toString("base64url");
   const sig    = createHmac("sha256", secret()).update(`${payload}.${expiry}`).digest("base64url");
   return `${b64}.${expiry}.${sig}`;

@@ -15,6 +15,29 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
 
   const targetCount = audience === "all_recipients" ? counts.all : audience === "active_recipients" ? counts.active : 0;
 
+  /** Drive further slices from the browser. A serverless function can't keep
+   *  working after it has replied, so the tab is the loop. Closing it just
+   *  pauses the send — Resume in Recent broadcasts picks it back up. */
+  async function pump(broadcastId: string) {
+    for (let i = 0; i < 200; i++) {
+      try {
+        const r = await fetch(`/api/admin/broadcasts/${broadcastId}`, { method: "POST" });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { setMsg({ kind: "err", text: j.error || `Paused (${r.status}). Use Resume below.` }); break; }
+        if (j.done) {
+          setMsg({ kind: "ok", text: `Sent to ${j.sent} ${j.sent === 1 ? "family" : "families"}${j.failed ? ` (${j.failed} failed)` : ""}.` });
+          break;
+        }
+        setMsg({ kind: "ok", text: `Sending — ${j.sent} of ${j.total ?? "?"} so far.` });
+        if (j.skipped === "locked") break;
+      } catch {
+        setMsg({ kind: "err", text: "Paused — use Resume in Recent broadcasts to finish." });
+        break;
+      }
+    }
+    router.refresh();
+  }
+
   async function send() {
     if (!subject.trim() || !body.trim()) { setMsg({ kind: "err", text: "Subject and body required" }); return; }
     if (schedule && !scheduledFor) { setMsg({ kind: "err", text: "Pick a send date/time" }); return; }
@@ -32,15 +55,33 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+
       if (j.queued) {
-        setMsg({ kind: "ok", text: `Scheduled for ${new Date(j.scheduled_for).toLocaleString()}. Sends at the next daily dispatch tick after that.` });
+        setMsg({ kind: "ok", text: `Scheduled for ${new Date(j.scheduled_for).toLocaleString()}. Sends at the next daily dispatch after that.` });
+      } else if (j.done) {
+        setMsg({ kind: "ok", text: `Sent to ${j.sent} ${j.sent === 1 ? "family" : "families"}${j.failed ? ` (${j.failed} failed — see Recent broadcasts)` : ""}.` });
       } else {
-        setMsg({ kind: "ok", text: `Sent to ${j.sent} recipients (${j.failed} failed).` });
+        // A large audience doesn't finish in one request. The browser keeps
+        // going below; the row in Recent broadcasts shows live progress and a
+        // Resume button if this tab is closed.
+        setMsg({ kind: "ok", text: `Sending — ${j.sent} of ${j.total ?? "?"} so far. Keep this tab open, or use Resume in Recent broadcasts.` });
+        pump(j.broadcast_id);
       }
+      if (j.degraded === "ledger_missing") {
+        setMsg({ kind: "err", text: "Sent the old way — this send can't be resumed if it's interrupted. The 20260617b database update hasn't been applied yet." });
+      }
+
       setSubject(""); setBody(""); setConfirm(false); setSchedule(false); setScheduledFor("");
       router.refresh();
     } catch (e: any) {
-      setMsg({ kind: "err", text: e?.message || "Send failed" });
+      // Deliberately do NOT clear the form here, and say plainly that we don't
+      // know. Clearing on an ambiguous outcome is what made operators press
+      // Send again — which used to create a second broadcast and re-mail
+      // everyone who had already received the first.
+      setMsg({
+        kind: "err",
+        text: `${e?.message || "Send failed"} — we're not sure whether that finished. Check Recent broadcasts below before sending again.`,
+      });
     } finally {
       setBusy(false);
     }

@@ -5,7 +5,7 @@
 import { NextResponse } from "next/server";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
-import { sendBroadcast } from "@/app/lib/broadcasts";
+import { runBroadcastSlice } from "@/app/lib/broadcasts";
 import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 // Broadcasts are sent one at a time inside this request. Killed mid-loop, the
@@ -65,14 +65,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, queued: true, scheduled_for });
   }
 
-  // Send now (inline). sendBroadcast reads broadcasts.org_id off the row
-  // and scopes every downstream recipient lookup to that tenant.
-  const r = await sendBroadcast({ broadcastId: row.id });
+  // Run ONE bounded slice, then hand back. Small audiences finish here and the
+  // operator's experience is unchanged; a large one returns 202 and the browser
+  // drives the rest, showing progress. Holding the response open for the whole
+  // fan-out is what used to get the invocation killed mid-send.
+  const r = await runBroadcastSlice({ broadcastId: row.id, orgId: orgCtx.id });
   await writeAudit({
     orgId: orgCtx.id,
     actorId: user.id, action: "send_broadcast",
     targetTable: "broadcasts", targetId: row.id,
-    details: { subject, audience, sent: r.sent, failed: r.failed },
+    details: { subject, audience, sent: r.sent, failed: r.failed, total: r.total, done: r.done },
   });
-  return NextResponse.json({ ok: true, sent: r.sent, failed: r.failed });
+  return NextResponse.json(
+    {
+      ok: true, broadcast_id: row.id,
+      done: r.done, sent: r.sent, failed: r.failed, pending: r.pending, total: r.total,
+      degraded: r.degraded,
+    },
+    { status: r.done ? 200 : 202 },
+  );
 }
