@@ -68,9 +68,12 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
     filename = exportFilename(orgCtx.slug, "receipts", year);
 
   } else if (kind === "payouts") {
+    // select * rather than a named list: payouts has NO `currency` column in
+    // either environment, and naming it made this export return 500 every time
+    // it was ever clicked. Migrations here are hand-applied, so an export must
+    // not break the moment the schema and the code disagree.
     let q = svc.from("payouts").select(`
-      id, status, amount, currency, created_at, paid_at, payment_method, payment_reference,
-      recipients!inner(applications!inner(parent_names, app_ref))
+      *, recipients!inner(applications!inner(parent_names, app_ref))
     `).eq("org_id", orgCtx.id).order("created_at", { ascending: false });
     if (startISO) q = q.gte("created_at", startISO).lt("created_at", endISO);
     const { data, error } = await q;
@@ -84,7 +87,7 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
         p.recipients?.applications?.app_ref ?? "",
         p.recipients?.applications?.parent_names ?? "",
         p.amount ?? 0,
-        p.currency ?? "CAD",
+        (p as any).currency ?? "CAD",
         p.payment_method ?? "",
         p.payment_reference ?? "",
         p.status ?? "",
@@ -149,9 +152,9 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
     `).eq("org_id", orgCtx.id).eq("status", "approved");
     if (startISO) qr = qr.gte("created_at", startISO).lt("created_at", endISO);
 
+    // Same missing-column trap as the payouts export above.
     let qp = svc.from("payouts").select(`
-      id, status, amount, currency, created_at, paid_at, payment_method, payment_reference,
-      recipients!inner(applications!inner(parent_names, app_ref))
+      *, recipients!inner(applications!inner(parent_names, app_ref))
     `).eq("org_id", orgCtx.id).eq("status", "paid");
     if (startISO) qp = qp.gte("paid_at", startISO).lt("paid_at", endISO);
 
@@ -182,7 +185,7 @@ export async function GET(req: Request, ctx: { params: { kind: string } }) {
         (p as any).recipients?.applications?.parent_names ?? "",
         "",
         p.amount ?? 0,
-        p.currency ?? "CAD",
+        (p as any).currency ?? "CAD",
         "",
         p.payment_method ?? "",
         p.payment_reference ?? "",
