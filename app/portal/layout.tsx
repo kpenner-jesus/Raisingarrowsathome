@@ -18,7 +18,7 @@ export default async function PortalLayout({ children }: { children: React.React
   // incomplete/unknown) get a maintenance page unless the caller is a
   // platform super_admin (for support work).
   const orgCtx = await getOrgContext();
-  if (orgCtx && isTenantAccessBlocked(orgCtx.status)) {
+  if (orgCtx && isTenantAccessBlocked(orgCtx.status, orgCtx.trial_ends_at)) {
     let isSuper = false;
     if (user) {
       const svc = supabaseService();

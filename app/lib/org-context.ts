@@ -58,6 +58,7 @@ export type OrgContext = {
   sender_email: string | null;
   sender_domain: string | null;
   sender_verified: boolean;
+  trial_ends_at: string | null;
   /** Whether the current URL prefixes paths with /o/<slug>/. False for legacy
    *  raisingarrowsathome.com hosts (which keep bare /admin /portal). */
   prefixed: boolean;
@@ -66,8 +67,11 @@ export type OrgContext = {
 // Per-request DB lookup. React's cache() dedupes calls within a single RSC
 // render and is automatically scoped to the request — no cross-request leak
 // in serverless lambda warm-reuse, unlike a module-level Map.
+// trial_ends_at is here so the access gate can tell a LIVE trial from a
+// lapsed one. Nothing ever moved a tenant off "trialing", so without it a
+// self-signup trial simply never ended.
 const TENANT_SELECT =
-  "id, slug, name, status, plan, brand_color, logo_url, custom_domain, sender_email, sender_domain, sender_verified";
+  "id, slug, name, status, plan, brand_color, logo_url, custom_domain, sender_email, sender_domain, sender_verified, trial_ends_at";
 
 const fetchTenantBySlug = cache(async (slug: string) => {
   const svc = supabaseService();

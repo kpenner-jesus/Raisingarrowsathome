@@ -30,9 +30,18 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const orgCtx = await requireOrgContext();
-  if (isTenantAccessBlocked(orgCtx.status)) return NextResponse.json({ error: "portal is paused" }, { status: 423 });
+  if (isTenantAccessBlocked(orgCtx.status, orgCtx.trial_ends_at)) return NextResponse.json({ error: "portal is paused" }, { status: 423 });
 
-  const body = (await req.json().catch(() => ({}))) as any;
+  // Same ceiling the admin chat has. Without it the LOWEST-privilege user on
+  // the platform can post megabytes per request — and the daily cap counts
+  // MESSAGES, not size, so one scripted loop bills a fortune against the
+  // platform key and locks the tenant's own admin out of the assistant for the
+  // rest of the day.
+  const rawBody = await req.text();
+  if (rawBody.length > 200_000) {
+    return NextResponse.json({ error: "That message is too long — please start a new chat." }, { status: 413 });
+  }
+  const body = (() => { try { return JSON.parse(rawBody); } catch { return {}; } })() as any;
   const rawMessages = Array.isArray(body?.messages) ? body.messages : null;
   if (!rawMessages) return NextResponse.json({ error: "messages array required" }, { status: 400 });
   if (rawMessages.length > 60) return NextResponse.json({ error: "conversation too long — start a new chat" }, { status: 400 });

@@ -71,8 +71,8 @@ export async function POST(req: Request) {
   // active statuses via listActiveTenants, so skip the extra round-trip there.
   if (!isCron) {
     const svc = supabaseService();
-    const { data: t } = await svc.from("tenants").select("status").eq("id", orgId!).maybeSingle();
-    if (isTenantAccessBlocked(t?.status)) {
+    const { data: t } = await svc.from("tenants").select("status, trial_ends_at").eq("id", orgId!).maybeSingle();
+    if (isTenantAccessBlocked(t?.status, (t as any)?.trial_ends_at)) {
       return new NextResponse(`tenant is ${t?.status ?? "unknown"} — payouts paused`, { status: 423 });
     }
   }

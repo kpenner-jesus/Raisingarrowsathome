@@ -72,7 +72,7 @@ export async function requireAdmin(): Promise<AdminAuth> {
   // Access gate — ALLOW-list (active/trialing/past_due/free). Blocks paused,
   // canceled, unpaid, incomplete*, and any unknown status. super_admin bypass
   // keeps support paths open.
-  if (!isPlatformSuper && isTenantAccessBlocked(ctx.status)) {
+  if (!isPlatformSuper && isTenantAccessBlocked(ctx.status, ctx.trial_ends_at)) {
     throw new AdminAuthError(423, `tenant is ${ctx.status}`);
   }
 

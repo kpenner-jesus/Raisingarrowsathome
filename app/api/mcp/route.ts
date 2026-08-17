@@ -37,8 +37,8 @@ export async function POST(req: Request) {
   // build correct portal URLs; status gates access so a paused/canceled tenant's
   // token can't keep reading/writing via MCP (parity with requireAdmin's 423).
   const svc = supabaseService();
-  const { data: tenant } = await svc.from("tenants").select("slug, status").eq("id", token.org_id).maybeSingle();
-  if (isTenantAccessBlocked(tenant?.status)) {
+  const { data: tenant } = await svc.from("tenants").select("slug, status, trial_ends_at").eq("id", token.org_id).maybeSingle();
+  if (isTenantAccessBlocked(tenant?.status, (tenant as any)?.trial_ends_at)) {
     return new NextResponse(JSON.stringify({
       jsonrpc: "2.0",
       id:      null,

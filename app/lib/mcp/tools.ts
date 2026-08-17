@@ -332,9 +332,14 @@ const getReceiptImageUrl: Tool = {
     // catches it. Requires 3-segment <user>/<org>/<file>; THROWS otherwise
     // (surfaced as a JSON-RPC error). Verified zero legacy rows in prod.
     assertPathBelongsToOrg(receipt.image_path, ctx.org_id);
-    const { data, error } = await supabase.storage.from("receipts").createSignedUrl(receipt.image_path, ttl_secs);
+    // Clamped, because ttl_secs is chosen by the MODEL and this tool is
+    // read-only — so it runs with no human confirmation. Text a family typed
+    // into their own receipt description could otherwise talk the assistant
+    // into minting a year-long public link to someone's receipt.
+    const ttl = Math.min(Math.max(Number(ttl_secs) || 300, 60), 900);
+    const { data, error } = await supabase.storage.from("receipts").createSignedUrl(receipt.image_path, ttl);
     if (error) throw new Error(error.message);
-    return { signed_url: data.signedUrl, expires_in_secs: ttl_secs };
+    return { signed_url: data.signedUrl, expires_in_secs: ttl };
   },
 };
 
@@ -360,9 +365,11 @@ const getPhotoImageUrl: Tool = {
     if (loadErr || !photo) throw new Error(loadErr?.message || "photo not found");
     // See get_receipt_image_url for rationale.
     assertPathBelongsToOrg(photo.image_path, ctx.org_id);
-    const { data, error } = await supabase.storage.from("photos").createSignedUrl(photo.image_path, ttl_secs);
+    // Same clamp as get_receipt_image_url.
+    const ttl = Math.min(Math.max(Number(ttl_secs) || 300, 60), 900);
+    const { data, error } = await supabase.storage.from("photos").createSignedUrl(photo.image_path, ttl);
     if (error) throw new Error(error.message);
-    return { signed_url: data.signedUrl, expires_in_secs: ttl_secs };
+    return { signed_url: data.signedUrl, expires_in_secs: ttl };
   },
 };
 
@@ -845,7 +852,11 @@ const bulkCreateRecipients: Tool = {
           .from("applications")
           .select("id, recipients(id)")
           .eq("org_id", ctx.org_id)
-          .ilike("contact_email", email)
+          // Escaped: in ILIKE, `_` matches any character and `%` matches
+          // anything, so 'mary_jones@x.com' would match 'maryXjones@x.com'
+          // and the import would skip a family that had never been imported,
+          // reporting a confident wrong reason.
+          .ilike("contact_email", email.replace(/([\\%_])/g, "\\$1"))
           .limit(1)
           .maybeSingle();
         if (existing) {

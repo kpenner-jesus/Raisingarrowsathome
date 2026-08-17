@@ -20,7 +20,26 @@
 /** Statuses that grant full tenant access + cron processing. */
 export const TENANT_ACTIVE_STATUSES = ["active", "trialing", "past_due", "free"] as const;
 
-/** True when the tenant should be blocked from operating (read + write). */
-export function isTenantAccessBlocked(status: string | null | undefined): boolean {
-  return !TENANT_ACTIVE_STATUSES.includes((status ?? "") as any);
+/**
+ * True when the tenant should be blocked from operating (read + write).
+ *
+ * `trialEndsAt` matters: 'trialing' is on the allow-list, and NOTHING in the
+ * codebase ever moved a tenant off it. Only Stripe or a human in the platform
+ * console writes tenants.status, so a self-signup trial simply never expired —
+ * every tenant had the product free, forever. Pass the tenant's trial_ends_at
+ * and an elapsed trial now blocks like any other inactive status.
+ *
+ * Omitting it keeps the old behaviour, so a caller that hasn't loaded the
+ * column can't accidentally lock a paying tenant out.
+ */
+export function isTenantAccessBlocked(
+  status: string | null | undefined,
+  trialEndsAt?: string | null,
+): boolean {
+  if (!TENANT_ACTIVE_STATUSES.includes((status ?? "") as any)) return true;
+  if (status === "trialing" && trialEndsAt) {
+    const ends = Date.parse(trialEndsAt);
+    if (Number.isFinite(ends) && ends < Date.now()) return true;
+  }
+  return false;
 }

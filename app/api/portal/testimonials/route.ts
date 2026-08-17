@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 
   const orgCtx = await requireOrgContext();
-  if (isTenantAccessBlocked(orgCtx.status)) return new NextResponse("portal is paused", { status: 423 });
+  if (isTenantAccessBlocked(orgCtx.status, orgCtx.trial_ends_at)) return new NextResponse("portal is paused", { status: 423 });
   const ctx = await getEffectiveRecipient(user.id, orgCtx.id);
   const recipient = ctx.recipient;
   if (!recipient) return new NextResponse("no recipient", { status: 400 });
