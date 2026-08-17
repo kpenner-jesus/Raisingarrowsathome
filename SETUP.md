@@ -17,7 +17,7 @@ End-to-end setup for the application → admin review → recipient portal → C
 
 ---
 
-**Stack:** Next.js 14 (Vercel) · Supabase (Auth + Postgres + Storage) · EmailJS (existing) · Vercel Cron.
+**Stack:** Next.js 14 (Vercel) · Supabase (Auth + Postgres + Storage) · Resend (email) · Vercel Cron.
 
 **Monthly cost target:** $0 until Supabase free-tier limits (500 MB DB / 1 GB storage). Realistic for years at this volume.
 
@@ -64,7 +64,7 @@ Copy `.env.example` → `.env.local`, fill in the values from step 3. Generate `
 openssl rand -hex 32
 ```
 
-Leave the new `EMAILJS_TEMPLATE_*` and `EMAILJS_PRIVATE_KEY` vars empty for now — you can wire admin-decision emails after the rest of the system is verified (see §10). The system silently skips email sends when these are blank.
+Leave `RESEND_API_KEY` empty for now — you can wire admin-decision emails after the rest of the system is verified (see §10). The system silently skips email sends when it is blank.
 
 ## 6. Install + run
 
@@ -262,7 +262,7 @@ middleware.ts                              — route protection
 
 app/lib/supabase/{server,browser,middleware}.ts
 app/lib/grant-calc.ts                      — payout math
-app/lib/notify.ts                          — EmailJS server-side sender
+app/lib/notify.ts                          — Resend server-side sender
 app/lib/types.ts
 
 app/auth/{login,callback,logout}/...

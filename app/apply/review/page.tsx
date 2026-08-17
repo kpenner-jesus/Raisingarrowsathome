@@ -1,11 +1,34 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import emailjs from "@emailjs/browser";
 import { useAppStore } from "../../store";
 import { SITE_CONFIG } from "../../siteConfig";
 
 const SHEETS_WEBHOOK_URL = process.env.NEXT_PUBLIC_SHEETS_WEBHOOK_URL ?? "";
+
+/**
+ * Turn a rejected submission into something a family can act on.
+ *
+ * The API replies with short plain-text bodies. A few of them ("applications
+ * are currently closed") are already written for a human; the rest are
+ * internal ("no tenant resolved for this host") and must not be shown as-is.
+ * Every branch says the same two things: your application was NOT sent, and
+ * here is what to do next.
+ */
+function submitErrorMessage(status: number, detail: string, contactEmail: string): string {
+  const emailUs = `email us at ${contactEmail}`;
+
+  if (status === 403) {
+    return `Applications are closed at the moment, so this one hasn't been sent. Please ${emailUs} and we'll let you know when the next round opens.`;
+  }
+  if (status === 429) {
+    return `We've had a lot of submissions come in at once, so we couldn't accept this one just yet. Please wait a few minutes and press Submit again — your answers are still here.`;
+  }
+  if (status === 400 && /missing required/i.test(detail)) {
+    return `Your name and contact email are both needed before we can accept the application. Please use the edit links above to fill them in.`;
+  }
+  return `Something went wrong on our end and your application has NOT been sent. Please try again in a moment — your answers are still here. If it happens again, ${emailUs} and we'll take it from there.`;
+}
 
 export default function ReviewPage() {
   const router  = useRouter();
@@ -19,23 +42,6 @@ export default function ReviewPage() {
     .map((c, i) => `Child ${i + 1}: Age ${c.age}, ${c.grade}`)
     .join("\n");
 
-  const questionsSummary = SITE_CONFIG.questions
-    .map((q) => {
-      const answers: Record<string, string> = {
-        whyHomeschool:          store.whyHomeschool,
-        biggestConcern:         store.biggestConcern,
-        educationalGoals:       store.educationalGoals,
-        whatGrantMakesPossible: store.whatGrantMakesPossible,
-        singleIncome:           store.singleIncome,
-        christianFaith:         store.christianFaith,
-        localChurch:            store.localChurch,
-        curriculumConsidering:  store.curriculumConsidering,
-        howGrantHelps:          store.howGrantHelps,
-      };
-      return `Q: ${q.question}\nA: ${answers[q.key] || "—"}`;
-    })
-    .join("\n\n");
-
   const estimatedFunding = store.children.reduce((total, child) => {
     const cap = SITE_CONFIG.fundingCaps.find((tier) => {
       const [min, max] = tier.label.replace("Ages ", "").split("–").map(Number);
@@ -44,120 +50,107 @@ export default function ReviewPage() {
     return total + (cap?.cap ?? 0);
   }, 0);
 
-  const handleSubmit = () => {
+  // The SERVER decides whether an application was received.
+  //
+  // It used to be EmailJS. The redirect to /apply/success fired from the mail
+  // promise, while the database write was fire-and-forget with only a
+  // console.error — so a family whose application failed to save was still
+  // shown the success page, and nobody found out. The save is now awaited and
+  // it alone decides what the family sees.
+  const handleSubmit = async () => {
+    if (sending) return;            // guard synchronously; `disabled` alone races
     setSending(true);
     setError("");
 
-    const appRef = `RA-${new Date().toISOString().split("T")[0].replace(/-/g, "")}-${store.parentNames.split(" ")[0].toUpperCase()}`;
-
-    const params = {
-      parent_names:              store.parentNames,
-      city:                      store.city,
-      contact_email:             store.contactEmail,
-      contact_phone:             store.contactPhone,
-      income_range:              store.incomeRange,
-      app_ref:                   appRef,
-      date:                      new Date().toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" }),
-      children_summary:          childrenSummary,
-      num_children:              String(store.children.length),
-      estimated_funding:         `$${estimatedFunding}`,
-      current_schooling:         store.currentSchooling,
-      why_homeschool:            store.whyHomeschool,
-      biggest_concern:           store.biggestConcern,
-      educational_goals:         store.educationalGoals,
-      what_grant_makes_possible: store.whatGrantMakesPossible,
-      single_income:             store.singleIncome,
-      christian_faith:           store.christianFaith,
-      local_church:              store.localChurch,
-      curriculum_considering:    store.curriculumConsidering,
-      how_grant_helps:           store.howGrantHelps,
-      questions_summary:         questionsSummary,
-      video_link:                store.videoLink,
-      org_name:                  SITE_CONFIG.orgName,
-      org_email:                 SITE_CONFIG.orgEmail,
-      to_email:                  SITE_CONFIG.orgEmail,
-      reply_to:                  store.contactEmail,
-    };
-
-    const SERVICE  = "service_px2hwqq";
-    const TEMPLATE = "template_l6qz64q";
-    const GUEST    = "template_rytd2xf";
-    const PUBKEY = "ssSZoQF3EMLCl1OPA";
-
-    emailjs.init({ publicKey: PUBKEY });
-
-    // Persist to Supabase so admin can review in /admin/applications.
-    // Fire-and-forget — failure here should not block submission, but we log it.
-    fetch("/api/applications/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        app_ref: appRef,
-        parent_names: store.parentNames,
-        city: store.city,
-        contact_email: store.contactEmail,
-        contact_phone: store.contactPhone,
-        income_range: store.incomeRange,
-        current_schooling: store.currentSchooling,
-        children: store.children,
-        answers: {
-          whyHomeschool:          store.whyHomeschool,
-          biggestConcern:         store.biggestConcern,
-          educationalGoals:       store.educationalGoals,
-          whatGrantMakesPossible: store.whatGrantMakesPossible,
-          singleIncome:           store.singleIncome,
-          christianFaith:         store.christianFaith,
-          localChurch:            store.localChurch,
-          curriculumConsidering:  store.curriculumConsidering,
-          howGrantHelps:          store.howGrantHelps,
-        },
-        video_link: store.videoLink,
-      }),
-    }).catch((err) => console.error("DB submit failed:", err));
-
-    emailjs.send(SERVICE, TEMPLATE, params)
-      .then(() => {
-        return emailjs.send(SERVICE, GUEST, { ...params, to_email: store.contactEmail });
-      })
-      .then(() => {
-        if (SHEETS_WEBHOOK_URL) {
-          fetch(SHEETS_WEBHOOK_URL, {
-            method: "POST",
-            mode: "no-cors",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              app_ref:                   appRef,
-              date:                      params.date,
-              parent_names:              store.parentNames,
-              city:                      store.city,
-              email:                     store.contactEmail,
-              phone:                     store.contactPhone,
-              income_range:              store.incomeRange,
-              num_children:              store.children.length,
-              children:                  childrenSummary,
-              estimated_funding:         estimatedFunding,
-              video_link:                store.videoLink,
-              current_schooling:         store.currentSchooling,
-              why_homeschool:            store.whyHomeschool,
-              biggest_concern:           store.biggestConcern,
-              educational_goals:         store.educationalGoals,
-              what_grant_makes_possible: store.whatGrantMakesPossible,
-              single_income:             store.singleIncome,
-              christian_faith:           store.christianFaith,
-              local_church:              store.localChurch,
-              curriculum:                store.curriculumConsidering,
-              how_grant_helps:           store.howGrantHelps,
-            }),
-          }).catch(() => {});
-        }
-        store.resetApplication();
-        router.push("/apply/success");
-      })
-      .catch((err: any) => {
-        setSending(false);
-        console.error("Submit error:", err);
-        setError(`Submission failed: ${err?.text || err?.message || "unknown error"}. Please email us directly at ${SITE_CONFIG.orgEmail}`);
+    let res: Response;
+    try {
+      res = await fetch("/api/applications/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // app_ref is deliberately NOT sent: the server generates the
+          // authoritative one and the client's copy was being ignored.
+          parent_names: store.parentNames,
+          city: store.city,
+          contact_email: store.contactEmail,
+          contact_phone: store.contactPhone,
+          income_range: store.incomeRange,
+          current_schooling: store.currentSchooling,
+          children: store.children,
+          answers: {
+            whyHomeschool:          store.whyHomeschool,
+            biggestConcern:         store.biggestConcern,
+            educationalGoals:       store.educationalGoals,
+            whatGrantMakesPossible: store.whatGrantMakesPossible,
+            singleIncome:           store.singleIncome,
+            christianFaith:         store.christianFaith,
+            localChurch:            store.localChurch,
+            curriculumConsidering:  store.curriculumConsidering,
+            howGrantHelps:          store.howGrantHelps,
+          },
+          video_link: store.videoLink,
+        }),
       });
+    } catch (err) {
+      // Network-level failure — offline, DNS, connection dropped mid-flight.
+      console.error("[apply] submit request never completed:", err);
+      setSending(false);
+      setError(
+        `We couldn't reach our server, so your application has NOT been sent. ` +
+        `Please check your connection and press Submit again — your answers are still here. ` +
+        `If it keeps failing, email us at ${SITE_CONFIG.orgEmail}.`
+      );
+      return;
+    }
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.error("[apply] submit rejected:", res.status, detail);
+      setSending(false);
+      setError(submitErrorMessage(res.status, detail, SITE_CONFIG.orgEmail));
+      // Deliberately NOT resetting the store — a retry must not mean typing
+      // the whole application again.
+      return;
+    }
+
+    const saved = (await res.json().catch(() => ({}))) as { app_ref?: string };
+
+    // Optional Google Sheets mirror. Now fed the app_ref the SERVER generated:
+    // the client used to invent its own shorter reference, so the sheet and the
+    // database have been recording different numbers for the same application.
+    if (SHEETS_WEBHOOK_URL) {
+      fetch(SHEETS_WEBHOOK_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          app_ref:                   saved.app_ref ?? "",
+          date:                      new Date().toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" }),
+          parent_names:              store.parentNames,
+          city:                      store.city,
+          email:                     store.contactEmail,
+          phone:                     store.contactPhone,
+          income_range:              store.incomeRange,
+          num_children:              store.children.length,
+          children:                  childrenSummary,
+          estimated_funding:         estimatedFunding,
+          video_link:                store.videoLink,
+          current_schooling:         store.currentSchooling,
+          why_homeschool:            store.whyHomeschool,
+          biggest_concern:           store.biggestConcern,
+          educational_goals:         store.educationalGoals,
+          what_grant_makes_possible: store.whatGrantMakesPossible,
+          single_income:             store.singleIncome,
+          christian_faith:           store.christianFaith,
+          local_church:              store.localChurch,
+          curriculum:                store.curriculumConsidering,
+          how_grant_helps:           store.howGrantHelps,
+        }),
+      }).catch(() => {});
+    }
+
+    store.resetApplication();
+    router.push("/apply/success");
   };
 
   const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
