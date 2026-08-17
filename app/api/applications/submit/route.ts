@@ -19,6 +19,8 @@ import { notifyApplicationReceived } from "@/app/lib/notify";
 import { signToken } from "@/app/lib/hmac";
 import { getSettings } from "@/app/lib/settings";
 import { getOrgContext, orgPath } from "@/app/lib/org-context";
+import { checkSubmitThrottle, alertMailQuotaReached } from "@/app/lib/submit-throttle";
+import { answerKeyCountOk, isHoneypotTripped, MAX_ANSWER_KEYS } from "@/app/lib/submit-throttle-logic";
 import { randomBytes } from "crypto";
 
 const MAX_TEXT = 4000;
@@ -90,6 +92,51 @@ export async function POST(req: Request) {
       return new NextResponse("invalid answers", { status: 400 });
     }
 
+    // ── Zero-IO defences ────────────────────────────────────
+    // These cost nothing and keep working when Postgres is unreachable —
+    // which is exactly when the rate limiter below does not. That is what
+    // makes the limiter's fail-open behaviour defensible rather than lazy.
+
+    // Checked BEFORE the Object.entries loop that clips each value: counting
+    // after would mean allocating the very thing we are trying to bound. Each
+    // key is already capped at 50 chars and each value at MAX_TEXT, but the
+    // NUMBER of keys was unbounded, so one request could persist megabytes.
+    if (!answerKeyCountOk(answers, MAX_ANSWER_KEYS)) {
+      console.error("[submit] answers key count over cap", {
+        org: orgCtx.slug, keys: Object.keys(answers as object).length, cap: MAX_ANSWER_KEYS,
+      });
+      return new NextResponse("too many answers", { status: 400 });
+    }
+
+    // A hidden field no human sees. The operator authors this funnel, so a
+    // real family cannot trip it; a bot that fills every input can.
+    if (isHoneypotTripped(body)) {
+      console.warn("[submit] honeypot tripped — dropping submission", { org: orgCtx.slug });
+      // Answer exactly like a success so a bot learns nothing from the
+      // difference. Nothing is saved and no email is sent.
+      return NextResponse.json({ id: null, app_ref: null });
+    }
+
+    // ── Rate limit ──────────────────────────────────────────
+    // Before the insert and before either email: the emails are the expensive,
+    // reputation-damaging part.
+    const throttle = await checkSubmitThrottle({
+      orgId:   orgCtx.id,
+      orgName: orgCtx.name,
+      headers: req.headers,
+      email:   typeof contact_email === "string" ? contact_email : null,
+    });
+    if (throttle.action === "reject") {
+      return new NextResponse(throttle.message, {
+        status: 429,
+        headers: { "Retry-After": String(throttle.retryAfterS) },
+      });
+    }
+    // The org-wide breaker never rejects — it saves the application and holds
+    // the mail back. A lost application is unrecoverable; a missing
+    // confirmation email is not.
+    const emailsSuppressed = throttle.action === "accept_no_email";
+
     const firstName = clip(parent_names, 50).split(/\s+/)[0] || "FAMILY";
     const app_ref = generateAppRef(firstName);
 
@@ -135,6 +182,11 @@ export async function POST(req: Request) {
     // the successful insert (a sync throw in orgPath/signToken, a notify
     // rejection) can turn an already-saved application into a 500 → the family
     // never re-submits a duplicate.
+    if (emailsSuppressed) {
+      await alertMailQuotaReached(orgCtx.name, data.app_ref);
+      return NextResponse.json({ id: data.id, app_ref: data.app_ref });
+    }
+
     try {
       const origin = process.env.NEXT_PUBLIC_PLATFORM_URL || new URL(req.url).origin;
       const withdrawToken = signToken(`withdraw:${data.id}`, 60 * 60 * 24 * 30);  // 30 days

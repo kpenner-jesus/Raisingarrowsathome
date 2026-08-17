@@ -22,6 +22,12 @@ function submitErrorMessage(status: number, detail: string, contactEmail: string
     return `Applications are closed at the moment, so this one hasn't been sent. Please ${emailUs} and we'll let you know when the next round opens.`;
   }
   if (status === 429) {
+    // The server writes this copy for families, and it distinguishes "we
+    // already have an application from this address" from "too many from your
+    // network". Prefer it — but only when it is plainly our own plain-text
+    // body, since a CDN or platform-level 429 returns an HTML page.
+    const ours = detail.trim();
+    if (ours && ours.length <= 400 && !ours.includes("<")) return ours;
     return `We've had a lot of submissions come in at once, so we couldn't accept this one just yet. Please wait a few minutes and press Submit again — your answers are still here.`;
   }
   if (status === 400 && /missing required/i.test(detail)) {
@@ -35,6 +41,10 @@ export default function ReviewPage() {
   const store   = useAppStore((s) => s);
   const [sending, setSending] = useState(false);
   const [error,   setError]   = useState("");
+  // Honeypot. Must stay in sync with HONEYPOT_FIELD in
+  // app/lib/submit-throttle-logic.ts — that module is server-only (it pulls in
+  // node crypto), so the name is repeated here rather than imported.
+  const [botField, setBotField] = useState("");
 
   const progress = 100;
 
@@ -70,6 +80,7 @@ export default function ReviewPage() {
         body: JSON.stringify({
           // app_ref is deliberately NOT sent: the server generates the
           // authoritative one and the client's copy was being ignored.
+          company_website: botField,
           parent_names: store.parentNames,
           city: store.city,
           contact_email: store.contactEmail,
@@ -289,6 +300,20 @@ export default function ReviewPage() {
           is accurate and that your family has never previously registered with
           the government for homeschooling any of your children.
         </div>
+
+        {/* Honeypot: positioned off-screen rather than display:none, which
+            some bots skip. Out of the tab order and out of the accessibility
+            tree, and named so a password manager won't autofill it. */}
+        <input
+          type="text"
+          name="company_website"
+          value={botField}
+          onChange={(e) => setBotField(e.target.value)}
+          tabIndex={-1}
+          autoComplete="off"
+          aria-hidden="true"
+          style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }}
+        />
 
         {error && (
           <div className="tf-alert-error" style={{ marginBottom: "1rem" }}>

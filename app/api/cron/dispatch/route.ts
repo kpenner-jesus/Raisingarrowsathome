@@ -27,6 +27,7 @@ import { timingSafeEqual } from "crypto";
 import { sendDueBroadcasts } from "@/app/lib/broadcasts";
 import { emailMonthlyBackup } from "@/app/lib/backup";
 import { processBillingReminders } from "@/app/lib/billing-reminders";
+import { supabaseService } from "@/app/lib/supabase/server";
 
 // The daily cron does a database backup, all due broadcasts, billing reminders
 // and payout generation in ONE invocation. At the platform default budget the
@@ -54,6 +55,21 @@ export async function GET(req: Request) {
   const url    = new URL(req.url);
   const now    = new Date();
   const day    = now.getUTCDate();
+
+  // Purge spent rate-limit counters FIRST, so a slow job later in this
+  // invocation can't starve it. One indexed DELETE, milliseconds. The longest
+  // throttle window is 24h, so anything past that has no enforcement value —
+  // 7 days is kept only so the operator can still see a weekend attack.
+  await supabaseService()
+    .from("submit_throttle")
+    .delete()
+    .lt("last_seen", new Date(Date.now() - 7 * 86400_000).toISOString())
+    .then(({ error }) => {
+      // Missing table is normal until the migration is hand-applied.
+      if (error && (error as any).code !== "42P01" && (error as any).code !== "PGRST205") {
+        console.warn("[cron/dispatch] submit_throttle purge failed:", error.message);
+      }
+    }, () => {});
 
   // Build explicit schedule. Kept inline (not via helper above) so it's
   // dead-obvious from one read what fires on which day.
