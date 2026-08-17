@@ -14,11 +14,20 @@ import { getOrgContext } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
+/** Escape text for HTML. The tenant name reaches this page from the signup
+ *  form, where anyone can put anything - and this response is served on the
+ *  SAME origin as every charity's admin console, so an unescaped name here is
+ *  stored cross-site scripting against an admin's live session. */
+function esc(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+
 function page(orgName: string, body: string) {
   return new NextResponse(
     `<!doctype html><html><head><meta charset="utf-8"><title>Unsubscribe</title>
       <style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;margin:48px auto;padding:0 20px;color:#1a1a1a;line-height:1.6;}h1{font-family:Georgia,serif;color:#e8793a;font-size:1.5rem;font-style:italic;}a{color:#666;}</style>
-     </head><body><h1>${orgName}</h1>${body}</body></html>`,
+     </head><body><h1>${esc(orgName)}</h1>${body}</body></html>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }
   );
 }
@@ -91,7 +100,7 @@ export async function GET(req: Request) {
     <p><a href="/">Back to website</a></p>`);
   }
 
-  return page(orgName, `<p>You've been unsubscribed from program broadcasts at <strong>${parsed.email}</strong>.</p>
+  return page(orgName, `<p>You've been unsubscribed from program broadcasts at <strong>${esc(parsed.email)}</strong>.</p>
     <p>You'll still receive transactional messages tied to your active grant (receipt decisions, payouts) if you're a recipient — those are part of the program itself.</p>
     <p>Email <a href="mailto:register@raisingarrowsathome.com">register@raisingarrowsathome.com</a> if you want to re-subscribe.</p>
     <p><a href="/">Back to website</a></p>`);

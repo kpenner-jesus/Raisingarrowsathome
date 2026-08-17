@@ -81,7 +81,14 @@ export default async function ApplicationDetail({ params }: { params: { id: stri
             {app.video_link && (
               <>
                 <hr className="ra-divider" />
+                {/* Defence in depth: submissions are scheme-checked on the way
+                  in, but rows predating that check could still hold anything,
+                  and this renders into an admin's signed-in session. */}
+              {/^https?:\/\//i.test(String(app.video_link)) ? (
                 <Field k="Video interview" v={app.video_link} link />
+              ) : (
+                <Field k="Video interview" v={String(app.video_link)} />
+              )}
               </>
             )}
           </section>

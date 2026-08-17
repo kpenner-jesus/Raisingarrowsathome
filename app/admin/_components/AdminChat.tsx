@@ -16,7 +16,11 @@ import { driveConfig, pickFromDrive } from "@/app/lib/ai/google-drive";
 type ImageSource = { type: string; media_type: string; data: string };
 type Block = { type: string; text?: string; name?: string; input?: any; id?: string; source?: ImageSource };
 type Msg = { role: "user" | "assistant"; content: string | Block[] };
-type Pending = { tool_use_id: string; name: string; input: any };
+type PendingAct = { tool_use_id: string; name: string; input: any };
+// `actions` is EVERY tool the assistant asked for in this turn. Confirming
+// runs all of them, so the card has to show all of them — showing only the
+// first meant an admin could approve something they were never shown.
+type Pending = PendingAct & { actions?: PendingAct[] };
 type Attachment = { dataUrl: string; mediaType: string; data: string };
 type PdfAttachment = { name: string; data: string };
 
@@ -443,9 +447,30 @@ export function AdminChat() {
                     </div>
                   );
                 })()}
-                <pre style={{ fontSize: "0.74rem", background: "rgba(0,0,0,0.04)", padding: "0.5rem", borderRadius: 6, overflowX: "auto", margin: "0.4rem 0", whiteSpace: "pre-wrap" }}>
-                  {JSON.stringify(pending.input, null, 2)}
-                </pre>
+                {(() => {
+                  const acts = pending.actions?.length ? pending.actions : [pending];
+                  return (
+                    <>
+                      {acts.length > 1 && (
+                        <div style={{ fontSize: "0.78rem", color: "#a5281c", fontWeight: 600, margin: "0.35rem 0" }}>
+                          ⚠ Confirming runs all {acts.length} of these:
+                        </div>
+                      )}
+                      {acts.map((a, i) => (
+                        <div key={a.tool_use_id || i} style={{ margin: "0.4rem 0" }}>
+                          {acts.length > 1 && (
+                            <div style={{ fontSize: "0.76rem", fontWeight: 600, marginBottom: 2 }}>
+                              {i + 1}. {PRETTY[a.name] || a.name.replace(/_/g, " ")}
+                            </div>
+                          )}
+                          <pre style={{ fontSize: "0.74rem", background: "rgba(0,0,0,0.04)", padding: "0.5rem", borderRadius: 6, overflowX: "auto", margin: 0, whiteSpace: "pre-wrap" }}>
+                            {JSON.stringify(a.input, null, 2)}
+                          </pre>
+                        </div>
+                      ))}
+                    </>
+                  );
+                })()}
                 <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
                   {/* Cancel FIRST on a delete, and it takes the primary style —
                       the safe choice should be the one under your thumb. */}

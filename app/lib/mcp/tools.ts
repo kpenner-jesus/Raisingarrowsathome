@@ -963,6 +963,11 @@ const bulkCreateRecipients: Tool = {
 };
 
 const setUserRole: Tool = {
+  // IN-APP CHAT ONLY, for the same reason delete_record is: an API token is a
+  // weaker credential than a signed-in admin, and this tool mints a PERMANENT
+  // human owner of the tenant. A leaked token could promote an account the
+  // attacker controls, and revoking the token would not take that access away.
+  chatOnly:    true,
   name:        "set_user_role",
   description: "Promote/demote a team member's role within THIS tenant. Caller must be the org owner OR a platform super_admin. Safety: won't demote the last owner of the org.",
   inputSchema: {

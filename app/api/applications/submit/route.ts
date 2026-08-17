@@ -36,6 +36,25 @@ function generateAppRef(firstName: string): string {
   return `RA-${date}-${slug}-${rand}`;
 }
 
+/** Accept only a plain http(s) URL. Anything else becomes null. */
+function safeHttpUrl(raw: string | null | undefined): string | null {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  // Control characters are stripped by URL parsing, so reject them up front
+  // rather than reasoning about a string the browser will not see.
+  for (let i = 0; i < v.length; i++) {
+    const c = v.charCodeAt(i);
+    if (c < 32 || c === 127) return null;
+  }
+  try {
+    const u = new URL(v);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return u.toString().slice(0, 500);
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     // Resolve the tenant for this request. Path-routed (/o/<slug>/api/...)
@@ -98,7 +117,11 @@ export async function POST(req: Request) {
         current_schooling: clip(current_schooling, 100),
         children:          cleanChildren,
         answers:           cleanAnswers,
-        video_link:        clip(video_link, 500) || null,
+        // Scheme-checked, not just length-clipped. This value is rendered as
+        // an <a href> in the admin console, and React 18 still emits a
+        // javascript: URL (it only warns) - so an applicant could hand an
+        // admin a link that runs script in their signed-in session.
+        video_link:        safeHttpUrl(clip(video_link, 500)),
         waitlisted,
       })
       .select("id, app_ref")
