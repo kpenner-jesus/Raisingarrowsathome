@@ -16,6 +16,14 @@ console.log("To:  ", to);
 const { data, error } = await resend.emails.send({
   from,
   to,
+  // Same env stamp as the app (app/lib/email-env.ts), inlined because this is
+  // a plain .mjs script that can't import the TypeScript helper.
+  //
+  // It matters: this uses the SHARED Resend key from .env.local, so running it
+  // from a laptop fires the production webhook. Without the stamp the event is
+  // "untagged", which the webhook keeps — and a developer's smoke test lands in
+  // the charity's real email log. Stamped "development", production drops it.
+  tags: [{ name: "env", value: process.env.VERCEL_ENV || "development" }],
   subject: "Raising Arrows — Resend domain verification test",
   html: `<!doctype html><html><body style="font-family:sans-serif;line-height:1.6;max-width:520px;margin:24px auto;padding:0 16px;">
     <h1 style="font-family:Georgia,serif;font-style:italic;color:#e8793a;">Raising Arrows</h1>
