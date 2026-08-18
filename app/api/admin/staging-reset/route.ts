@@ -26,12 +26,32 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function env() {
+function env(req?: Request) {
   return {
     VERCEL_ENV:                 process.env.VERCEL_ENV,
     NEXT_PUBLIC_SUPABASE_URL:   process.env.NEXT_PUBLIC_SUPABASE_URL,
     RESET_ALLOWED_SUPABASE_REF: process.env.RESET_ALLOWED_SUPABASE_REF,
+    // The host the request actually arrived on. A build compiled in the
+    // preview scope can be promoted or rolled back onto the LIVE domain, and
+    // it carries VERCEL_ENV=preview and staging's inlined database URL with
+    // it — so every env-based gate would pass on the real site.
+    requestHost:                req?.headers.get("host") ?? null,
   };
+}
+
+/**
+ * Real membership of THIS org, ignoring the platform super_admin backdoor.
+ *
+ * requireAdmin() lets a super_admin through without any org_members row, and
+ * middleware.ts does not match /api/*, so the org this route resolves comes
+ * from a header the CALLER supplies. Combined, a super_admin could name any
+ * charity's slug and erase it. A bulk delete is not a support action, so this
+ * route demands genuine membership.
+ */
+async function requireRealMembership(userId: string, orgId: string): Promise<boolean> {
+  const { data } = await supabaseService()
+    .from("org_members").select("role").eq("org_id", orgId).eq("user_id", userId).maybeSingle();
+  return data?.role === "owner" || data?.role === "admin";
 }
 
 async function auth() {
@@ -45,14 +65,18 @@ async function auth() {
 }
 
 /** GET — counts, so the confirmation can say exactly what disappears. */
-export async function GET() {
+export async function GET(req: Request) {
   const { auth: a, err } = await auth();
   if (err) return err;
   const orgId = a!.ctx.id;
 
-  const available = resetAvailable(env());
+  if (!(await requireRealMembership(a!.user.id, orgId))) {
+    return NextResponse.json({ available: false, reason: "not a member of this organisation", counts: {}, total: 0 });
+  }
+
+  const available = resetAvailable(env(req));
   if (!available) {
-    const g = resetGuard(env(), RESET_PHRASE);
+    const g = resetGuard(env(req), RESET_PHRASE);
     return NextResponse.json({
       available: false,
       reason: g.allowed ? "" : g.reason,
@@ -85,7 +109,14 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({} as any));
 
-  const guard = resetGuard(env(), body?.confirm);
+  if (!(await requireRealMembership(user.id, orgCtx.id))) {
+    console.warn("[staging-reset] REFUSED — caller is not a member of the target org", {
+      org: orgCtx.slug, by: user.email,
+    });
+    return NextResponse.json({ error: "you are not a member of this organisation" }, { status: 403 });
+  }
+
+  const guard = resetGuard(env(req), body?.confirm);
   if (!guard.allowed) {
     console.warn("[staging-reset] REFUSED", { org: orgCtx.slug, reason: guard.reason });
     return NextResponse.json({ error: guard.reason }, { status: guard.status });

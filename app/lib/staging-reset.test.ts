@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   resetGuard, resetAvailable, supabaseRef, RESET_PHRASE,
-  FORBIDDEN_SUPABASE_REFS, WIPE_ORDER,
+  FORBIDDEN_SUPABASE_REFS, WIPE_ORDER, isProductionHost,
 } from "./staging-reset";
 
 const STAGING = "hobwdalfmnukyxhebtkz";
@@ -68,6 +68,65 @@ describe("resetGuard — refuses production, every way in", () => {
   });
 });
 
+describe("resetGuard — the gates the adversarial review found open", () => {
+  it("refuses when VERCEL_ENV is ABSENT, e.g. a developer machine", () => {
+    // .env.local on this project points NEXT_PUBLIC_SUPABASE_URL at the
+    // PRODUCTION project and carries a real service-role key, and never sets
+    // VERCEL_ENV. Under a deny-list ("not production") that read as "" and
+    // passed, leaving the hardcoded ref list as the ONLY remaining defence.
+    const { VERCEL_ENV, ...noEnv } = ok;
+    const r = resetGuard(noEnv, RESET_PHRASE);
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) expect(r.reason).toMatch(/preview deployment/);
+  });
+
+  it("refuses any environment name other than preview", () => {
+    for (const e of ["production", "development", "staging", "", "PREVIEW", "prod"]) {
+      expect(resetGuard({ ...ok, VERCEL_ENV: e }, RESET_PHRASE).allowed, e).toBe(false);
+    }
+  });
+
+  it("refuses a request that arrived on the LIVE domain", () => {
+    // A preview build promoted or rolled back onto the production hostname
+    // satisfies every other gate: preview env, staging database, staging ref.
+    for (const host of ["raisingarrowsathome.com", "www.raisingarrowsathome.com",
+                        "RaisingArrowsAtHome.com", "raisingarrowsathome.com:443"]) {
+      const r = resetGuard({ ...ok, requestHost: host }, RESET_PHRASE);
+      expect(r.allowed, host).toBe(false);
+      if (!r.allowed) expect(r.reason).toMatch(/live site/);
+    }
+  });
+
+  it("still allows the practice hostname", () => {
+    expect(resetGuard({ ...ok, requestHost: "staging.raisingarrowsathome.com" }, RESET_PHRASE).allowed).toBe(true);
+  });
+
+  it("does not mistake the production DOMAIN for a database ref", () => {
+    // "raisingarrowsathome" is 19 alphanumeric characters, so a bare length
+    // check accepted it as a project ref that appears on no deny-list.
+    expect(supabaseRef("https://raisingarrowsathome.com")).toBeNull();
+    expect(supabaseRef("https://db.example.com")).toBeNull();
+    expect(supabaseRef("https://hobwdalfmnukyxhebtkz.supabase.co.evil.com")).toBeNull();
+  });
+
+  it("accepts only genuine supabase.co hosts", () => {
+    expect(supabaseRef("https://hobwdalfmnukyxhebtkz.supabase.co")).toBe("hobwdalfmnukyxhebtkz");
+  });
+});
+
+describe("isProductionHost", () => {
+  it("matches the live hostnames, port and case insensitive", () => {
+    expect(isProductionHost("raisingarrowsathome.com")).toBe(true);
+    expect(isProductionHost("WWW.RaisingArrowsAtHome.com")).toBe(true);
+    expect(isProductionHost("raisingarrowsathome.com:443")).toBe(true);
+  });
+  it("does not match staging or an unknown host", () => {
+    expect(isProductionHost("staging.raisingarrowsathome.com")).toBe(false);
+    expect(isProductionHost("localhost:3000")).toBe(false);
+    expect(isProductionHost(null)).toBe(false);
+  });
+});
+
 describe("resetGuard — fails closed on missing or unclear config", () => {
   it("is OFF when the allow-list env var is absent", () => {
     const { RESET_ALLOWED_SUPABASE_REF, ...rest } = ok;
@@ -90,13 +149,8 @@ describe("resetGuard — fails closed on missing or unclear config", () => {
     expect(resetGuard({}, RESET_PHRASE).allowed).toBe(false);
   });
 
-  it("does not treat an unknown VERCEL_ENV as safe by omission", () => {
-    // Only the database allow-list can authorise; an unrecognised env name
-    // still has to pass every other gate.
-    const r = resetGuard({ ...ok, VERCEL_ENV: "something-new" }, RESET_PHRASE);
-    expect(r.allowed).toBe(true);            // gates 2-4 still did the real work
-    const bad = resetGuard({ VERCEL_ENV: "something-new" }, RESET_PHRASE);
-    expect(bad.allowed).toBe(false);         // ...and without them, refused
+  it("refuses an unrecognised VERCEL_ENV outright", () => {
+    expect(resetGuard({ ...ok, VERCEL_ENV: "something-new" }, RESET_PHRASE).allowed).toBe(false);
   });
 });
 

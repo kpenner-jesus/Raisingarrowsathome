@@ -30,6 +30,27 @@ export const FORBIDDEN_SUPABASE_REFS = [
 ];
 
 /**
+ * Hostnames the real site answers on.
+ *
+ * Vercel's Promote-to-Production and Instant Rollback can put a build that was
+ * COMPILED in the preview scope onto the live domain. NEXT_PUBLIC_* values are
+ * inlined at build time, so such a build carries staging's database URL and
+ * VERCEL_ENV=preview with it — every other gate here would pass, and the panel
+ * would render on the real domain telling the operator "this is the practice
+ * site". Refusing on the request's Host closes that, and makes the copy honest.
+ */
+export const PRODUCTION_HOSTS = [
+  "raisingarrowsathome.com",
+  "www.raisingarrowsathome.com",
+];
+
+export function isProductionHost(host: string | null | undefined): boolean {
+  const h = (host ?? "").trim().toLowerCase().split(":")[0];
+  if (!h) return false;
+  return PRODUCTION_HOSTS.includes(h);
+}
+
+/**
  * Pull the project ref out of a Supabase URL.
  * https://abcdefg.supabase.co -> "abcdefg"
  */
@@ -37,9 +58,15 @@ export function supabaseRef(url: string | null | undefined): string | null {
   const s = (url ?? "").trim();
   if (!s) return null;
   try {
-    const host = new URL(s).hostname;              // abcdefg.supabase.co
-    const ref = host.split(".")[0];
-    return /^[a-z0-9]{16,}$/i.test(ref) ? ref : null;
+    const host = new URL(s).hostname.toLowerCase();   // abcdefg.supabase.co
+    // The hostname MUST actually be a Supabase project host. Without this,
+    // "raisingarrowsathome.com" yields the first label "raisingarrowsathome"
+    // — 19 alphanumeric characters, which satisfies a bare length check and so
+    // parses as a project "ref" that is not on any deny-list. Anything that
+    // isn't a *.supabase.co host fails closed instead.
+    if (!host.endsWith(".supabase.co")) return null;
+    const ref = host.slice(0, -".supabase.co".length);
+    return /^[a-z0-9]{16,}$/.test(ref) ? ref : null;
   } catch {
     return null;
   }
@@ -49,6 +76,8 @@ export interface ResetEnv {
   VERCEL_ENV?:                  string;
   NEXT_PUBLIC_SUPABASE_URL?:    string;
   RESET_ALLOWED_SUPABASE_REF?:  string;
+  /** Host the request arrived on. Omitted at render time, supplied on POST. */
+  requestHost?:                 string | null;
 }
 
 export type GuardResult =
@@ -66,10 +95,28 @@ export type GuardResult =
  * name, is what catches that.
  */
 export function resetGuard(env: ResetEnv, typedPhrase: unknown): GuardResult {
-  // 1. Never on the production deployment.
+  // 0. Never on a request that arrived on the live domain, whatever the build
+  //    thinks it is. Catches a promoted or rolled-back preview build.
+  if (isProductionHost(env.requestHost)) {
+    return { allowed: false, status: 403, reason: "this request arrived on the live site" };
+  }
+
+  // 1. ALLOW-list, not a deny-list. Only a Vercel preview deployment may erase.
+  //
+  //    A deny-list on "production" was wrong: off Vercel there is no VERCEL_ENV
+  //    at all, so it read as "" and the gate passed — on a developer machine
+  //    whose .env.local points NEXT_PUBLIC_SUPABASE_URL at the PRODUCTION
+  //    project with a real service-role key. That left the hardcoded deny-list
+  //    as the only thing standing in the way, which is not what "belt and
+  //    braces" is supposed to mean. Local machines now simply cannot run this.
   const vercelEnv = (env.VERCEL_ENV ?? "").trim();
-  if (vercelEnv === "production") {
-    return { allowed: false, status: 403, reason: "this is the production deployment" };
+  if (vercelEnv !== "preview") {
+    return {
+      allowed: false, status: 403,
+      reason: vercelEnv === "production"
+        ? "this is the production deployment"
+        : "erasing is only possible on a Vercel preview deployment",
+    };
   }
 
   // 2. The feature is OFF unless someone deliberately switched it on for a
