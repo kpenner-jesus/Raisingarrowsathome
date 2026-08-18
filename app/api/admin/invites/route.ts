@@ -7,7 +7,7 @@ import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
 import { Resend } from "resend";
 import { getOrgContext } from "@/app/lib/org-context";
-import { envTags } from "@/app/lib/email-env";
+import { envTags, routeRecipients, routedSubject, routedNotice } from "@/app/lib/email-env";
 
 export async function POST(req: Request) {
   // Resolve tenant first — the invite is scoped to whichever org the
@@ -75,14 +75,20 @@ export async function POST(req: Request) {
   if (RESEND_KEY) {
     try {
       const client = new Resend(RESEND_KEY);
-      await client.emails.send({
-        tags: envTags(),
-        from: FROM, to: email,
-        subject: `You've been invited as a ${role.replace("_", " ")} on ${orgCtx.name}`,
-        html: `<p>${(profile?.email || "An owner")} invited you to join ${orgCtx.name} as <strong>${role}</strong>.</p>
+      const routing = routeRecipients(email);
+      if (!routing.send) {
+        console.warn("[invites] not delivered:", routing.reason, { wouldHaveGoneTo: routing.wouldHaveGoneTo });
+      } else {
+        const subject = `You've been invited as a ${role.replace("_", " ")} on ${orgCtx.name}`;
+        await client.emails.send({
+          tags: envTags(),
+          from: FROM, to: routing.to,
+          subject: routedSubject(subject, routing),
+          html: routedNotice(routing) + `<p>${(profile?.email || "An owner")} invited you to join ${orgCtx.name} as <strong>${role}</strong>.</p>
           <p style="margin:24px 0;"><a href="${inviteUrl}" style="background:#e8793a;color:#fff;text-decoration:none;padding:12px 24px;border-radius:100px;display:inline-block;">Accept invite</a></p>
           <p style="font-size:0.85rem;color:#666;">This link expires in 7 days. If you didn't expect this, ignore the email.</p>`,
-      });
+        });
+      }
     } catch (e) { /* log only — admin still has the URL in API response */ }
   }
 

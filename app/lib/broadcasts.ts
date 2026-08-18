@@ -36,7 +36,7 @@
 import { randomUUID } from "crypto";
 import { supabaseService } from "./supabase/server";
 import { signToken, signTokenWithExpiry } from "./hmac";
-import { envTags } from "./email-env";
+import { envTags, routeRecipients, routedSubject, routedNotice } from "./email-env";
 import {
   buildLedgerRows, classifyResendOutcome, idempotencyKey,
   unsubExpiryFor, shouldStopSlice, normalizeEmail,
@@ -402,6 +402,21 @@ export async function runBroadcastSlice(args: {
           if (error) throw new Error(`could not claim ${row.email}: ${error.message}`);
         }
 
+        // A broadcast fans out to EVERY family, so leaving this
+        // un-redirected on staging is the most damaging possible practice run.
+        const rowRouting = routeRecipients(row.email);
+        if (!rowRouting.send) {
+          console.warn("[broadcasts] not delivered:", rowRouting.reason, { wouldHaveGoneTo: rowRouting.wouldHaveGoneTo });
+          // 'failed', not a new state: broadcast_sends.status has a CHECK
+          // constraint allowing only pending/sent/failed, and the row genuinely
+          // was not delivered. last_error says why, so it reads correctly in
+          // the broadcast detail view rather than looking like a provider fault.
+          await svc.from("broadcast_sends").update({
+            status: "failed", last_error: rowRouting.reason, sent_at: new Date().toISOString(),
+          }).eq("id", row.id);
+          continue;
+        }
+
         let verdict;
         let providerId: string | null = null;
         try {
@@ -420,8 +435,9 @@ export async function runBroadcastSlice(args: {
               "Idempotency-Key": idempotencyKey(args.broadcastId, row.email),
             },
             body: JSON.stringify({
-              from: FROM_EMAIL, to: [row.email],
-              subject: (claimed as any).subject, html,
+              from: FROM_EMAIL, to: rowRouting.to,
+              subject: routedSubject((claimed as any).subject, rowRouting),
+              html: routedNotice(rowRouting) + html,
               // Marks which environment sent this, so the shared Resend
               // account's webhook can drop foreign events instead of writing
               // them into the wrong database.
@@ -555,12 +571,19 @@ async function sendLegacy({ broadcastId }: { broadcastId: string }): Promise<{ s
            You're receiving this because you're part of Raising Arrows.
            <a href="${unsubUrl}" style="color:#aaa;">Unsubscribe</a>
          </p>`;
+    const legacyRouting = routeRecipients(r.email);
+    if (!legacyRouting.send) {
+      console.warn("[broadcasts/legacy] not delivered:", legacyRouting.reason, { wouldHaveGoneTo: legacyRouting.wouldHaveGoneTo });
+      continue;
+    }
     try {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          from: FROM_EMAIL, to: [r.email], subject: (claimed as any).subject, html,
+          from: FROM_EMAIL, to: legacyRouting.to,
+          subject: routedSubject((claimed as any).subject, legacyRouting),
+          html: routedNotice(legacyRouting) + html,
           tags: envTags(),
           headers: { "List-Unsubscribe": `<${unsubUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
         }),

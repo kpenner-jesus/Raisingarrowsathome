@@ -81,6 +81,59 @@ export function eventEnv(data: any): string | null {
   return null;
 }
 
+// ── Keeping practice email away from real people ────────────
+//
+// Staging's database is a CLONE of production, so every family's real address
+// is sitting in it. Anything a tester does there — approving an application,
+// marking a payout paid, sending a broadcast — was mailing those real people
+// from the charity's own verified domain. They cannot tell it was practice.
+//
+// So outside production nothing is delivered to the address on the record.
+// It either goes to the tester's own inbox, or it does not go at all.
+
+export type Routing =
+  | { send: true;  to: string[]; redirectedFrom: string[] | null }
+  | { send: false; reason: string; wouldHaveGoneTo: string[] };
+
+/** Where a message should actually be delivered. */
+export function routeRecipients(
+  original: string | string[],
+  opts: { env?: string; redirectTo?: string } = {},
+): Routing {
+  const to = (Array.isArray(original) ? original : [original]).filter(Boolean);
+  const env = opts.env ?? emailEnv();
+  const redirect = (opts.redirectTo ?? process.env.STAGING_EMAIL_REDIRECT_TO ?? "").trim();
+
+  if (env === "production") return { send: true, to, redirectedFrom: null };
+
+  if (!redirect) {
+    // FAIL SAFE. With no inbox configured, the alternative is delivering
+    // practice mail to a real family — so nothing is sent at all.
+    return {
+      send: false,
+      reason: "STAGING_EMAIL_REDIRECT_TO is not set, so practice email is not delivered to anyone",
+      wouldHaveGoneTo: to,
+    };
+  }
+  return { send: true, to: [redirect], redirectedFrom: to };
+}
+
+/** Make it obvious in the inbox that this is practice, and who it was for. */
+export function routedSubject(subject: string, r: Routing): string {
+  if (!r.send || !r.redirectedFrom) return subject;
+  return `[${emailEnv()} → ${r.redirectedFrom.join(", ")}] ${subject}`;
+}
+
+/** Banner for the top of a redirected message body. */
+export function routedNotice(r: Routing): string {
+  if (!r.send || !r.redirectedFrom) return "";
+  return `<div style="background:#fff4e5;border:1px solid #f0c98a;border-radius:8px;padding:10px 14px;margin:0 0 16px;font-family:sans-serif;font-size:13px;color:#7a4b00;">
+    <strong>Practice email.</strong> On the live site this would have been sent to
+    <strong>${r.redirectedFrom.map((e) => e.replace(/[<>&]/g, "")).join(", ")}</strong>.
+    Nobody outside this test received it.
+  </div>`;
+}
+
 export type RecordDecision =
   | { record: true;  reason: "own-environment" | "untagged" }
   | { record: false; reason: "foreign-environment"; from: string };

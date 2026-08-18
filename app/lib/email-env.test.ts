@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { emailEnv, envTags, eventEnv, shouldRecordEvent, ENV_TAG_NAME } from "./email-env";
+import {
+  emailEnv, envTags, eventEnv, shouldRecordEvent, ENV_TAG_NAME,
+  routeRecipients, routedSubject, routedNotice,
+} from "./email-env";
 
 const ORIGINAL = process.env.VERCEL_ENV;
 afterEach(() => {
@@ -62,6 +65,63 @@ describe("eventEnv — the asymmetry", () => {
   it("ignores a non-string or empty value", () => {
     expect(eventEnv({ tags: { env: "" } })).toBeNull();
     expect(eventEnv({ tags: { env: 7 } })).toBeNull();
+  });
+});
+
+describe("routeRecipients — keeping practice mail off real families", () => {
+  const FAMILY = "realfamily@gmail.com";
+  const TESTER = "tester@charity.org";
+
+  it("production delivers to the real recipient, untouched", () => {
+    const r = routeRecipients(FAMILY, { env: "production", redirectTo: TESTER });
+    expect(r).toEqual({ send: true, to: [FAMILY], redirectedFrom: null });
+  });
+
+  it("staging delivers to the tester instead of the family", () => {
+    const r = routeRecipients(FAMILY, { env: "preview", redirectTo: TESTER });
+    expect(r.send).toBe(true);
+    if (!r.send) throw new Error("unreachable");
+    expect(r.to).toEqual([TESTER]);
+    expect(r.redirectedFrom).toEqual([FAMILY]);
+  });
+
+  it("staging sends NOTHING when no tester inbox is configured", () => {
+    // The alternative is mailing a real family from the charity's own domain
+    // for a practice action. Sending nothing is the safe failure.
+    const r = routeRecipients(FAMILY, { env: "preview", redirectTo: "" });
+    expect(r.send).toBe(false);
+    if (r.send) throw new Error("unreachable");
+    expect(r.wouldHaveGoneTo).toEqual([FAMILY]);
+  });
+
+  it("collapses a multi-recipient send onto the one tester", () => {
+    const r = routeRecipients(["a@x.com", "b@y.com"], { env: "preview", redirectTo: TESTER });
+    if (!r.send) throw new Error("unreachable");
+    expect(r.to).toEqual([TESTER]);
+    expect(r.redirectedFrom).toEqual(["a@x.com", "b@y.com"]);
+  });
+
+  it("local development is treated like staging, not like production", () => {
+    expect(routeRecipients(FAMILY, { env: "development", redirectTo: "" }).send).toBe(false);
+  });
+
+  it("labels the subject with who it was really for", () => {
+    const r = routeRecipients(FAMILY, { env: "preview", redirectTo: TESTER });
+    expect(routedSubject("Your grant is approved", r)).toContain(FAMILY);
+    expect(routedSubject("Your grant is approved", r)).toContain("Your grant is approved");
+  });
+
+  it("does NOT relabel a production subject", () => {
+    const r = routeRecipients(FAMILY, { env: "production", redirectTo: TESTER });
+    expect(routedSubject("Your grant is approved", r)).toBe("Your grant is approved");
+    expect(routedNotice(r)).toBe("");
+  });
+
+  it("explains itself in the body of a redirected message", () => {
+    const r = routeRecipients(FAMILY, { env: "preview", redirectTo: TESTER });
+    const notice = routedNotice(r);
+    expect(notice).toContain(FAMILY);
+    expect(notice).toMatch(/practice/i);
   });
 });
 

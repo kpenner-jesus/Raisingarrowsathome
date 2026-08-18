@@ -19,6 +19,7 @@
 import Link from "next/link";
 import { getOrgContext, orgPath } from "@/app/lib/org-context";
 import { supabaseService } from "@/app/lib/supabase/server";
+import { ResetPlayground } from "./ResetPlayground";
 
 export const dynamic = "force-dynamic";
 
@@ -229,6 +230,9 @@ export default async function DataHub({
           as we hold your data. Every file contains only your organisation&apos;s records.
         </p>
       </div>
+
+      {/* Renders ONLY on a practice deployment — see app/lib/staging-reset.ts */}
+      <ResetPlayground />
     </div>
   );
 }

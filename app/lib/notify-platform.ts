@@ -9,7 +9,7 @@
 // ============================================================
 
 import { Resend } from "resend";
-import { envTags } from "@/app/lib/email-env";
+import { envTags, routeRecipients, routedSubject, routedNotice } from "@/app/lib/email-env";
 
 function resend() {
   const key = process.env.RESEND_API_KEY;
@@ -49,9 +49,20 @@ async function platformSend(to: string, subject: string, html: string) {
     console.warn("[notify-platform] RESEND_API_KEY missing — skipping", { to, subject });
     return;
   }
+  const routing = routeRecipients(to);
+  if (!routing.send) {
+    console.warn("[notify-platform] not delivered:", routing.reason, { wouldHaveGoneTo: routing.wouldHaveGoneTo, subject });
+    return;
+  }
   try {
-    const { error } = await client.emails.send({ from: PLATFORM_FROM, to, subject, html, tags: envTags() });
-    if (error) console.error("[notify-platform] Resend error", error, { to, subject });
+    const { error } = await client.emails.send({
+      from: PLATFORM_FROM,
+      to: routing.to,
+      subject: routedSubject(subject, routing),
+      html: routedNotice(routing) + html,
+      tags: envTags(),
+    });
+    if (error) console.error("[notify-platform] Resend error", error, { to: routing.to, subject });
   } catch (err: any) {
     console.error("[notify-platform] Resend exception", err?.message || err, { to, subject });
   }

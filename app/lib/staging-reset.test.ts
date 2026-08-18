@@ -1,0 +1,162 @@
+import { describe, it, expect } from "vitest";
+import {
+  resetGuard, resetAvailable, supabaseRef, RESET_PHRASE,
+  FORBIDDEN_SUPABASE_REFS, WIPE_ORDER,
+} from "./staging-reset";
+
+const STAGING = "hobwdalfmnukyxhebtkz";
+const PROD    = "otwrxfjytbhzdkwiebeu";
+
+const ok = {
+  VERCEL_ENV: "preview",
+  NEXT_PUBLIC_SUPABASE_URL: `https://${STAGING}.supabase.co`,
+  RESET_ALLOWED_SUPABASE_REF: STAGING,
+};
+
+describe("supabaseRef", () => {
+  it("extracts the project ref", () => {
+    expect(supabaseRef(`https://${STAGING}.supabase.co`)).toBe(STAGING);
+  });
+  it("returns null for junk, so the caller cannot proceed on a guess", () => {
+    for (const v of ["", "   ", "not a url", "https://", null, undefined, "https://x.supabase.co"]) {
+      expect(supabaseRef(v as any), String(v)).toBeNull();
+    }
+  });
+});
+
+describe("resetGuard — the happy path", () => {
+  it("allows a correctly configured staging deployment", () => {
+    const r = resetGuard(ok, RESET_PHRASE);
+    expect(r.allowed).toBe(true);
+    if (r.allowed) expect(r.ref).toBe(STAGING);
+  });
+});
+
+describe("resetGuard — refuses production, every way in", () => {
+  it("refuses when VERCEL_ENV is production", () => {
+    const r = resetGuard({ ...ok, VERCEL_ENV: "production" }, RESET_PHRASE);
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) expect(r.reason).toMatch(/production deployment/);
+  });
+
+  it("refuses the production DATABASE even from a preview deployment", () => {
+    // The scenario that actually frightens me: environment looks harmless,
+    // data is production's.
+    const r = resetGuard({
+      VERCEL_ENV: "preview",
+      NEXT_PUBLIC_SUPABASE_URL: `https://${PROD}.supabase.co`,
+      RESET_ALLOWED_SUPABASE_REF: STAGING,
+    }, RESET_PHRASE);
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) expect(r.reason).toMatch(/not the one cleared/);
+  });
+
+  it("refuses production EVEN IF the allow-list itself points at it", () => {
+    // Belt and braces: someone mis-fills RESET_ALLOWED_SUPABASE_REF with the
+    // production ref. The hardcoded deny-list still stops it.
+    const r = resetGuard({
+      VERCEL_ENV: "preview",
+      NEXT_PUBLIC_SUPABASE_URL: `https://${PROD}.supabase.co`,
+      RESET_ALLOWED_SUPABASE_REF: PROD,
+    }, RESET_PHRASE);
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) expect(r.reason).toMatch(/production database/);
+  });
+
+  it("keeps the production ref on the hardcoded deny-list", () => {
+    expect(FORBIDDEN_SUPABASE_REFS).toContain(PROD);
+  });
+});
+
+describe("resetGuard — fails closed on missing or unclear config", () => {
+  it("is OFF when the allow-list env var is absent", () => {
+    const { RESET_ALLOWED_SUPABASE_REF, ...rest } = ok;
+    const r = resetGuard(rest, RESET_PHRASE);
+    expect(r.allowed).toBe(false);
+    if (!r.allowed) expect(r.reason).toMatch(/not configured/);
+  });
+
+  it("is OFF when the allow-list env var is empty or whitespace", () => {
+    expect(resetGuard({ ...ok, RESET_ALLOWED_SUPABASE_REF: "" }, RESET_PHRASE).allowed).toBe(false);
+    expect(resetGuard({ ...ok, RESET_ALLOWED_SUPABASE_REF: "   " }, RESET_PHRASE).allowed).toBe(false);
+  });
+
+  it("refuses when the database URL is missing or unparseable", () => {
+    expect(resetGuard({ ...ok, NEXT_PUBLIC_SUPABASE_URL: "" }, RESET_PHRASE).allowed).toBe(false);
+    expect(resetGuard({ ...ok, NEXT_PUBLIC_SUPABASE_URL: "garbage" }, RESET_PHRASE).allowed).toBe(false);
+  });
+
+  it("refuses on a completely empty environment", () => {
+    expect(resetGuard({}, RESET_PHRASE).allowed).toBe(false);
+  });
+
+  it("does not treat an unknown VERCEL_ENV as safe by omission", () => {
+    // Only the database allow-list can authorise; an unrecognised env name
+    // still has to pass every other gate.
+    const r = resetGuard({ ...ok, VERCEL_ENV: "something-new" }, RESET_PHRASE);
+    expect(r.allowed).toBe(true);            // gates 2-4 still did the real work
+    const bad = resetGuard({ VERCEL_ENV: "something-new" }, RESET_PHRASE);
+    expect(bad.allowed).toBe(false);         // ...and without them, refused
+  });
+});
+
+describe("resetGuard — the typed phrase", () => {
+  it("refuses a wrong, empty, missing or nearly-right phrase", () => {
+    for (const p of ["", "erase staging data", "ERASE STAGING", "ERASE STAGING DATA ", undefined, null, 42, {}]) {
+      expect(resetGuard(ok, p as any).allowed, JSON.stringify(p)).toBe(false);
+    }
+  });
+  it("accepts only the exact phrase", () => {
+    expect(resetGuard(ok, RESET_PHRASE).allowed).toBe(true);
+  });
+});
+
+describe("resetAvailable", () => {
+  it("is true only where the reset could actually run", () => {
+    expect(resetAvailable(ok)).toBe(true);
+    expect(resetAvailable({ ...ok, VERCEL_ENV: "production" })).toBe(false);
+    expect(resetAvailable({})).toBe(false);
+    expect(resetAvailable({ ...ok, NEXT_PUBLIC_SUPABASE_URL: `https://${PROD}.supabase.co` })).toBe(false);
+  });
+});
+
+describe("WIPE_ORDER", () => {
+  it("never deletes the org, its accounts, or its configuration", () => {
+    // Wiping any of these would lock the operator out or destroy settings
+    // they wrote, which is not what "start clean" means.
+    for (const keep of ["tenants", "profiles", "org_members", "admin_invites",
+                        "app_settings", "email_templates", "receipt_categories",
+                        "api_tokens", "tenant_ai_secrets"]) {
+      expect(WIPE_ORDER, keep).not.toContain(keep);
+    }
+  });
+
+  it("DOES clear the rate limiter, or the playground stays locked", () => {
+    // Without this a tester cannot immediately re-submit the application form:
+    // yesterday's counts would still be holding them off.
+    expect(WIPE_ORDER).toContain("submit_throttle");
+  });
+
+  it("clears the whole family-and-receipt lifecycle", () => {
+    for (const t of ["applications", "recipients", "receipts", "photos",
+                     "payouts", "payout_batches", "testimonials"]) {
+      expect(WIPE_ORDER, t).toContain(t);
+    }
+  });
+
+  it("deletes children before their parents", () => {
+    const at = (t: string) => WIPE_ORDER.indexOf(t);
+    expect(at("receipts")).toBeLessThan(at("recipients"));
+    expect(at("photos")).toBeLessThan(at("recipients"));
+    expect(at("recipient_notes")).toBeLessThan(at("recipients"));
+    expect(at("payouts")).toBeLessThan(at("payout_batches"));
+    expect(at("payouts")).toBeLessThan(at("recipients"));
+    expect(at("recipients")).toBeLessThan(at("applications"));
+    expect(at("application_notes")).toBeLessThan(at("applications"));
+    expect(at("broadcast_sends")).toBeLessThan(at("broadcasts"));
+  });
+
+  it("has no duplicates", () => {
+    expect(new Set(WIPE_ORDER).size).toBe(WIPE_ORDER.length);
+  });
+});

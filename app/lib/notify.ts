@@ -14,7 +14,7 @@
 // ============================================================
 
 import { Resend } from "resend";
-import { envTags } from "@/app/lib/email-env";
+import { envTags, routeRecipients, routedSubject, routedNotice } from "@/app/lib/email-env";
 import { supabaseService } from "./supabase/server";
 
 const FROM_DEFAULT = "Raising Arrows <onboarding@resend.dev>";
@@ -80,10 +80,26 @@ async function send({ to, subject, html, orgId }: SendOpts): Promise<boolean> {
     return false;
   }
   const from = await resolveFrom(orgId);
+
+  // Outside production, never deliver to the address on the record. Staging's
+  // database is a clone, so that address belongs to a REAL family who would
+  // have no way of knowing the message was somebody practising.
+  const routing = routeRecipients(to);
+  if (!routing.send) {
+    console.warn("[notify] not delivered:", routing.reason, { wouldHaveGoneTo: routing.wouldHaveGoneTo, subject });
+    return false;
+  }
+
   try {
-    const { error } = await client.emails.send({ from, to, subject, html, tags: envTags() });
+    const { error } = await client.emails.send({
+      from,
+      to: routing.to,
+      subject: routedSubject(subject, routing),
+      html: routedNotice(routing) + html,
+      tags: envTags(),
+    });
     if (error) {
-      console.error("[notify] Resend error", error, { to, subject, from });
+      console.error("[notify] Resend error", error, { to: routing.to, subject, from });
       return false;
     }
     return true;

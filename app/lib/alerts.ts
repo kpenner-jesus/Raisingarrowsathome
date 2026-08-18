@@ -9,7 +9,7 @@
 // ============================================================
 
 import { Resend } from "resend";
-import { envTags } from "@/app/lib/email-env";
+import { envTags, routeRecipients, routedSubject, routedNotice } from "@/app/lib/email-env";
 
 interface AlertPayload {
   title:   string;
@@ -77,10 +77,20 @@ async function emailAlert(p: AlertPayload): Promise<void> {
 
   try {
     const client = new Resend(key);
-    await Promise.all(list.map((to) =>
-      client.emails.send({ from, to, subject: `[Raising Arrows] ${p.title}`, html, tags: envTags() })
-        .catch((e) => console.error("[alerts.email] send failed:", to, e?.message ?? e))
-    ));
+    await Promise.all(list.map((to) => {
+      const routing = routeRecipients(to);
+      if (!routing.send) {
+        console.warn("[alerts.email] not delivered:", routing.reason, { wouldHaveGoneTo: routing.wouldHaveGoneTo });
+        return Promise.resolve();
+      }
+      return client.emails.send({
+        from,
+        to: routing.to,
+        subject: routedSubject(`[Raising Arrows] ${p.title}`, routing),
+        html: routedNotice(routing) + html,
+        tags: envTags(),
+      }).catch((e) => console.error("[alerts.email] send failed:", routing.to, e?.message ?? e));
+    }));
   } catch (e: any) {
     console.error("[alerts.email] init failed:", e?.message ?? e);
   }
