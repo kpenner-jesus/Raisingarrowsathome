@@ -9,7 +9,7 @@
 // ============================================================
 
 import { Resend } from "resend";
-import { envTags, routeRecipients, routedSubject, routedNotice } from "@/app/lib/email-env";
+import { envTags, routeRecipients, routedSubject, routedNotice, stagingRedirectTarget } from "@/app/lib/email-env";
 
 interface AlertPayload {
   title:   string;
@@ -77,8 +77,9 @@ async function emailAlert(p: AlertPayload): Promise<void> {
 
   try {
     const client = new Resend(key);
+    const redirectTo = await stagingRedirectTarget();
     await Promise.all(list.map((to) => {
-      const routing = routeRecipients(to);
+      const routing = routeRecipients(to, { redirectTo });
       if (!routing.send) {
         console.warn("[alerts.email] not delivered:", routing.reason, { wouldHaveGoneTo: routing.wouldHaveGoneTo });
         return Promise.resolve();

@@ -17,6 +17,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { isSafeRelativePath, safeRedirectUrl } from "@/app/lib/safe-redirect";
 import { resolveOrgSlug, normalizeHost, isLegacyRaisingArrowsHost } from "@/app/lib/org-routing";
+import { emailEnv } from "@/app/lib/email-env";
 
 export async function GET(req: Request) {
   const url  = new URL(req.url);
@@ -137,6 +138,28 @@ export async function GET(req: Request) {
   const isAdmin = Boolean(adminMembership)
     || profileRole === "admin"
     || profileRole === "super_admin";
+
+  // ── Practice site: admins only ────────────────────────────────────────
+  //
+  // Staging's database is a CLONE of production, so a family signing in there
+  // would see their real grant, real receipts and real payouts inside an
+  // environment people are deliberately breaking. It is also the reason
+  // outbound mail is redirected — and that redirect sends to the signed-in
+  // person, which is only safe if the signed-in person is staff.
+  //
+  // The session was already established above, so it is explicitly torn down
+  // rather than merely redirected away from.
+  if (emailEnv() !== "production" && !isAdmin) {
+    console.warn("[auth/callback] non-admin refused on a practice deployment", { userId });
+    await supabase.auth.signOut().catch(() => { /* tearing down regardless */ });
+    const back = new URL("/auth/login", origin);
+    back.searchParams.set("error",
+      "This is the practice site, which is limited to staff accounts. Please sign in on the main site instead.");
+    const bounce = NextResponse.redirect(back);
+    // Expire the cookies the exchange just set.
+    response.cookies.getAll().forEach((c) => bounce.cookies.set({ ...c, value: "", maxAge: 0 }));
+    return bounce;
+  }
 
   // Send a tenant admin to THEIR tenant. On the shared domain that means the
   // /o/<slug>/ prefix — bare /admin resolves by Host, which lands everyone on

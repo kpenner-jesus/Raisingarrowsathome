@@ -314,7 +314,12 @@ export function AdminChat() {
           onClick={() => setOpen(true)}
           aria-label="Open AI assistant"
           style={{
-            position: "fixed", right: 20, bottom: 20, zIndex: 60,
+            // Sit ABOVE the mobile tab bar, not on it. At bottom:20 this
+            // button covered the rightmost tab — "More" — which on a phone is
+            // the only route to Settings, Your data, Broadcasts and the audit
+            // log. --ra-tabbar-h is 0 on desktop, so nothing moves there.
+            position: "fixed", right: 20, zIndex: 60,
+            bottom: "calc(20px + var(--ra-tabbar-h, 0px))",
             width: 56, height: 56, borderRadius: "50%", border: "none", cursor: "pointer",
             background: "linear-gradient(180deg, var(--ra-accent, #e8793a), #c45f20)",
             color: "#fff", fontSize: 22, boxShadow: "0 6px 20px rgba(232,121,58,0.4)",

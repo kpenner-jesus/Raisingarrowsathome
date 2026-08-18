@@ -134,6 +134,50 @@ export function routedNotice(r: Routing): string {
   </div>`;
 }
 
+/**
+ * Who should receive practice email right now.
+ *
+ * The signed-in person, so whoever is testing sees exactly what a family would
+ * have received, in their own inbox. Falls back to STAGING_EMAIL_REDIRECT_TO
+ * for sends with no session behind them — the nightly cron, a provider webhook,
+ * a broadcast resumed in the background.
+ *
+ * Returns "" when there is neither, which routeRecipients treats as "send
+ * nothing" rather than "send to the real family".
+ *
+ * The membership check is belt and braces. Staging already refuses non-admin
+ * sign-ins (app/auth/callback), but a session created before that gate existed
+ * would otherwise redirect a family's mail to that same family — on a database
+ * where their address is real.
+ */
+export async function stagingRedirectTarget(): Promise<string> {
+  if (emailEnv() === "production") return "";
+  const fallback = (process.env.STAGING_EMAIL_REDIRECT_TO ?? "").trim();
+
+  try {
+    // Imported lazily: this module is also pulled in by pure unit tests and by
+    // code paths with no request context, and supabaseServer() reads cookies.
+    const { supabaseServer, supabaseService } = await import("@/app/lib/supabase/server");
+    const { data: { user } } = await supabaseServer().auth.getUser();
+    if (!user?.email) return fallback;
+
+    const svc = supabaseService();
+    const [{ data: member }, { data: profile }] = await Promise.all([
+      svc.from("org_members").select("role").eq("user_id", user.id).limit(1).maybeSingle(),
+      svc.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+    ]);
+    const isAdmin =
+      member?.role === "owner" || member?.role === "admin" ||
+      profile?.role === "admin" || profile?.role === "super_admin";
+
+    return isAdmin ? user.email : fallback;
+  } catch {
+    // No request context (cron, webhook) — nothing is wrong, there is just
+    // nobody signed in to send it to.
+    return fallback;
+  }
+}
+
 export type RecordDecision =
   | { record: true;  reason: "own-environment" | "untagged" }
   | { record: false; reason: "foreign-environment"; from: string };

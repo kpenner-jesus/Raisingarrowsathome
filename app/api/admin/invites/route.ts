@@ -7,7 +7,7 @@ import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
 import { Resend } from "resend";
 import { getOrgContext } from "@/app/lib/org-context";
-import { envTags, routeRecipients, routedSubject, routedNotice } from "@/app/lib/email-env";
+import { envTags, routeRecipients, routedSubject, routedNotice, stagingRedirectTarget } from "@/app/lib/email-env";
 
 export async function POST(req: Request) {
   // Resolve tenant first — the invite is scoped to whichever org the
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
   if (RESEND_KEY) {
     try {
       const client = new Resend(RESEND_KEY);
-      const routing = routeRecipients(email);
+      const routing = routeRecipients(email, { redirectTo: await stagingRedirectTarget() });
       if (!routing.send) {
         console.warn("[invites] not delivered:", routing.reason, { wouldHaveGoneTo: routing.wouldHaveGoneTo });
       } else {

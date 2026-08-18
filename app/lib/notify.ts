@@ -14,7 +14,7 @@
 // ============================================================
 
 import { Resend } from "resend";
-import { envTags, routeRecipients, routedSubject, routedNotice } from "@/app/lib/email-env";
+import { envTags, routeRecipients, routedSubject, routedNotice, stagingRedirectTarget } from "@/app/lib/email-env";
 import { supabaseService } from "./supabase/server";
 
 const FROM_DEFAULT = "Raising Arrows <onboarding@resend.dev>";
@@ -84,7 +84,7 @@ async function send({ to, subject, html, orgId }: SendOpts): Promise<boolean> {
   // Outside production, never deliver to the address on the record. Staging's
   // database is a clone, so that address belongs to a REAL family who would
   // have no way of knowing the message was somebody practising.
-  const routing = routeRecipients(to);
+  const routing = routeRecipients(to, { redirectTo: await stagingRedirectTarget() });
   if (!routing.send) {
     console.warn("[notify] not delivered:", routing.reason, { wouldHaveGoneTo: routing.wouldHaveGoneTo, subject });
     return false;

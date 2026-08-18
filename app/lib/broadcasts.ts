@@ -36,7 +36,7 @@
 import { randomUUID } from "crypto";
 import { supabaseService } from "./supabase/server";
 import { signToken, signTokenWithExpiry } from "./hmac";
-import { envTags, routeRecipients, routedSubject, routedNotice } from "./email-env";
+import { envTags, routeRecipients, routedSubject, routedNotice, stagingRedirectTarget } from "./email-env";
 import {
   buildLedgerRows, classifyResendOutcome, idempotencyKey,
   unsubExpiryFor, shouldStopSlice, normalizeEmail,
@@ -373,6 +373,12 @@ export async function runBroadcastSlice(args: {
         .select("email").eq("org_id", orgId).in("email", batchEmails);
       const optedSet = new Set((optedNow ?? []).map((o: any) => String(o.email).toLowerCase()));
 
+      // Resolved ONCE per batch. It reads the session and two tables, and this
+      // loop is already racing a 60-second ceiling — doing it per family would
+      // add a round trip per recipient for no benefit, since the answer cannot
+      // change mid-batch.
+      const redirectTo = await stagingRedirectTarget();
+
       for (const row of batch as any[]) {
         if (Date.now() - started >= budgetMs) break;
 
@@ -404,7 +410,7 @@ export async function runBroadcastSlice(args: {
 
         // A broadcast fans out to EVERY family, so leaving this
         // un-redirected on staging is the most damaging possible practice run.
-        const rowRouting = routeRecipients(row.email);
+        const rowRouting = routeRecipients(row.email, { redirectTo });
         if (!rowRouting.send) {
           console.warn("[broadcasts] not delivered:", rowRouting.reason, { wouldHaveGoneTo: rowRouting.wouldHaveGoneTo });
           // 'failed', not a new state: broadcast_sends.status has a CHECK
@@ -561,6 +567,7 @@ async function sendLegacy({ broadcastId }: { broadcastId: string }): Promise<{ s
   }
 
   const FROM_EMAIL = process.env.RESEND_FROM || "Raising Arrows <register@raisingarrowsathome.com>";
+  const legacyRedirectTo = await stagingRedirectTarget();   // once, not per family
   let sent = 0, failed = 0;
   for (const r of rows) {
     const unsubToken = signToken(`unsub:${orgId}:${r.email}`, 60 * 60 * 24 * 365);
@@ -571,7 +578,7 @@ async function sendLegacy({ broadcastId }: { broadcastId: string }): Promise<{ s
            You're receiving this because you're part of Raising Arrows.
            <a href="${unsubUrl}" style="color:#aaa;">Unsubscribe</a>
          </p>`;
-    const legacyRouting = routeRecipients(r.email);
+    const legacyRouting = routeRecipients(r.email, { redirectTo: legacyRedirectTo });
     if (!legacyRouting.send) {
       console.warn("[broadcasts/legacy] not delivered:", legacyRouting.reason, { wouldHaveGoneTo: legacyRouting.wouldHaveGoneTo });
       continue;

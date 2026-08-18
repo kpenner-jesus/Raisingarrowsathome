@@ -252,6 +252,16 @@ body { overflow-x: hidden; overflow-y: auto; min-height: 100dvh; }
 /* ─────────────────────────────────────────────────────────────
    4. Mobile TAB BAR (bottom fixed) — desktop hides
    ───────────────────────────────────────────────────────────── */
+
+/* Height of the bottom tab bar, exposed so anything floating above the page
+   can sit clear of it instead of landing on top of a nav item. The assistant
+   button was covering "More", which is the only way into Settings, Your data,
+   Broadcasts and the audit log on a phone. 0 on desktop, where there is no bar. */
+:root { --ra-tabbar-h: 0px; }
+@media (max-width: 768px) {
+  :root { --ra-tabbar-h: calc(62px + env(safe-area-inset-bottom, 0px)); }
+}
+
 .ra-tabbar {
   display: none;
 }
