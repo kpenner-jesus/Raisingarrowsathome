@@ -138,9 +138,12 @@ export default function ContactPage() {
               onChange={(e) => setConsent(e.target.checked)}
               style={{ marginTop: "0.15rem", width: 18, height: 18, flexShrink: 0, cursor: "pointer" }} />
             <span style={{ fontSize: "0.85rem", lineHeight: 1.6 }}>
-              I&apos;m happy to receive mail from CEO Ministries.
+              I&apos;m happy for CEO Ministries to send me mail at this address.
               <span style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem", fontWeight: 300 }}>
-                Optional, and it does not affect your application. You can change your mind any time.
+                Occasional news and updates about the ministry — separate from anything to do
+                with your grant, which we will always send you either way. Ticking this is
+                optional and does not affect your application, and you can ask us to stop at
+                any time by replying to any email or writing to us.
               </span>
             </span>
           </label>

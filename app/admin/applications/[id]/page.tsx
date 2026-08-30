@@ -10,6 +10,7 @@ import DecisionForm from "./DecisionForm";
 import { ApplicationNotes } from "./ApplicationNotes";
 import { PrintButton } from "../../_components/PrintButton";
 import { ApplicationActivity } from "./ApplicationActivity";
+import { MailConsentToggle } from "./MailConsentToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -70,12 +71,17 @@ export default async function ApplicationDetail({ params }: { params: { id: stri
                 v={[app.address_street, app.city, app.address_province, app.address_postal]
                     .filter(Boolean).join(", ") || null}
               />
-              <Field
-                k="Mail from CEO Ministries"
-                v={app.mail_consent
-                    ? `Yes${app.mail_consent_at ? ` — agreed ${String(app.mail_consent_at).slice(0, 10)}` : ""}`
-                    : "Not opted in"}
-              />
+              <div>
+                <Field
+                  k="Mail from CEO Ministries"
+                  v={app.mail_consent
+                      ? `Yes${app.mail_consent_at ? ` — since ${String(app.mail_consent_at).slice(0, 10)}` : ""}`
+                      : `Not opted in${app.mail_consent_at ? ` — since ${String(app.mail_consent_at).slice(0, 10)}` : ""}`}
+                />
+                {/* The form tells families they can ask us to stop at any time.
+                    This is how that request gets honoured. */}
+                <MailConsentToggle id={String(app.id)} consent={!!app.mail_consent} />
+              </div>
               <Field k="Default cap" v={`$${defaultCap}`} />
             </div>
             <hr className="ra-divider" />

@@ -241,7 +241,9 @@ export default function ReviewPage() {
           />
           <Field
             label="Mail from CEO Ministries"
-            value={store.mailConsent ? "Yes, happy to receive mail" : "No thank you"}
+            value={store.mailConsent
+              ? "Yes — happy to receive ministry mail at this address"
+              : "Not opted in (this does not affect the application)"}
           />
           <div style={{ marginBottom: "0.75rem" }}>
             <div style={{ fontSize: "0.68rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
