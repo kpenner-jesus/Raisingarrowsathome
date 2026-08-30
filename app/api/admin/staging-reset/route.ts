@@ -178,6 +178,49 @@ export async function POST(req: Request) {
     deleted[table] = count ?? 0;
   }
 
+  // ── 3b. Re-seed the test family ─────────────────────────────────────────
+  //
+  //     The point of the playground is that you can start uploading receipts
+  //     again straight away — and receipts are uploaded BY a family, through
+  //     "View as test grantee". Wiping recipients therefore breaks the very
+  //     workflow this button exists to enable, and leaves
+  //     app_settings.test_recipient_id pointing at a row that no longer
+  //     exists. So put a fresh sample family back and re-point the setting.
+  let seeded: string | null = null;
+  try {
+    const { data: app, error: appErr } = await svc.from("applications").insert({
+      org_id: orgId,
+      app_ref: `RA-SAMPLE-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+      parent_names: "Sample Family (practice)",
+      city: "Testville",
+      contact_email: "sample-family@example.com",
+      contact_phone: "204-555-0100",
+      income_range: "under-40k",
+      current_schooling: "home",
+      children: [{ age: 8, grade: "Grade 3" }],
+      answers: { whyHomeschool: "Seeded automatically so the practice site is usable straight away." },
+      status: "approved",
+    }).select("id").single();
+    if (appErr) throw new Error(appErr.message);
+
+    const { data: rec, error: recErr } = await svc.from("recipients").insert({
+      org_id: orgId,
+      application_id: app.id,
+      approved_amount: 1000,
+      reimbursement_rate: 0.75,
+      status: "active",
+    }).select("id").single();
+    if (recErr) throw new Error(recErr.message);
+
+    seeded = rec.id;
+    await svc.from("app_settings")
+      .upsert({ org_id: orgId, key: "test_recipient_id", value: rec.id }, { onConflict: "org_id,key" });
+  } catch (e: any) {
+    // Not fatal: the erase itself succeeded, which is what was asked for.
+    failures.push(`re-seed test family: ${e?.message || e}`);
+    console.error("[staging-reset] could not re-seed the test family:", e?.message || e);
+  }
+
   // ── 4. Leave a record. audit_log was just cleared, so this is the first
   //      entry of the clean slate rather than a survivor of the old one.
   await writeAudit({
@@ -186,7 +229,7 @@ export async function POST(req: Request) {
     action: "staging_data_erased",
     targetTable: "tenants",
     targetId: orgId,
-    details: { database: guard.ref, deleted, files_removed: removed, failures },
+    details: { database: guard.ref, deleted, files_removed: removed, seeded_test_recipient: seeded, failures },
   }).catch(() => { /* never fail the reset on its own bookkeeping */ });
 
   const totalRows = Object.values(deleted).reduce((s, n) => s + n, 0);
@@ -197,6 +240,7 @@ export async function POST(req: Request) {
     database: guard.ref,
     rows_deleted: totalRows,
     by_table: deleted,
+    seeded_test_recipient: seeded,
     files_removed: removed,
     failures,
   });

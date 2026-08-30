@@ -28,6 +28,46 @@ import { getOrgContext } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * GET — can this deployment impersonate, and is it actually set up?
+ *
+ * Exists so the button and the endpoint cannot disagree. They previously used
+ * DIFFERENT signals — the button hid on NEXT_PUBLIC_ENV, the endpoint refused
+ * on NODE_ENV — so on staging the button rendered and the call 404'd. The
+ * button now asks this.
+ */
+export async function GET() {
+  if (!isImpersonationAllowed()) {
+    return NextResponse.json({ available: false, reason: "not enabled on this deployment" });
+  }
+  const orgCtx = await getOrgContext();
+  if (!orgCtx) return NextResponse.json({ available: false, reason: "no tenant resolved" });
+
+  const supabase = supabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ available: false, reason: "not signed in" });
+
+  const svc = supabaseService();
+  const { data: membership } = await svc.from("org_members")
+    .select("role").eq("org_id", orgCtx.id).eq("user_id", user.id).maybeSingle();
+  if (membership?.role !== "owner" && membership?.role !== "admin") {
+    return NextResponse.json({ available: false, reason: "admin only" });
+  }
+
+  // Configured AND still present. After a playground reset the setting can
+  // point at a recipient that no longer exists, which used to surface as an
+  // opaque failure only once you pressed the button.
+  const testId = await getTestRecipientId(orgCtx.id);
+  if (!testId) return NextResponse.json({ available: false, reason: "no test family configured" });
+  const { data: rec } = await svc.from("recipients")
+    .select("id").eq("id", testId).eq("org_id", orgCtx.id).maybeSingle();
+  if (!rec) {
+    return NextResponse.json({ available: false, reason: "the configured test family no longer exists" });
+  }
+
+  return NextResponse.json({ available: true });
+}
+
 export async function POST(req: Request) {
   // Hard 404 outside non-prod envs.
   if (!isImpersonationAllowed()) {

@@ -10,7 +10,7 @@
 // the button itself doesn't enforce that — it only refuses to fire on prod
 // as a defence-in-depth check.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 function readCookie(name: string): string | null {
@@ -24,12 +24,29 @@ export function ImpersonateButton({ variant = "default" }: { variant?: "default"
   const [busy, setBusy] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [available, setAvailable] = useState<boolean | null>(null);
 
-  const env = process.env.NEXT_PUBLIC_ENV;
-  if (env === "production") return null; // hard hide on prod
+  // ASK THE SERVER whether this feature works here, rather than guessing from
+  // a build-time variable. The button used to hide on NEXT_PUBLIC_ENV while
+  // the endpoint refused on NODE_ENV — which is "production" on every deployed
+  // Vercel build — so on staging the button rendered and the call came back
+  // 404. One source of truth, and it also covers the case where the configured
+  // test family has been erased by a playground reset.
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/admin/impersonate")
+      .then((r) => r.json())
+      .then((j) => { if (alive) setAvailable(!!j?.available); })
+      .catch(() => { if (alive) setAvailable(false); });
+    return () => { alive = false; };
+  }, []);
 
   // Client-side read: whether we're currently impersonating.
   const active = typeof window !== "undefined" && !!readCookie("ra_impersonate");
+
+  // Hidden until the server confirms it would work. Never rendered on the live
+  // site, and never rendered as a button that 404s.
+  if (available === null || (!available && !active)) return null;
 
   async function toggle(action: "start" | "stop") {
     setBusy(true); setError(null);

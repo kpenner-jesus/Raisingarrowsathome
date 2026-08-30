@@ -27,6 +27,7 @@
 // ============================================================
 
 import { cookies } from "next/headers";
+import { emailEnv } from "@/app/lib/email-env";
 import { supabaseService } from "@/app/lib/supabase/server";
 
 export const IMPERSONATE_COOKIE = "ra_impersonate";
@@ -45,7 +46,19 @@ export function isImpersonationAllowed(): boolean {
   // receipts, photos, testimonials and payouts, so a misspelling was a data
   // loss button. NODE_ENV is set by the platform itself and cannot be
   // fat-fingered; ALLOW_IMPERSONATION must then be set deliberately.
-  if (process.env.NODE_ENV === "production") return false;
+  //
+  // CORRECTION: NODE_ENV was the wrong platform signal. Vercel sets it to
+  // "production" for EVERY deployed build — the staging branch included — so
+  // this returned false on staging too and the endpoint 404'd there. The
+  // button kept rendering (it checks NEXT_PUBLIC_ENV), which is how it
+  // presented as a broken feature rather than a hidden one. It only ever
+  // worked on a developer's own machine.
+  //
+  // VERCEL_ENV distinguishes them: "production" on main, "preview" on staging
+  // and every preview deploy, absent locally. The deliberate ALLOW_IMPERSONATION
+  // opt-in stays, because starting a session HARD-DELETES the test recipient's
+  // receipts, photos, testimonials and payouts.
+  if (emailEnv() === "production") return false;
   return process.env.ALLOW_IMPERSONATION === "1";
 }
 
