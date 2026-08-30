@@ -37,9 +37,14 @@ interface ApplicationState {
   // ── STEP 4: VIDEO ────────────────────────────────────────
   videoLink: string;
 
-  // ── STEP 5: CONTACT ──────────────────────────────────────
+  // ── STEP 5: CONTACT + MAILING ADDRESS ────────────────────
   contactEmail: string;
   contactPhone: string;
+  addressStreet: string;
+  addressProvince: string;
+  addressPostal: string;
+  /** "Happy to receive mail from CEO Ministries" — the family's own choice. */
+  mailConsent: boolean;
 
   // ── SETTERS ──────────────────────────────────────────────
   setParentNames: (v: string) => void;
@@ -59,6 +64,10 @@ interface ApplicationState {
   setVideoLink: (v: string) => void;
   setContactEmail: (v: string) => void;
   setContactPhone: (v: string) => void;
+  setAddressStreet: (v: string) => void;
+  setAddressProvince: (v: string) => void;
+  setAddressPostal: (v: string) => void;
+  setMailConsent: (v: boolean) => void;
   resetApplication: () => void;
 }
 
@@ -80,6 +89,10 @@ const defaultState = {
   videoLink: "",
   contactEmail: "",
   contactPhone: "",
+  addressStreet: "",
+  addressProvince: "",
+  addressPostal: "",
+  mailConsent: false,
 };
 
 export const useAppStore = create<ApplicationState>((set) => ({
@@ -101,5 +114,9 @@ export const useAppStore = create<ApplicationState>((set) => ({
   setVideoLink:              (v) => set({ videoLink: v }),
   setContactEmail:           (v) => set({ contactEmail: v }),
   setContactPhone:           (v) => set({ contactPhone: v }),
+  setAddressStreet:          (v) => set({ addressStreet: v }),
+  setAddressProvince:        (v) => set({ addressProvince: v }),
+  setAddressPostal:          (v) => set({ addressPostal: v }),
+  setMailConsent:            (v) => set({ mailConsent: v }),
   resetApplication:          () => set({ ...defaultState }),
 }));

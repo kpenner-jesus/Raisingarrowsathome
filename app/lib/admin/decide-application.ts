@@ -169,6 +169,14 @@ export async function decideApplication(args: DecideArgs): Promise<DecideResult>
         reimbursement_rate:  rate,
         submission_deadline: submissionDeadline,
         grandfathered:       false,
+        // Carry the mailing address the family gave on the form. Without this
+        // an approved family has no address on file at the moment you need to
+        // post them a cheque or a tax receipt.
+        address_street:      (app as any).address_street   ?? null,
+        address_city:        (app as any).city             ?? null,
+        address_province:    (app as any).address_province ?? null,
+        address_postal:      (app as any).address_postal   ?? null,
+        mail_consent:        (app as any).mail_consent === true,
       },
       { onConflict: "application_id" }
     )

@@ -9,9 +9,22 @@ export default function ContactPage() {
   const storedPhone = useAppStore((s) => s.contactPhone);
   const setContactEmail = useAppStore((s) => s.setContactEmail);
   const setContactPhone = useAppStore((s) => s.setContactPhone);
+  const storedStreet    = useAppStore((s) => s.addressStreet);
+  const storedProvince  = useAppStore((s) => s.addressProvince);
+  const storedPostal    = useAppStore((s) => s.addressPostal);
+  const storedConsent   = useAppStore((s) => s.mailConsent);
+  const setAddressStreet   = useAppStore((s) => s.setAddressStreet);
+  const setAddressProvince = useAppStore((s) => s.setAddressProvince);
+  const setAddressPostal   = useAppStore((s) => s.setAddressPostal);
+  const setMailConsent     = useAppStore((s) => s.setMailConsent);
+  const storedCity      = useAppStore((s) => s.city);
 
   const [email, setEmail] = useState(storedEmail || "");
   const [phone, setPhone] = useState(storedPhone || "");
+  const [street, setStreet]     = useState(storedStreet || "");
+  const [province, setProvince] = useState(storedProvince || "");
+  const [postal, setPostal]     = useState(storedPostal || "");
+  const [consent, setConsent]   = useState(!!storedConsent);
   const [error, setError] = useState("");
 
   const progress = Math.round((6 / 7) * 100);
@@ -25,8 +38,20 @@ export default function ContactPage() {
       setError("Please enter a phone number.");
       return;
     }
+    if (!street.trim()) {
+      setError("Please enter your street address so we can post cheques and tax receipts.");
+      return;
+    }
+    if (!postal.trim()) {
+      setError("Please enter your postal code.");
+      return;
+    }
     setContactEmail(email.trim());
     setContactPhone(phone.trim());
+    setAddressStreet(street.trim());
+    setAddressProvince(province.trim());
+    setAddressPostal(postal.trim());
+    setMailConsent(consent);
     router.push("/apply/review");
   };
 
@@ -75,6 +100,50 @@ export default function ContactPage() {
               We may also send e-transfers to your cell number.
             </div>
           </div>
+
+          <div className="tf-animate tf-animate-delay-3">
+            <label style={{ fontSize: "0.72rem", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", display: "block", marginBottom: "0.5rem" }}>
+              Mailing address
+            </label>
+            <input type="text" value={street}
+              onChange={(e) => { setStreet(e.target.value); setError(""); }}
+              placeholder="123 Main Street"
+              autoComplete="address-line1"
+              className="tf-input-box" />
+            <div style={{ display: "flex", gap: "0.6rem", marginTop: "0.6rem" }}>
+              <input type="text" value={province}
+                onChange={(e) => { setProvince(e.target.value); setError(""); }}
+                placeholder="Province"
+                autoComplete="address-level1"
+                className="tf-input-box" style={{ flex: 1 }} />
+              <input type="text" value={postal}
+                onChange={(e) => { setPostal(e.target.value); setError(""); }}
+                placeholder="R0E 1Z0"
+                autoComplete="postal-code"
+                className="tf-input-box" style={{ flex: 1 }} />
+            </div>
+            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.35rem", fontWeight: 300 }}>
+              {storedCity
+                ? <>We have your city as <strong>{storedCity}</strong>. This is where cheques and tax receipts would be posted.</>
+                : <>Where cheques and tax receipts would be posted.</>}
+            </div>
+          </div>
+
+          <label className="tf-animate tf-animate-delay-3" style={{
+            display: "flex", alignItems: "flex-start", gap: "0.6rem",
+            background: "rgba(0,0,0,0.02)", border: "1px solid rgba(0,0,0,0.08)",
+            borderRadius: "var(--radius-sm, 10px)", padding: "0.85rem 1rem", cursor: "pointer",
+          }}>
+            <input type="checkbox" checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+              style={{ marginTop: "0.15rem", width: 18, height: 18, flexShrink: 0, cursor: "pointer" }} />
+            <span style={{ fontSize: "0.85rem", lineHeight: 1.6 }}>
+              I&apos;m happy to receive mail from CEO Ministries.
+              <span style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem", fontWeight: 300 }}>
+                Optional, and it does not affect your application. You can change your mind any time.
+              </span>
+            </span>
+          </label>
 
         </div>
 

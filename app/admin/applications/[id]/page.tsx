@@ -65,6 +65,17 @@ export default async function ApplicationDetail({ params }: { params: { id: stri
               <Field k="Income"      v={app.income_range} />
               <Field k="Email"       v={app.contact_email} />
               <Field k="Phone"       v={app.contact_phone} />
+              <Field
+                k="Mailing address"
+                v={[app.address_street, app.city, app.address_province, app.address_postal]
+                    .filter(Boolean).join(", ") || null}
+              />
+              <Field
+                k="Mail from CEO Ministries"
+                v={app.mail_consent
+                    ? `Yes${app.mail_consent_at ? ` — agreed ${String(app.mail_consent_at).slice(0, 10)}` : ""}`
+                    : "Not opted in"}
+              />
               <Field k="Default cap" v={`$${defaultCap}`} />
             </div>
             <hr className="ra-divider" />

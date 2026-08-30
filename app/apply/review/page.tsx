@@ -87,6 +87,10 @@ export default function ReviewPage() {
           contact_phone: store.contactPhone,
           income_range: store.incomeRange,
           current_schooling: store.currentSchooling,
+          address_street: store.addressStreet,
+          address_province: store.addressProvince,
+          address_postal: store.addressPostal,
+          mail_consent: store.mailConsent,
           children: store.children,
           answers: {
             whyHomeschool:          store.whyHomeschool,
@@ -230,6 +234,15 @@ export default function ReviewPage() {
           <Field label="Contact email" value={store.contactEmail} />
           <Field label="Phone" value={store.contactPhone} />
           <Field label="Income range" value={store.incomeRange} />
+          <Field
+            label="Mailing address"
+            value={[store.addressStreet, store.city, store.addressProvince, store.addressPostal]
+              .filter(Boolean).join(", ")}
+          />
+          <Field
+            label="Mail from CEO Ministries"
+            value={store.mailConsent ? "Yes, happy to receive mail" : "No thank you"}
+          />
           <div style={{ marginBottom: "0.75rem" }}>
             <div style={{ fontSize: "0.68rem", fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
               Children

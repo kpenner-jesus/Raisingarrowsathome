@@ -78,6 +78,7 @@ export async function POST(req: Request) {
     const {
       parent_names, city, contact_email, contact_phone,
       income_range, current_schooling, children, answers, video_link,
+      address_street, address_province, address_postal, mail_consent,
     } = body;
 
     if (!parent_names || !contact_email) {
@@ -169,6 +170,14 @@ export async function POST(req: Request) {
         // javascript: URL (it only warns) - so an applicant could hand an
         // admin a link that runs script in their signed-in session.
         video_link:        safeHttpUrl(clip(video_link, 500)),
+        address_street:    clip(address_street, 200),
+        address_province:  clip(address_province, 60),
+        address_postal:    clip(address_postal, 20),
+        // Coerced to a real boolean, and TIMESTAMPED SERVER-SIDE. A consent
+        // record whose date the client could set would be worth nothing if it
+        // were ever questioned.
+        mail_consent:      mail_consent === true,
+        mail_consent_at:   mail_consent === true ? new Date().toISOString() : null,
         waitlisted,
       })
       .select("id, app_ref")
