@@ -28,10 +28,13 @@
 -- ============================================================
 
 -- ── 1. Tenant row: owners may edit branding fields only ─────────────
+-- SECURITY INVOKER on purpose: the check below reads current_user, and
+-- inside a SECURITY DEFINER function current_user is the function's
+-- owner, so every caller would look trusted and nothing would be blocked.
 create or replace function public.guard_tenant_privileged_columns()
 returns trigger
 language plpgsql
-security definer
+security invoker
 set search_path = public
 as $$
 declare
@@ -78,6 +81,13 @@ create policy org_members_owner_write on public.org_members
   with check (public.is_org_owner(org_id) or public.is_platform_super());
 
 -- ── 3. Audit rows must name their real author ───────────────────────
+-- Policies are OR'd, so the pre-20260526 FOR ALL policy (which also let
+-- admins edit and delete audit rows) must go too, wherever it survived.
+drop policy if exists audit_log_org_admin on public.audit_log;
+drop policy if exists audit_log_org_admin_select on public.audit_log;
+create policy audit_log_org_admin_select on public.audit_log
+  for select using (public.is_org_admin(org_id) or public.is_platform_super());
+
 drop policy if exists audit_log_org_admin_insert on public.audit_log;
 create policy audit_log_org_admin_insert on public.audit_log
   for insert
