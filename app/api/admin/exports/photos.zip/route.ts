@@ -6,6 +6,7 @@ import JSZip from "jszip";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { requireAdminForDataExport, AdminAuthError } from "@/app/lib/admin/require-admin";
 import { csvRow } from "@/app/lib/csv";
+import { assertPathBelongsToOrg } from "@/app/lib/storage-path";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Vercel: max 60s on Pro; on Hobby this is ignored
@@ -70,6 +71,10 @@ export async function GET(req: Request) {
 
   for (const p of (photos as any[]) ?? []) {
     try {
+      // Same per-file ownership check the single-image routes do: the row is
+      // org-scoped, but image_path is a free string, and a path pointing into
+      // another charity's folder must never be fetched with the service key.
+      try { assertPathBelongsToOrg(p.image_path, orgCtx.id); } catch { continue; }
       const { data: file } = await svc.storage.from("photos").download(p.image_path);
       if (!file) continue;
       const ext = p.image_path.split(".").pop() ?? "jpg";

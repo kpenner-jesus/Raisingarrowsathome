@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { SafeHtmlPreview } from "@/app/_components/SafeHtmlPreview";
 
 export function BroadcastForm({ counts }: { counts: { active: number; all: number } }) {
   const router = useRouter();
@@ -129,7 +130,7 @@ export function BroadcastForm({ counts }: { counts: { active: number; all: numbe
         <div className="ra-tiny" style={{ marginBottom: "0.5rem" }}>Preview</div>
         <div style={{ background: "#fff", padding: "1rem", borderRadius: 8, border: "1px solid var(--ra-line)" }}>
           <div style={{ fontWeight: 500, marginBottom: "0.5rem" }}>{subject || "(subject)"}</div>
-          <div dangerouslySetInnerHTML={{ __html: body || "<p style='color:#999'>(empty)</p>" }} />
+          <SafeHtmlPreview html={body || "<p style='color:#999'>(empty)</p>"} />
         </div>
       </div>
 

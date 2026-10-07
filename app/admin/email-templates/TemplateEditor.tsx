@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { SafeHtmlPreview } from "@/app/_components/SafeHtmlPreview";
 
 interface Tpl {
   key: string;
@@ -150,7 +151,7 @@ export function TemplateEditor({ templates }: { templates: Tpl[] }) {
             <div className="ra-card" style={{ marginTop: "0.5rem" }}>
               <div style={{ background: "#fff", padding: "1rem", borderRadius: 8, border: "1px solid var(--ra-line)" }}>
                 <div style={{ fontWeight: 500, marginBottom: "0.5rem" }}>{subject}</div>
-                <div dangerouslySetInnerHTML={{ __html: html }} />
+                <SafeHtmlPreview html={html} />
               </div>
             </div>
           </details>

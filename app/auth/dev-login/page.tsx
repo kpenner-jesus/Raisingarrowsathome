@@ -14,6 +14,13 @@ export default function DevSetPage() {
   const [status, setStatus] = useState("Reading tokens…");
 
   useEffect(() => {
+    // Local development helper only. On any deployed site its server half
+    // answers 404, but the page itself still loaded and would navigate to an
+    // unvalidated ?next= — so do nothing at all outside development.
+    if (process.env.NODE_ENV !== "development") {
+      setStatus("Not available.");
+      return;
+    }
     (async () => {
       try {
         const hash = window.location.hash.slice(1);
