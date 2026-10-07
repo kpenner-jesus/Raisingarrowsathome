@@ -14,6 +14,28 @@ export default function LandingPage() {
   // auto-redirect signed-in users any more — they may genuinely want to
   // view the public site. The pill shows where they can jump back to.
   const [authState, setAuthState] = useState<{ role: string | null; loaded: boolean }>({ role: null, loaded: false });
+
+  // When applications are closed (Admin → Settings → Program), the Apply
+  // buttons are swapped for the closed notice instead of leading families
+  // into a form they cannot submit.
+  const [intakeClosed, setIntakeClosed] = useState(false);
+  useEffect(() => {
+    fetch("/api/public/intake-status").then((r) => r.json())
+      .then((j) => setIntakeClosed(j?.status === "closed"))
+      .catch(() => {});
+  }, []);
+
+  const closedNotice = (
+    <div style={{ maxWidth: 520, margin: "0 auto", textAlign: "center" }}>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: "1.35rem", fontWeight: 500, marginBottom: "0.5rem" }}>
+        {SITE_CONFIG.intakeClosed.title}
+      </div>
+      <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", fontWeight: 300, lineHeight: 1.6 }}>
+        {SITE_CONFIG.intakeClosed.message} Questions? Email{" "}
+        <a href="mailto:register@raisingarrowsathome.com" style={{ color: "var(--accent)" }}>register@raisingarrowsathome.com</a>.
+      </p>
+    </div>
+  );
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -108,6 +130,7 @@ export default function LandingPage() {
             curriculum and educational resources during their first year.
           </p>
 
+          {intakeClosed ? closedNotice : (<>
           <button
             onClick={() => router.push("/apply/family")}
             className="tf-ok"
@@ -121,6 +144,7 @@ export default function LandingPage() {
           <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "1rem", fontWeight: 300 }}>
             Free to apply · Hear back within 30 days · Manitoba families only
           </p>
+          </>)}
         </div>
       </div>
 
@@ -268,7 +292,7 @@ export default function LandingPage() {
               You will need a short video (4–10 min) of you and your spouse
               answering three questions.
             </p>
-            <button
+            {intakeClosed ? closedNotice : <button
               onClick={() => router.push("/apply/family")}
               className="tf-ok"
               style={{ fontSize: "1rem", padding: "1rem 2.5rem", borderRadius: 100 }}>
@@ -276,7 +300,7 @@ export default function LandingPage() {
               <svg viewBox="0 0 16 16" fill="none" style={{ width: 18, height: 18 }}>
                 <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
-            </button>
+            </button>}
           </div>
         </KidsBehind>
 
@@ -329,7 +353,7 @@ export default function LandingPage() {
         </div>
 
         {/* ── Mobile-only sticky bottom Apply CTA ── */}
-        <div className="ra-landing-cta-sticky">
+        {!intakeClosed && <div className="ra-landing-cta-sticky">
           <button
             onClick={() => router.push("/apply/family")}
             className="ra-btn ra-btn-primary"
@@ -337,7 +361,7 @@ export default function LandingPage() {
           >
             Apply for the grant →
           </button>
-        </div>
+        </div>}
 
         {/* Footer */}
         <div style={{ textAlign: "center", marginTop: "1.5rem", fontSize: "0.78rem", color: "var(--text-muted)", lineHeight: 1.8 }}>

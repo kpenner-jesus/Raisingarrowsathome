@@ -119,6 +119,14 @@ export const SITE_CONFIG = {
     "A welcome gift (age appropriate for your child)",
   ],
 
+  // ── CLOSED APPLICATIONS ───────────────────────────────────
+  // Shown on the apply page when intake is set to "closed" in
+  // Admin → Settings → Program. Update the year when you reopen.
+  intakeClosed: {
+    title: "Funding for 2026 is now closed",
+    message: "Thank you for your interest. We are not accepting new applications at this time.",
+  },
+
   // ── FAQ ───────────────────────────────────────────────────
   faqs: [
     {
@@ -144,6 +152,10 @@ export const SITE_CONFIG = {
     {
       q: "Can I submit USD receipts?",
       a: "Yes — upload them in USD and we will convert to CAD at the time of approval.",
+    },
+    {
+      q: "How do I receive my complimentary admission to the MACHS Homeschool Conference?",
+      a: "We will send an email in early January asking you to confirm your plans to attend the conference. MACHS will process the registrations in early February, after which you will receive confirmation of your complimentary conference passes and MACHS membership.",
     },
     {
       q: "Who qualifies?",

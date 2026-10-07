@@ -60,9 +60,9 @@ export default function FamilyPage() {
     return (
       <div className="tf-step">
         <div className="tf-body" style={{ justifyContent: "center", paddingTop: "4rem", textAlign: "center" }}>
-          <h1 className="tf-question">Applications are closed</h1>
+          <h1 className="tf-question">{SITE_CONFIG.intakeClosed.title}</h1>
           <p className="tf-subtext" style={{ marginTop: "1rem", maxWidth: 480 }}>
-            We&apos;re not accepting new applications right now. Please check back later or email{" "}
+            {SITE_CONFIG.intakeClosed.message} Please check back later or email{" "}
             <a href="mailto:register@raisingarrowsathome.com" style={{ color: "var(--accent)" }}>
               register@raisingarrowsathome.com
             </a>{" "}for an update on when we&apos;ll reopen.
