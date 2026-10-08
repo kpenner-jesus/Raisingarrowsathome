@@ -44,7 +44,8 @@ English — Kevin often asks for a message he can text her directly.
 
 ## 2. The stack
 
-- **Next.js 14.2.29**, App Router, TypeScript. React 18.
+- **Next.js 14.2.35** (last 14.x; image optimizer off), App Router, TypeScript. React 18.
+  Version 14 is out of support — upgrade plan in `docs/NEXT15_UPGRADE_PLAN.md`.
 - **Supabase** — Postgres + Auth (magic links) + Storage.
 - **Vercel** hosting. Hobby tier: **60s function ceiling regardless of
   `maxDuration`**, ~4.5MB request/response cap, **one daily cron**.
@@ -311,13 +312,15 @@ claims against the running system before acting on them.
 | **Staging email log empty** | No Resend webhook points at staging. Needs a second endpoint registered. |
 | **Mail-consent wording is a draft** | Written by the assistant, live on production. CEO Ministries may want their own words — one-line swap in `app/apply/contact/page.tsx`. |
 | **Consent withdrawal is admin-operated** | Family emails, admin clicks a button. No self-serve link. |
-| **`staging-bootstrap.sql` is stale** | Missing several migrations; re-creates a dropped insecure column. Do not rebuild staging from it without review. |
+| **`staging-bootstrap.sql` is stale** | 2026-10-07: staging was found missing all eight `20260526`–`20260530` migrations (live had them); now applied. The bootstrap is still missing them; re-creates a dropped insecure column. Do not rebuild staging from it without review. |
 | **Migrations cannot build a DB from scratch** | They assume an existing database. |
+| **Next.js 14 is end-of-life** | Plan written, not started: `docs/NEXT15_UPGRADE_PLAN.md`. |
 | **`docs/STAGING_SETUP.md` is stale** | Says the staging Supabase project was deleted. It is alive and in daily use. |
 
+Closed 2026-10-07 by `20261007_lock_privileged_writes.sql` (applied to staging AND live, tested by acting as owner/admin sessions): owners could edit billing columns on their own tenant row, admins could promote themselves to owner, admins could forge audit rows, buckets had no size/type limits.
+
 Lower priority, from an earlier audit: Svix webhook replay/timestamp checks,
-`whoami` returns an org id without a membership check, storage buckets have no
-size or MIME limits, `audit_log` lacks an `(org_id, created_at desc)` index,
+`whoami` returns an org id without a membership check, `audit_log` lacks an `(org_id, created_at desc)` index,
 `decided_by` foreign keys lack `ON DELETE SET NULL`.
 
 ---
