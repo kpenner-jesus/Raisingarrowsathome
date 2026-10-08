@@ -15,9 +15,10 @@ const SORT_MAP: Record<SortCol, string> = {
   created: "created_at",
 };
 
-export default async function ApplicationsList({ searchParams }: { searchParams: SearchParams }) {
+export default async function ApplicationsList(props: { searchParams: Promise<SearchParams> }) {
+  const searchParams = await props.searchParams;
   const ctx = await requireOrgContext();
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   const sortRaw = (searchParams.sort ?? "created") as SortCol;
   const sortCol: SortCol = (VALID_SORTS as readonly string[]).includes(sortRaw) ? sortRaw : "created";

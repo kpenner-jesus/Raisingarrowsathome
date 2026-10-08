@@ -8,8 +8,9 @@ import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 const MAX_NOTE = 4000;
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
-  const appId = ctx.params.id;
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
+  const appId = params.id;
   if (!appId) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   let auth;
@@ -49,8 +50,9 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   return NextResponse.json({ ok: true, note });
 }
 
-export async function DELETE(req: Request, ctx: { params: { id: string } }) {
-  const appId = ctx.params.id;
+export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
+  const appId = params.id;
   const url = new URL(req.url);
   const nid = url.searchParams.get("nid");
   if (!appId || !nid) return NextResponse.json({ error: "id and nid required" }, { status: 400 });

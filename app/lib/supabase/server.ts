@@ -5,25 +5,27 @@
 //  - supabaseService(): service-role, BYPASSES RLS — server only
 // ============================================================
 
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
-export function supabaseServer() {
-  const cookieStore = cookies();
+export async function supabaseServer() {
+  // Async since Next 15: cookies() returns a Promise.
+  const cookieStore = await cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
+        getAll() {
+          return cookieStore.getAll();
         },
-        set(name: string, value: string, options: CookieOptions) {
-          try { cookieStore.set({ name, value, ...options }); } catch { /* server component */ }
-        },
-        remove(name: string, options: CookieOptions) {
-          try { cookieStore.set({ name, value: "", ...options }); } catch { /* server component */ }
+        setAll(cookiesToSet) {
+          // Server components cannot set cookies; the middleware refreshes
+          // the session for them, so a throw here is expected and harmless.
+          try {
+            for (const { name, value, options } of cookiesToSet) cookieStore.set(name, value, options);
+          } catch { /* server component */ }
         },
       },
     }

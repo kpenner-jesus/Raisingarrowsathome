@@ -8,7 +8,8 @@ import { writeAudit } from "@/app/lib/audit";
 
 export const dynamic = "force-dynamic";
 
-export default async function WithdrawPage({ searchParams }: { searchParams?: { token?: string } }) {
+export default async function WithdrawPage(props: { searchParams?: Promise<{ token?: string }> }) {
+  const searchParams = await props.searchParams;
   const token = searchParams?.token ?? "";
   if (!token) return shell("Link missing token", "The withdrawal link is incomplete.");
 

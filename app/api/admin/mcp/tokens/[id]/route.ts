@@ -5,7 +5,8 @@ import { NextResponse } from "next/server";
 import { supabaseService } from "@/app/lib/supabase/server";
 import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   let auth;
   try { auth = await requireAdmin(); }
   catch (e) {

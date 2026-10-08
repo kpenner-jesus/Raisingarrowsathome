@@ -20,7 +20,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   // host-default org they aren't a member of, and was bounced to the portal.
   const orgCtx = await getOrgContext();
 
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     redirect(`/auth/login?next=${encodeURIComponent(orgPath(orgCtx, "/admin"))}`);

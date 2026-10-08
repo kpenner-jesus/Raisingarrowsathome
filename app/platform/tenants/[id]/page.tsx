@@ -9,7 +9,8 @@ import { CustomDomainField } from "./CustomDomainField";
 
 export const dynamic = "force-dynamic";
 
-export default async function TenantDetail({ params }: { params: { id: string } }) {
+export default async function TenantDetail(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const svc = supabaseService();
   const { data: tenant } = await svc
     .from("tenants")

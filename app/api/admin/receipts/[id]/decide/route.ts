@@ -14,7 +14,8 @@ import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 const MAX_REIMBURSABLE = 50_000;
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   let auth;
   try { auth = await requireAdmin(); }
   catch (e) {

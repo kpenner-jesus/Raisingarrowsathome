@@ -17,9 +17,10 @@ import { BillingActions } from "./BillingActions";
 
 export const dynamic = "force-dynamic";
 
-export default async function BillingSettings({ searchParams }: { searchParams?: { upgraded?: string; cancelled?: string } }) {
+export default async function BillingSettings(props: { searchParams?: Promise<{ upgraded?: string; cancelled?: string }> }) {
+  const searchParams = await props.searchParams;
   const ctx = await requireOrgContext();
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 

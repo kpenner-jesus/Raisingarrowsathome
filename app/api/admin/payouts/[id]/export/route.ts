@@ -11,7 +11,8 @@ import { supabaseService } from "@/app/lib/supabase/server";
 import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 import { csvRow, csvBody, csvHeaders } from "@/app/lib/csv";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   // requireAdmin, NOT requireAdminForDataExport — despite the name this route
   // WRITES (it flips the batch to 'exported' below), so a paused tenant must
   // still be blocked. Pinned by export-auth-allowlist.test.ts.

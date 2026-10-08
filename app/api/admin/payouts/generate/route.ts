@@ -41,7 +41,7 @@ export async function POST(req: Request) {
 
   // ── 2. Admin-session auth — resolve org_id from user's org_members row. ──
   if (!orgId) {
-    const auth = supabaseServer();
+    const auth = await supabaseServer();
     const { data: { user } } = await auth.auth.getUser();
     if (!user) return new NextResponse("unauthorized", { status: 401 });
 

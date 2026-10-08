@@ -19,7 +19,7 @@ import { writeAudit } from "@/app/lib/audit";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
 

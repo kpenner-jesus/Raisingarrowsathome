@@ -10,7 +10,7 @@ async function requireOrgOwner(): Promise<{ user: any; orgId: string } | { error
   const orgCtx = await getOrgContext();
   if (!orgCtx) return { error: NextResponse.json({ error: "no tenant resolved" }, { status: 400 }) };
 
-  const auth = supabaseServer();
+  const auth = await supabaseServer();
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return { error: new NextResponse("unauthorized", { status: 401 }) };
 
@@ -30,7 +30,8 @@ async function countOwners(service: ReturnType<typeof supabaseService>, orgId: s
   return count ?? 0;
 }
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const check = await requireOrgOwner();
   if ("error" in check) return check.error;
 
@@ -70,7 +71,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const check = await requireOrgOwner();
   if ("error" in check) return check.error;
 

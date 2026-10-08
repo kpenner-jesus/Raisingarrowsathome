@@ -11,7 +11,7 @@
 // in. Returns 404 in production for safety.
 
 import { NextResponse } from "next/server";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { createServerClient, parseCookieHeader } from "@supabase/ssr";
 
 export const dynamic = "force-dynamic";
 
@@ -38,14 +38,12 @@ export async function POST(req: Request) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return req.headers.get("cookie")?.match(new RegExp(`(?:^|; )${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=([^;]*)`))?.[1];
+        getAll() {
+          return parseCookieHeader(req.headers.get("cookie") ?? "").map((c) => ({ name: c.name, value: c.value ?? "" }));
         },
-        set(name: string, value: string, options: CookieOptions) {
-          response.cookies.set({ name, value, ...options });
-        },
-        remove(name: string, options: CookieOptions) {
-          response.cookies.set({ name, value: "", ...options, maxAge: 0 });
+        setAll(cookiesToSet) {
+          // Removals arrive here too, as an empty value with maxAge 0.
+          for (const { name, value, options } of cookiesToSet) response.cookies.set(name, value, options);
         },
       },
     }

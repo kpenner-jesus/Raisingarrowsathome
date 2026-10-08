@@ -131,7 +131,7 @@ const fetchTenantByCustomDomain = cache(async (domain: string) => {
  * land the caller on a tenant they're ALREADY authorized for.
  */
 export async function getOrgContext(): Promise<OrgContext | null> {
-  const h = headers();
+  const h = await headers();
   let slug     = h.get("x-ra-org-slug");
   let prefixed = h.get("x-ra-org-prefixed") === "1";
 

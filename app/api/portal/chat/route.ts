@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   const ready = aiReady();
   if (!ready.ready) return NextResponse.json({ error: `AI chat not configured: ${ready.reason}` }, { status: 503 });
 
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 

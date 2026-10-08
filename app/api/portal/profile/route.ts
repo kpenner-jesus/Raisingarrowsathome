@@ -16,7 +16,7 @@ import { cookies } from "next/headers";
 const CAD_POSTAL = /^[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z][ -]?\d[ABCEGHJ-NPRSTV-Z]\d$/i;
 
 export async function PATCH(req: Request) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
@@ -55,7 +55,7 @@ export async function PATCH(req: Request) {
   const isOwner = own.profile_id === user.id;
   let impersonationOk = false;
   if (!isOwner && isImpersonationAllowed()) {
-    const cookieValue = cookies().get(IMPERSONATE_COOKIE)?.value ?? null;
+    const cookieValue = (await cookies()).get(IMPERSONATE_COOKIE)?.value ?? null;
     const testId = await getTestRecipientId(orgId);
     if (cookieValue && testId && cookieValue === testId && recipientId === testId) {
       const { data: membership } = await svc
@@ -69,7 +69,7 @@ export async function PATCH(req: Request) {
     //  - Plain non-owner    → "forbidden"
     //  - Impersonator trying to edit a non-test recipient → specific msg
     const isImpersonatingButWrongRecipient =
-      isImpersonationAllowed() && cookies().get(IMPERSONATE_COOKIE)?.value
+      isImpersonationAllowed() && (await cookies()).get(IMPERSONATE_COOKIE)?.value
       && recipientId !== (await getTestRecipientId(orgId));
     return NextResponse.json({
       error: isImpersonatingButWrongRecipient

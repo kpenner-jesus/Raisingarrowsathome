@@ -11,7 +11,7 @@ import { PortalChat } from "./_components/PortalChat";
 export const dynamic = "force-dynamic";
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
 
   // Tenant-status gate: blocked-status tenants (paused/canceled/unpaid/

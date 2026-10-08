@@ -27,7 +27,7 @@ const ACTION_LABELS: Record<string, string> = {
 export default async function AdminDashboard() {
   const ctx = await requireOrgContext();
   const orgId = ctx.id;
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const svc = supabaseService();
   // Every query scoped to org_id. supabase (user role) is also RLS-scoped
   // via is_org_admin(org_id) policies; the explicit filter is defence-in-depth.

@@ -18,8 +18,9 @@ const VALID_KINDS = new Set([
   "receipts", "payouts", "recipients", "transactions", "audit_log", "applications",
 ]);
 
-export async function GET(req: Request, ctx: { params: { kind: string } }) {
-  const kind = ctx.params.kind;
+export async function GET(req: Request, ctx: { params: Promise<{ kind: string }> }) {
+  const params = await ctx.params;
+  const kind = params.kind;
   if (!VALID_KINDS.has(kind)) return NextResponse.json({ error: "unknown kind" }, { status: 400 });
 
   // Deliberately the relaxed gate: a paused or canceled tenant must still be

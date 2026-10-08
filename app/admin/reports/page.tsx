@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 function startOfYearISO(yr: number) { return `${yr}-01-01T00:00:00Z`; }
 function startOfNextYearISO(yr: number) { return `${yr + 1}-01-01T00:00:00Z`; }
 
-export default async function ReportsPage({ searchParams }: { searchParams?: { year?: string } }) {
+export default async function ReportsPage(props: { searchParams?: Promise<{ year?: string }> }) {
+  const searchParams = await props.searchParams;
   const ctx = await requireOrgContext();
   const now = new Date();
   const year = searchParams?.year && /^\d{4}$/.test(searchParams.year) ? Number(searchParams.year) : now.getUTCFullYear();

@@ -15,9 +15,10 @@ import { PrintButton } from "../../_components/PrintButton";
 
 export const dynamic = "force-dynamic";
 
-export default async function RecipientDetail({ params }: { params: { id: string } }) {
+export default async function RecipientDetail(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const ctx = await requireOrgContext();
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   const { data: recipient } = await supabase
     .from("recipients")

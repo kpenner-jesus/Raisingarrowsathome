@@ -12,7 +12,7 @@ import { getOrgContext } from "@/app/lib/org-context";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 

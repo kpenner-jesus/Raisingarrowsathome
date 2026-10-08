@@ -6,11 +6,8 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export default function LegacyOnboardRedirect({
-  searchParams,
-}: {
-  searchParams: { token?: string };
-}) {
+export default async function LegacyOnboardRedirect(props: { searchParams: Promise<{ token?: string }> }) {
+  const searchParams = await props.searchParams;
   const token = searchParams?.token;
   redirect(`/auth/accept-invite${token ? `?token=${encodeURIComponent(token)}` : ""}`);
 }

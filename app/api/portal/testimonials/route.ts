@@ -7,7 +7,7 @@ import { requireOrgContext } from "@/app/lib/org-context";
 import { isTenantAccessBlocked } from "@/app/lib/tenant-access";
 
 export async function POST(req: Request) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 

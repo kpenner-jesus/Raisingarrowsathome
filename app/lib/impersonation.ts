@@ -125,7 +125,7 @@ export async function getEffectiveRecipient(userId: string, orgId: string): Prom
   let impersonating = false;
   let cookieValue: string | null = null;
   if (isImpersonationAllowed()) {
-    cookieValue = cookies().get(IMPERSONATE_COOKIE)?.value ?? null;
+    cookieValue = (await cookies()).get(IMPERSONATE_COOKIE)?.value ?? null;
     if (cookieValue) impersonating = true;
   }
 
@@ -163,7 +163,7 @@ export async function getEffectiveRecipient(userId: string, orgId: string): Prom
  * Useful for banner rendering — does NOT enforce role checks (those
  * happen inside getEffectiveRecipient).
  */
-export function isCurrentlyImpersonating(): boolean {
+export async function isCurrentlyImpersonating(): Promise<boolean> {
   if (!isImpersonationAllowed()) return false;
-  return Boolean(cookies().get(IMPERSONATE_COOKIE)?.value);
+  return Boolean((await cookies()).get(IMPERSONATE_COOKIE)?.value);
 }

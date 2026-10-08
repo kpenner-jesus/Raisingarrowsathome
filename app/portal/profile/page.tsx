@@ -10,7 +10,7 @@ import { ProfileForm } from "./ProfileForm";
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login?next=%2Fportal%2Fprofile");
 

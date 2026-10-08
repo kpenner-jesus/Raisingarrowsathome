@@ -7,8 +7,9 @@ import { supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit } from "@/app/lib/audit";
 import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
-export async function DELETE(_req: Request, ctx: { params: { id: string } }) {
-  const id = ctx.params.id;
+export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
+  const id = params.id;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   let auth;

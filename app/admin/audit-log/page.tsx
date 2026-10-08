@@ -26,9 +26,8 @@ function pretty(action: string): string {
   return ACTION_LABELS[action] ?? action;
 }
 
-export default async function AuditLogPage({ searchParams }: {
-  searchParams?: { action?: string; actor?: string; from?: string; to?: string };
-}) {
+export default async function AuditLogPage(props: { searchParams?: Promise<{ action?: string; actor?: string; from?: string; to?: string }> }) {
+  const searchParams = await props.searchParams;
   const ctx = await requireOrgContext();
   const svc = supabaseService();
 

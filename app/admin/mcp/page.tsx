@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function McpPage() {
   const ctx = await requireOrgContext();
-  const auth = supabaseServer();
+  const auth = await supabaseServer();
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return null;
 

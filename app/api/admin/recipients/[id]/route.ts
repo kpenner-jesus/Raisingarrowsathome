@@ -11,7 +11,8 @@ import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 const ALLOWED_STATUS = ["active", "completed", "suspended"] as const;
 const MAX_CAP = 50_000;
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   let auth;
   try { auth = await requireAdmin(); }
   catch (e) {

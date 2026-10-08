@@ -55,7 +55,7 @@ async function resolveAdminIdentity(): Promise<AdminAuth & { isPlatformSuper: bo
   const ctx = await getOrgContext();
   if (!ctx) throw new AdminAuthError(400, "no tenant resolved for this host");
 
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new AdminAuthError(401, "unauthorized");
 

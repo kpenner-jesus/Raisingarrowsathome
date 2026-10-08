@@ -15,8 +15,9 @@ async function authOrError() {
   }
 }
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
-  const rid = ctx.params.id;
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
+  const rid = params.id;
   if (!rid) return NextResponse.json({ error: "id required" }, { status: 400 });
   const c = await authOrError();
   if ("error" in c) return c.error;
@@ -50,8 +51,9 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   return NextResponse.json({ ok: true, note });
 }
 
-export async function DELETE(req: Request, ctx: { params: { id: string } }) {
-  const rid = ctx.params.id;
+export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
+  const rid = params.id;
   const url = new URL(req.url);
   const nid = url.searchParams.get("nid");
   if (!rid || !nid) return NextResponse.json({ error: "id and nid required" }, { status: 400 });

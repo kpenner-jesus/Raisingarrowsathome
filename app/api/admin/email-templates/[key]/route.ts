@@ -5,8 +5,9 @@ import { supabaseService } from "@/app/lib/supabase/server";
 import { writeAudit, diff } from "@/app/lib/audit";
 import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
-export async function PATCH(req: Request, ctx: { params: { key: string } }) {
-  const key = ctx.params.key;
+export async function PATCH(req: Request, ctx: { params: Promise<{ key: string }> }) {
+  const params = await ctx.params;
+  const key = params.key;
   if (!key) return NextResponse.json({ error: "key required" }, { status: 400 });
 
   let auth;

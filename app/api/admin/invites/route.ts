@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   const orgCtx = await getOrgContext();
   if (!orgCtx) return NextResponse.json({ error: "no tenant resolved for this host" }, { status: 400 });
 
-  const auth = supabaseServer();
+  const auth = await supabaseServer();
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 

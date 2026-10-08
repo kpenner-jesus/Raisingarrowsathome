@@ -43,7 +43,7 @@ export async function GET() {
   const orgCtx = await getOrgContext();
   if (!orgCtx) return NextResponse.json({ available: false, reason: "no tenant resolved" });
 
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ available: false, reason: "not signed in" });
 
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
   }
 
   // Auth check
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });

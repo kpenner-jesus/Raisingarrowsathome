@@ -11,7 +11,7 @@ import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 async function requireOwner(req: Request): Promise<{ user: any; orgId: string } | NextResponse> {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
 

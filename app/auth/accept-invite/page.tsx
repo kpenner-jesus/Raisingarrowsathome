@@ -17,7 +17,8 @@ import { requireOrgContext, orgPath } from "@/app/lib/org-context";
 
 export const dynamic = "force-dynamic";
 
-export default async function OnboardPage({ searchParams }: { searchParams?: { token?: string } }) {
+export default async function OnboardPage(props: { searchParams?: Promise<{ token?: string }> }) {
+  const searchParams = await props.searchParams;
   const ctx = await requireOrgContext();
   const token = searchParams?.token ?? "";
   if (!token) return shell("Missing token", "The invite link is incomplete.");
@@ -34,7 +35,7 @@ export default async function OnboardPage({ searchParams }: { searchParams?: { t
   if (new Date(invite.expires_at) < new Date()) return shell("Expired", "This invite expired. Ask the super_admin to send a fresh one.");
 
   // Check current session
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {

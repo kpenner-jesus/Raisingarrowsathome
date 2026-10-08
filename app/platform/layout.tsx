@@ -12,7 +12,7 @@ import { supabaseServer, supabaseService } from "@/app/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 export default async function PlatformLayout({ children }: { children: React.ReactNode }) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login?next=%2Fplatform");
 

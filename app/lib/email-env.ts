@@ -158,7 +158,7 @@ export async function stagingRedirectTarget(): Promise<string> {
     // Imported lazily: this module is also pulled in by pure unit tests and by
     // code paths with no request context, and supabaseServer() reads cookies.
     const { supabaseServer, supabaseService } = await import("@/app/lib/supabase/server");
-    const { data: { user } } = await supabaseServer().auth.getUser();
+    const { data: { user } } = await (await supabaseServer()).auth.getUser();
     if (!user?.email) return fallback;
 
     const svc = supabaseService();

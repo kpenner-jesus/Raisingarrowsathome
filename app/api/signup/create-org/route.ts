@@ -13,7 +13,7 @@ import { validateSlug } from "@/app/lib/signup-validation";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
 

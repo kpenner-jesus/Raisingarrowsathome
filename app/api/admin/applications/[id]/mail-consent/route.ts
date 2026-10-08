@@ -22,7 +22,8 @@ import { writeAudit } from "@/app/lib/audit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   let auth;
   try { auth = await requireAdmin(); }
   catch (e) {

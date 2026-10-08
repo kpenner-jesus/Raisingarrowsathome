@@ -15,8 +15,9 @@ type TxnItem =
   | { kind: "receipt"; id: string; date: string; title: string; sub: string; amount: number; status: string }
   | { kind: "payout";  id: string; date: string; title: string; sub: string; amount: number; status: string };
 
-export default async function StatementPage({ searchParams }: { searchParams?: { year?: string } }) {
-  const supabase = supabaseServer();
+export default async function StatementPage(props: { searchParams?: Promise<{ year?: string }> }) {
+  const searchParams = await props.searchParams;
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login?next=%2Fportal%2Fstatement");
 

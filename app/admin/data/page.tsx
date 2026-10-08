@@ -31,11 +31,8 @@ type Row = {
   count?:      number | null;
 };
 
-export default async function DataHub({
-  searchParams,
-}: {
-  searchParams?: { year?: string };
-}) {
+export default async function DataHub(props: { searchParams?: Promise<{ year?: string }> }) {
+  const searchParams = await props.searchParams;
   const ctx = await getOrgContext();
   const op  = (p: string) => orgPath(ctx, p);
 

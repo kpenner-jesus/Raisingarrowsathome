@@ -14,9 +14,10 @@ import { MailConsentToggle } from "./MailConsentToggle";
 
 export const dynamic = "force-dynamic";
 
-export default async function ApplicationDetail({ params }: { params: { id: string } }) {
+export default async function ApplicationDetail(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const ctx = await requireOrgContext();
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: app } = await supabase.from("applications").select("*").eq("org_id", ctx.id).eq("id", params.id).single();
   if (!app) return notFound();
 

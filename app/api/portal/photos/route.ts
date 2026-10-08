@@ -13,7 +13,7 @@ import { isTenantAccessBlocked } from "@/app/lib/tenant-access";
 const ALLOWED_EXTS = ["jpg", "jpeg", "png", "webp", "heic", "heif"];
 
 export async function POST(req: Request) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new NextResponse("unauthorized", { status: 401 });
 

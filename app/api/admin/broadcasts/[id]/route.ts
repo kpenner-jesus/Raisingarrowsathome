@@ -41,7 +41,8 @@ async function counts(id: string) {
   return { sent: sent ?? 0, failed: failed ?? 0, pending: pending ?? 0, unknown: sent === null || failed === null || pending === null };
 }
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, route: { params: Promise<{ id: string }> }) {
+  const params = await route.params;
   let auth;
   try { auth = await requireAdmin(); }
   catch (e) {
@@ -66,7 +67,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   return NextResponse.json({ id: params.id, ...c, total: row.total_count ?? null, status, failures: failures ?? [] });
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, route: { params: Promise<{ id: string }> }) {
+  const params = await route.params;
   let auth;
   try { auth = await requireAdmin(); }
   catch (e) {

@@ -12,9 +12,8 @@ function sanitize(raw: string): string {
     .replace(/,/g, "").replace(/[()*]/g, "").trim();
 }
 
-export default async function TestimonialsPage({ searchParams }: {
-  searchParams?: { status?: string; q?: string; sort?: string; dir?: string };
-}) {
+export default async function TestimonialsPage(props: { searchParams?: Promise<{ status?: string; q?: string; sort?: string; dir?: string }> }) {
+  const searchParams = await props.searchParams;
   const ctx = await requireOrgContext();
   const svc = supabaseService();
   const status = searchParams?.status ?? "pending";

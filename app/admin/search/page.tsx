@@ -18,7 +18,8 @@ function sanitize(raw: string): string {
     .trim();
 }
 
-export default async function SearchPage({ searchParams }: { searchParams?: { q?: string } }) {
+export default async function SearchPage(props: { searchParams?: Promise<{ q?: string }> }) {
+  const searchParams = await props.searchParams;
   const ctx = await requireOrgContext();
   const raw = (searchParams?.q ?? "").trim();
   const q = sanitize(raw);

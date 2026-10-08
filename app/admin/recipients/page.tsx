@@ -30,9 +30,10 @@ function sanitizeSearch(raw: string): string {
     .trim();
 }
 
-export default async function RecipientsList({ searchParams }: { searchParams?: SearchParams }) {
+export default async function RecipientsList(props: { searchParams?: Promise<SearchParams> }) {
+  const searchParams = await props.searchParams;
   const ctx = await requireOrgContext();
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const showArchived = searchParams?.show === "archived";
 
   const sortRaw = (searchParams?.sort ?? "approved") as SortCol;

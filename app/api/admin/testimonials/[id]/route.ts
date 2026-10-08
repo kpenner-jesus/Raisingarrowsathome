@@ -8,8 +8,9 @@ import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
 const VALID_STATUSES = new Set(["pending", "approved", "hidden"]);
 
-export async function PATCH(req: Request, ctx: { params: { id: string } }) {
-  const id = ctx.params.id;
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
+  const id = params.id;
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   let auth;

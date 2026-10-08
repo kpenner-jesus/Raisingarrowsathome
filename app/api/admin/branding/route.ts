@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 export async function PATCH(req: Request) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
 

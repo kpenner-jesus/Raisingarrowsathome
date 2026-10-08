@@ -15,7 +15,7 @@ async function requireOrgOwner(): Promise<{ user: any; orgId: string } | { error
   const orgCtx = await getOrgContext();
   if (!orgCtx) return { error: NextResponse.json({ error: "no tenant resolved" }, { status: 400 }) };
 
-  const auth = supabaseServer();
+  const auth = await supabaseServer();
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return { error: new NextResponse("unauthorized", { status: 401 }) };
 

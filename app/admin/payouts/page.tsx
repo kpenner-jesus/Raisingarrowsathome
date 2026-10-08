@@ -54,9 +54,10 @@ async function computeEligiblePreview(orgId: string) {
   };
 }
 
-export default async function PayoutsPage({ searchParams }: { searchParams?: { sort?: string; dir?: string } }) {
+export default async function PayoutsPage(props: { searchParams?: Promise<{ sort?: string; dir?: string }> }) {
+  const searchParams = await props.searchParams;
   const ctx = await requireOrgContext();
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
 
   const VALID = ["scheduled", "total", "status"] as const;
   type Col = typeof VALID[number];

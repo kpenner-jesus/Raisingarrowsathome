@@ -10,7 +10,8 @@ import { notifyBatchPaid } from "@/app/lib/notify";
 import { writeAudit } from "@/app/lib/audit";
 import { requireAdmin, AdminAuthError } from "@/app/lib/admin/require-admin";
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   let auth;
   try { auth = await requireAdmin(); }
   catch (e) {

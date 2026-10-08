@@ -18,7 +18,7 @@ function has(body: Record<string, unknown>, key: string): boolean {
 }
 
 export async function PATCH(req: Request) {
-  const supabase = supabaseServer();
+  const supabase = await supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
 
