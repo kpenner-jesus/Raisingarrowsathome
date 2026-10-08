@@ -3,7 +3,7 @@
 // the admin is impersonating the test grantee. Single click on
 // "Back to admin" stops impersonation and returns to /admin.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 function readCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
@@ -13,10 +13,13 @@ function readCookie(name: string): string | null {
 
 export function ImpersonationBanner() {
   const [busy, setBusy] = useState(false);
-  if (typeof window === "undefined") return null;
   // Cookie is set by /api/admin/impersonate as non-httpOnly so the
   // client can detect impersonation state without an API round-trip.
-  const active = !!readCookie("ra_impersonate");
+  // Read after mount: the server cannot see document.cookie, so deciding
+  // during render drew nothing on the server and the banner in the
+  // browser, a hydration mismatch (React error #418) on every portal page.
+  const [active, setActive] = useState(false);
+  useEffect(() => { setActive(!!readCookie("ra_impersonate")); }, []);
   if (!active) return null;
 
   async function stop() {
