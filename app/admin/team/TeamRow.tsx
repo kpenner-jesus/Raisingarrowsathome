@@ -61,10 +61,10 @@ export default function TeamRow({ member, isSelf }: { member: Member; isSelf: bo
             <option value="super_admin">super_admin</option>
           </select>
         </td>
-        <td className="ra-tiny">{new Date(member.created_at).toLocaleDateString("en-CA")}</td>
+        <td className="ra-tiny">{new Date(member.created_at).toLocaleDateString("en-CA", { timeZone: "America/Toronto" })}</td>
         <td className="ra-tiny">
           {member.last_sign_in_at
-            ? new Date(member.last_sign_in_at).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" })
+            ? new Date(member.last_sign_in_at).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Toronto" })
             : <span className="ra-quiet">never</span>}
         </td>
         <td style={{ textAlign: "right" }}>

@@ -107,10 +107,10 @@ export default function TokenManager({ initialTokens }: { initialTokens: Token[]
                 <tr key={t.id}>
                   <td><strong>{t.label}</strong></td>
                   <td className="ra-tiny" style={{ fontFamily: "ui-monospace, monospace" }}>{t.prefix}…</td>
-                  <td className="ra-tiny">{new Date(t.created_at).toLocaleDateString("en-CA")}</td>
+                  <td className="ra-tiny">{new Date(t.created_at).toLocaleDateString("en-CA", { timeZone: "America/Toronto" })}</td>
                   <td className="ra-tiny">
                     {t.last_used_at
-                      ? new Date(t.last_used_at).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" })
+                      ? new Date(t.last_used_at).toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Toronto" })
                       : <span className="ra-quiet">never</span>}
                   </td>
                   <td>

@@ -65,7 +65,7 @@ export function ArchiveControl({ recipientId, archivedAt, archiveReason }: {
       {isArchived ? (
         <>
           <div className="ra-alert-error" style={{ marginBottom: "0.75rem" }}>
-            <strong>In the archive</strong> as of {new Date(archivedAt!).toLocaleDateString()}.
+            <strong>In the archive</strong> as of {new Date(archivedAt!).toLocaleDateString("en-CA", { timeZone: "America/Toronto" })}.
             {archiveReason && <div style={{ marginTop: "0.3rem", fontStyle: "italic" }}>Why: {archiveReason}</div>}
           </div>
           <button className="ra-btn ra-btn-primary" disabled={busy} onClick={restore}>

@@ -73,7 +73,7 @@ export function TestimonialManager({ items }: { items: Item[] }) {
               “{t.body}”
             </blockquote>
 
-            <div className="ra-tiny" style={{ marginBottom: "0.6rem" }}>Submitted {new Date(t.created_at).toLocaleDateString()}</div>
+            <div className="ra-tiny" style={{ marginBottom: "0.6rem" }}>Submitted {new Date(t.created_at).toLocaleDateString("en-CA", { timeZone: "America/Toronto" })}</div>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
               {t.status !== "approved" && (

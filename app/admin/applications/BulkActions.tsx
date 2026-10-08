@@ -159,7 +159,7 @@ export function ApplicationsTable({ rows, sort }: { rows: Row[]; sort?: SortInfo
                   </td>
                   <td data-label="Status"><StatusBadge status={a.status} /></td>
                   <td data-label="Submitted" style={{ textAlign: "right" }} className="ra-tiny">
-                    {new Date(a.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}
+                    {new Date(a.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric", timeZone: "America/Toronto" })}
                   </td>
                 </tr>
               );

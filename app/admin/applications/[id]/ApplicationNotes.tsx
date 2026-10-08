@@ -91,7 +91,7 @@ export function ApplicationNotes({ applicationId, currentUserId, notes }: {
             return (
               <li key={n.id} style={{ padding: "0.6rem 0.75rem", background: "rgba(0,0,0,0.025)", borderRadius: 8 }}>
                 <div className="ra-row-between" style={{ marginBottom: "0.3rem" }}>
-                  <span className="ra-tiny"><strong>{n.author_email}</strong> · {new Date(n.created_at).toLocaleString()}</span>
+                  <span className="ra-tiny"><strong>{n.author_email}</strong> · {new Date(n.created_at).toLocaleString("en-CA", { timeZone: "America/Toronto" })}</span>
                   {canDelete && (
                     <button className="ra-btn" disabled={busy} onClick={() => remove(n.id)} style={{ fontSize: "0.75rem", padding: "0.2rem 0.55rem" }}>Delete</button>
                   )}
