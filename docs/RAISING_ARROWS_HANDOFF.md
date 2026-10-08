@@ -44,8 +44,8 @@ English — Kevin often asks for a message he can text her directly.
 
 ## 2. The stack
 
-- **Next.js 14.2.35** (last 14.x; image optimizer off), App Router, TypeScript. React 18.
-  Version 14 is out of support — upgrade plan in `docs/NEXT15_UPGRADE_PLAN.md`.
+- **Next.js 15.5.27**, App Router, TypeScript. **React 19** (live since 2026-10-07; image optimizer off).
+  `cookies()`, `headers()`, `supabaseServer()` and page/route `params` are all **async** — always `await` them.
 - **Supabase** — Postgres + Auth (magic links) + Storage.
 - **Vercel** hosting. Hobby tier: **60s function ceiling regardless of
   `maxDuration`**, ~4.5MB request/response cap, **one daily cron**.
@@ -215,11 +215,18 @@ off "not production" is inert on a dev machine that is talking to live data.
 A BOM assertion must read `arrayBuffer()` bytes. CSV exports emit a UTF-8 BOM
 deliberately so Excel on Windows renders accented names correctly.
 
-### The local build fails on this machine, harmlessly
+### Vercel lints, and your local lint must match
 
-`@vercel/og` cannot be imported on Windows here, so `npm run build` fails on
-the three icon routes. Unrelated to any change you make; Vercel's Linux builds
-are fine. Verify with `npx tsc --noEmit` and `npx vitest run` instead.
+On Next 15 `npm run build` works locally (2026-10-07). Vercel fails the build on
+any ESLint error, so run `npx next lint` before pushing. ESLint must stay
+>= 8.57 or the TypeScript lint plugin resolves differently on Vercel and errors
+show up only there.
+
+### Dates in client components need a fixed time zone
+
+The server renders in UTC, the browser in the viewer's zone. Any date shown by a
+`"use client"` component during first render must pass `timeZone: "America/Toronto"`
+(as `notify-platform.ts` does), or React throws hydration error #418.
 
 ---
 
@@ -314,7 +321,6 @@ claims against the running system before acting on them.
 | **Consent withdrawal is admin-operated** | Family emails, admin clicks a button. No self-serve link. |
 | **`staging-bootstrap.sql` is stale** | 2026-10-07: staging was found missing all eight `20260526`–`20260530` migrations (live had them); now applied. The bootstrap is still missing them; re-creates a dropped insecure column. Do not rebuild staging from it without review. |
 | **Migrations cannot build a DB from scratch** | They assume an existing database. |
-| **Next.js 14 is end-of-life** | Plan written, not started: `docs/NEXT15_UPGRADE_PLAN.md`. |
 | **`docs/STAGING_SETUP.md` is stale** | Says the staging Supabase project was deleted. It is alive and in daily use. |
 
 Closed 2026-10-07 by `20261007_lock_privileged_writes.sql` (applied to staging AND live, tested by acting as owner/admin sessions): owners could edit billing columns on their own tenant row, admins could promote themselves to owner, admins could forge audit rows, buckets had no size/type limits.

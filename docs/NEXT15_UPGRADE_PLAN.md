@@ -1,6 +1,11 @@
 # Raising Arrows: Next.js 15 upgrade plan
 
-Written 2026-10-07. Nothing in this plan has been started yet.
+Written 2026-10-07. **Done and live the same day** (main 7e5a603). What was found along the way:
+
+- Vercel failed the first build on a lint rule the local run missed; ESLint moved to 8.57 so both agree.
+- Browser checks found two hydration errors that already existed on Next 14: unzoned dates on the Team and Applications pages, and the test-grantee banner on every portal page. Both fixed.
+- A signed-in walk of 66 pages and endpoints on staging matched the Next 14 run exactly, and there were zero browser errors on 19 admin and 9 portal pages. A real receipt upload went through storage and the admin image viewer and was then deleted, and an application note was added and deleted.
+- Live sign-in emails use the `token_hash` link, the same path that was tested.
 
 ## Why
 
