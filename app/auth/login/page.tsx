@@ -1,6 +1,7 @@
 "use client";
 import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { supabaseBrowser } from "@/app/lib/supabase/browser";
 import { KidsBehind } from "@/app/_components/Kids";
 import { safeNextParam } from "@/app/lib/safe-redirect";
@@ -92,7 +93,7 @@ function LoginInner() {
           </div>
         </KidsBehind>
 
-        <a
+        <Link
           href="/"
           style={{
             display: "inline-block",
@@ -105,7 +106,7 @@ function LoginInner() {
           }}
         >
           ← Back to website
-        </a>
+        </Link>
       </div>
     </div>
   );
